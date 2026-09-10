@@ -18,7 +18,7 @@ import sys
 
 from .config import Settings
 from .models import Verdict
-from .policy import decide, extract_target
+from .policy import decide, extract_target, script_target
 from .store import Store
 
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
@@ -32,6 +32,14 @@ def main() -> int:
 
     settings = Settings.from_env()
     tool, raw_path = extract_target(payload)
+
+    # Spouštěný skript se chová jako zápis: po dobu běhu ho nikdo nesmí editovat.
+    # Přesně tahle kombinace (jeden spouští, druhý edituje) 9.9.2026 rozbila balíček.
+    if raw_path is None:
+        raw_input = payload.get("tool_input") or payload.get("toolInput") or {}
+        command = raw_input.get("command") if isinstance(raw_input, dict) else None
+        if isinstance(command, str) and (found := script_target(command)):
+            raw_path, tool = found, "Edit"  # posuzuj jako zápis
 
     try:
         store = Store(settings=settings)

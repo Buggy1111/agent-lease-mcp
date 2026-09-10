@@ -31,6 +31,9 @@ agent-lease-mcp = "agent_lease_mcp.server:main"
 # Hook je součást balíčku, ne skript vedle repa — po instalaci má stabilní cestu
 # a nepotřebuje sys.path hacky ani vědět, kde projekt leží.
 agent-lease-guard = "agent_lease_mcp.guard:main"
+# Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
+agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
+agent-lease-release = "agent_lease_mcp.lifecycle:release_main"
 
 [build-system]
 requires = ["hatchling"]

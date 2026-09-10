@@ -6,6 +6,7 @@ od SQLite mechaniky pod ní i od MCP slupky nad ní.
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 from .models import Claim, Decision, Verdict
@@ -91,3 +92,38 @@ def decide(tool: str, path: str | None, holder: Claim | None, me: str) -> Decisi
             f"Nesahej na něj. Vezmi si jinou práci, nebo se ozvi přes `say`."
         ),
     )
+
+
+# ── spouštěné skripty ────────────────────────────────────────────────────────
+# Bash obecně hlídat nejde, ALE jeden případ ano a je to přesně ten, který
+# 9. 9. 2026 způsobil škodu: jeden agent skript SPOUŠTĚL, druhý ho zároveň
+# EDITOVAL. Bash čte skript průběžně, takže se mu text posunul pod rukama.
+# Spouštěný soubor si proto na dobu běhu bereme do nájmu.
+_RUNNERS = frozenset({"bash", "sh", "zsh", "python", "python3", "node", "npx", "uv", "poetry"})
+_SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".js", ".mjs", ".cjs", ".ts", ".ps1")
+
+
+def script_target(command: str) -> str | None:
+    """
+    Cesta ke skriptu, který ten příkaz spouští, nebo None.
+
+    Schválně úzké: falešné zabrání cesty je horší než žádné, protože by agenta
+    naučilo hook obcházet. Proto musí soubor existovat a být buď za známým
+    interpretem, nebo spuštěný přes `./`.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+
+    candidate: str | None = None
+    if tokens[0].startswith("./"):
+        candidate = tokens[0]
+    elif Path(tokens[0]).name in _RUNNERS:
+        candidate = next((t for t in tokens[1:] if not t.startswith("-")), None)
+
+    if not candidate or not candidate.endswith(_SCRIPT_SUFFIXES):
+        return None
+    return candidate if Path(candidate).expanduser().is_file() else None

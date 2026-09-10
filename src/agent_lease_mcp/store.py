@@ -57,6 +57,13 @@ CREATE TABLE IF NOT EXISTS audit (
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at);
+
+-- Kam až má který agent doručené vzkazy. Bez toho by se při každém promptu
+-- injektovaly pořád stejné zprávy dokola.
+CREATE TABLE IF NOT EXISTS cursors (
+    agent      TEXT PRIMARY KEY,
+    last_msg   INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -256,6 +263,23 @@ class Store:
             "INSERT INTO audit(at, agent, action, path, detail) VALUES(?,?,?,?,?)",
             (time.time(), agent, action, path, detail),
         )
+
+    def cursor(self, agent: str) -> int:
+        with self._connect() as con:
+            row = con.execute("SELECT last_msg FROM cursors WHERE agent = ?", (agent,)).fetchone()
+        return int(row["last_msg"]) if row else 0
+
+    def set_cursor(self, agent: str, last_msg: int) -> None:
+        with self._connect() as con:
+            con.execute(
+                "INSERT INTO cursors(agent, last_msg) VALUES(?,?) "
+                "ON CONFLICT(agent) DO UPDATE SET last_msg=excluded.last_msg",
+                (agent, last_msg),
+            )
+
+    def undelivered(self, agent: str, limit: int = 20) -> list[dict]:
+        """Vzkazy od ostatních, které tenhle agent ještě neviděl."""
+        return [m for m in self.inbox(since_id=self.cursor(agent), limit=limit) if m["agent"] != agent]
 
     def history(self, limit: int = 50, path: str | None = None) -> list[dict]:
         """Kdo na co sáhl a jak to dopadlo — odpověď na 'proč mě to zablokovalo'."""

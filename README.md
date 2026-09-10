@@ -59,6 +59,30 @@ Co tu schválně **není**: CRDT slučování souborů z AgentRoomu. Na to už m
 podívá. Na zámky a předávání to stačí, na konverzaci to bude působit zpožděně.
 Proč to tak je: [ADR 0002](docs/adr/0002-sqlite-a-stdio.md).
 
+## Co běží samo, bez uživatele u klávesnice
+
+Nájmy vynucuje hook, ale samotné „podívej se, kdo tu je" by jinak zůstalo na
+tom, že si o to agent řekne — a to je přesně ta půlka, která minule selhala.
+Proto jsou i ostatní části na hoocích, ne na dobré vůli:
+
+| událost | co se stane |
+|---|---|
+| **SessionStart** | do kontextu se vstříkne stav místnosti: kdo tu je, co drží, co ti vzkázal |
+| **UserPromptSubmit** | doručí nové vzkazy — jednou, přes kurzor, ať se neopakují |
+| **PreToolUse** | zablokuje editaci cizího rozpracovaného souboru |
+| **PreToolUse (Bash)** | spouštěný skript si vezme do nájmu, takže ho druhý nesmí editovat za běhu |
+| **Stop / SessionEnd** | vrátí všechny nájmy, jakmile agent dotáhne tah |
+
+Ten předposlední řádek je ta konkrétní kombinace, která 9. 9. rozbila balíček:
+jeden agent skript spouštěl, druhý ho zároveň editoval.
+
+Poslední řádek je důvod, proč nájmy nemusí mít dlouhé TTL — po dokončení tahu se
+uvolní samy. TTL zůstává jen jako pojistka pro tvrdý pád.
+
+Injekce **mlčí, když není co říct.** Vstřikovat stav při každém promptu by byl
+šum, agent by to začal přeskakovat a jsme zpátky u nástěnky, do které se nikdo
+nedívá.
+
 ## Instalace
 
 ```bash
@@ -112,6 +136,17 @@ Hook, který nájem vynutí — **bez něj je to jen slušně vychovaná nástě
 }
 ```
 
+Zbytek automatizace (stejná struktura, jen jiné události a příkazy):
+
+| událost | příkaz |
+|---|---|
+| `SessionStart`, `UserPromptSubmit` | `agent-lease-context` |
+| `Stop`, `SessionEnd` | `agent-lease-release` |
+
+Obě události berou stejný tvar konfigurace jako `PreToolUse`, jen bez `matcher`.
+Codex i Claude Code je podporují shodně, včetně formátu
+`hookSpecificOutput.additionalContext` pro vstřikování kontextu.
+
 `AGENT_NAME` musí sedět mezi serverem a hookem, jinak si agent zablokuje vlastní
 soubory. Když se v `room` objeví agent `unconfigured-*`, chybí právě tohle.
 
@@ -123,15 +158,17 @@ soubory. Když se v `room` objeví agent `unconfigured-*`, chybí právě tohle.
 
 ## Struktura
 
-Šest malých modulů, každý s jedním důvodem ke změně:
+Osm malých modulů, každý s jedním důvodem ke změně:
 
 ```
-config.py   nastavení z prostředí, jedno místo pravdy o identitě agenta
-models.py   slovník domény (Claim, Decision) — bez IO
-policy.py   pravidla: co je zápis, co pokrývá jakou cestu, jak se rozhoduje
-store.py    SQLite a nic jiného
-guard.py    hook: stdin → policy → exit kód (tenká slupka)
-server.py   MCP nástroje (tenká slupka)
+config.py     nastavení z prostředí, jedno místo pravdy o identitě agenta
+models.py     slovník domény (Claim, Decision) — bez IO
+policy.py     pravidla: co je zápis, co pokrývá jakou cestu, jak se rozhoduje
+briefing.py   text vstřikovaný do kontextu — čisté funkce, testovatelné bez DB
+store.py      SQLite a nic jiného
+guard.py      PreToolUse hook: stdin → policy → exit kód (tenká slupka)
+lifecycle.py  SessionStart / UserPromptSubmit / Stop hooky (tenká slupka)
+server.py     MCP nástroje (tenká slupka)
 ```
 
 Seam je mezi **pravidly** a **úložištěm**, protože měnit se budou pravidla
@@ -140,9 +177,11 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ## Známá omezení
 
-- **Bash se nehlídá.** Z příkazové řádky nejde spolehlivě zjistit, co skript
-  zapíše, a falešné blokování by bylo horší než žádné (agent by se naučil hook
-  obcházet). Na skripty sahající na sdílené věci je explicitní `claim`.
+- **Bash se hlídá jen částečně.** Zjistit z příkazové řádky, co všechno skript
+  zapíše, nejde spolehlivě, a falešné blokování by bylo horší než žádné — agent
+  by se naučil hook obcházet. Hlídá se proto jen jeden vzor, zato ten, který
+  škodu způsobil: **spouštění skriptu** (`bash x.sh`, `./x.sh`, `python x.py`)
+  si ten soubor vezme do nájmu. Na skripty, které zapisují jinam, je `claim`.
 - **Jeden stroj.** Stav je soubor na disku.
 - **Vzkazy nikoho nevyruší.**
 
@@ -150,7 +189,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 40 testů
+.venv/bin/python -m pytest tests -q     # 51 testů
 .venv/bin/python -m ruff check src tests
 ```
 
