@@ -150,6 +150,23 @@ Codex i Claude Code je podporují shodně, včetně formátu
 `AGENT_NAME` musí sedět mezi serverem a hookem, jinak si agent zablokuje vlastní
 soubory. Když se v `room` objeví agent `unconfigured-*`, chybí právě tohle.
 
+⚠️ **Codex potřebuje do sandboxu pustit adresář se stavem.** Píše se do
+`~/.agent-lease/room.db`, což je mimo pracovní adresář, takže výchozí
+`workspace-write` tam zápis zakáže — `claim` i `say` pak selžou a agent se do
+místnosti vůbec nedostane. Jednorázově to řeší `codex --add-dir ~/.agent-lease`,
+natrvalo tenhle blok:
+
+```toml
+# ~/.codex/config.toml
+[sandbox_workspace_write]
+writable_roots = ["/home/buggy1111/.agent-lease"]
+```
+
+Trvalá varianta není kosmetika: na `--add-dir` se dá zapomenout a projeví se to
+tím, že koordinace tiše zmizí — přesně ten způsob selhání, kvůli kterému projekt
+vznikl. (Novější Codex má i `[permissions.*]` profily; legacy blok výše zůstává
+podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissions`.)
+
 | proměnná | výchozí | k čemu |
 |---|---|---|
 | `AGENT_NAME` | `unconfigured-<host>-<pid>` | jméno v místnosti |
@@ -189,7 +206,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 51 testů
+.venv/bin/python -m pytest tests -q     # 59 testů
 .venv/bin/python -m ruff check src tests
 ```
 
