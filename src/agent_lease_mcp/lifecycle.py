@@ -49,6 +49,11 @@ def context_main() -> int:
             store.heartbeat(me, status="start session")
             text = session_briefing(me, store.peers(), store.claims(), messages)
         else:
+            # Ohlásit, že žiju, ale NEpřepsat status — ten patří `room(status=…)`.
+            # Bez tohohle agent, který jede jen přes hooky (Codex nemá MCP), po
+            # 15 minutách práce zmizí z místnosti jako neaktivní, i když maká;
+            # druhý ho pak přestane brát v potaz. Přesně to se stalo 10.9.2026.
+            store.heartbeat(me)
             text = prompt_update(me, store.claims(), messages)
 
         if messages:

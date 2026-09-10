@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     me = settings.agent
 
     if args.cmd == "room":
-        store.heartbeat(me, status=args.status)
+        store.heartbeat(me, status=args.status or None)
         text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me))
         print(text or f"[agent-lease] Jsi v místnosti jako `{me}`. Nikdo další tu není a nic nového.")
 
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "say":
         store.say(me, args.text)
-        store.heartbeat(me, status="say")
+        store.heartbeat(me)  # status patří práci, ne volání
         print("Odesláno. ⚠️ Druhý agent to uvidí až při svém dalším promptu, ne hned.")
 
     elif args.cmd == "history":

@@ -38,7 +38,7 @@ def claim(paths: list[str], purpose: str = "", ttl_seconds: int | None = None) -
     který sahá na víc souborů najednou.
     """
     result = _store.claim(paths, agent=_settings.agent, purpose=purpose, ttl_seconds=ttl_seconds)
-    _store.heartbeat(_settings.agent, status=purpose or "claim", cwd=os.getcwd())
+    _store.heartbeat(_settings.agent, status=purpose or None, cwd=os.getcwd())
     if result.ok:
         return {"ok": True, "granted": result.granted}
     return {"ok": False, "granted": [], "conflicts": [c.as_dict() for c in result.conflicts]}
@@ -75,7 +75,7 @@ def say(text: str) -> dict:
     podívá (`room` nebo `inbox`). Nečekej odpověď obratem.
     """
     msg_id = _store.say(_settings.agent, text)
-    _store.heartbeat(_settings.agent, status="say", cwd=os.getcwd())
+    _store.heartbeat(_settings.agent, cwd=os.getcwd())  # status patří práci, ne volání
     return {"id": msg_id}
 
 
@@ -94,7 +94,7 @@ def room(status: str = "") -> dict:
     Volej na začátku práce a po dokončení kroku. `status` zároveň ohlásí, na čem
     děláš, takže druhý agent nemusí hádat.
     """
-    _store.heartbeat(_settings.agent, status=status, cwd=os.getcwd())
+    _store.heartbeat(_settings.agent, status=status or None, cwd=os.getcwd())
     return {
         "me": _settings.agent,
         "peers": _store.peers(),

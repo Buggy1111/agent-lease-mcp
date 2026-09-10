@@ -199,13 +199,23 @@ class Store:
 
     # ── přítomnost ───────────────────────────────────────────────────────────
 
-    def heartbeat(self, agent: str, status: str = "", cwd: str = "") -> None:
+    def heartbeat(self, agent: str, status: str | None = None, cwd: str | None = None) -> None:
+        """
+        Ohlásit, že agent žije. `status`/`cwd` = None znamená „nech, co tam je".
+
+        ⚠️ Prázdný řetězec status smaže, None ne — a ten rozdíl je podstatný.
+        Dokud ho tu nebylo, každé `room()` bez argumentu přepsalo popis práce
+        prázdnem a `say` slovem „say", takže v místnosti svítilo jméno
+        posledního volání místo toho, na čem druhý agent dělá.
+        """
         with self._connect() as con:
             con.execute(
                 "INSERT INTO agents(agent, status, cwd, seen_at) VALUES(?,?,?,?) "
                 "ON CONFLICT(agent) DO UPDATE SET "
-                "  status=excluded.status, cwd=excluded.cwd, seen_at=excluded.seen_at",
-                (agent, status, cwd, time.time()),
+                "  status=COALESCE(?, agents.status), "
+                "  cwd=COALESCE(?, agents.cwd), "
+                "  seen_at=excluded.seen_at",
+                (agent, status or "", cwd or "", time.time(), status, cwd),
             )
 
     def peers(self, stale_after: int = STALE_PEER_SECONDS) -> list[dict]:

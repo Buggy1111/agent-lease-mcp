@@ -106,6 +106,24 @@ def test_peer_goes_stale(store: Store):
     assert store.peers(stale_after=0)[0]["active"] is False
 
 
+def test_heartbeat_keeps_status_when_not_given(store: Store):
+    """`room()` bez argumentu nesmí smazat popis práce ohlášený dřív."""
+    store.heartbeat("codex", status="balím balíček", cwd="/repo")
+    store.heartbeat("codex")
+
+    peer = store.peers()[0]
+    assert peer["status"] == "balím balíček"
+    assert peer["cwd"] == "/repo"
+
+
+def test_heartbeat_clears_status_when_asked(store: Store):
+    """Prázdný řetězec je platná hodnota — na rozdíl od None status smaže."""
+    store.heartbeat("codex", status="balím balíček")
+    store.heartbeat("codex", status="")
+
+    assert store.peers()[0]["status"] == ""
+
+
 def test_directory_claim_blocks_file_inside(store: Store, tmp_path: Path):
     """Nikdo dopředu nevyjmenuje všechny soubory, kterých se dotkne."""
     (tmp_path / "deploy").mkdir()

@@ -7,6 +7,7 @@ do souboru.
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -93,6 +94,24 @@ class TestContextHook:
 
         assert "nesahej na deploy/" in first.stdout
         assert second.stdout == "", "podruhé už se doručovat nesmí"
+
+    def test_prompt_hook_refreshes_presence(self, db: Path):
+        """
+        Agent, který jede jen přes hooky (Codex nemá MCP), musí v místnosti
+        zůstat vidět jako živý. Než se tohle doplnilo, vypadal po 15 minutách
+        práce jako mrtvý — a druhý agent ho přestal brát v potaz (10.9.2026).
+        """
+        store = Store(db)
+        store.heartbeat("codex", status="balí balíček")
+        with sqlite3.connect(db) as con:  # posunout ho do minulosti = „vyčichlý"
+            con.execute("UPDATE agents SET seen_at = seen_at - 1800 WHERE agent = 'codex'")
+        assert next(p for p in store.peers() if p["agent"] == "codex")["active"] is False
+
+        run("agent_lease_mcp.lifecycle", {"hook_event_name": "UserPromptSubmit"}, "codex", db)
+
+        peer = next(p for p in store.peers() if p["agent"] == "codex")
+        assert peer["active"] is True
+        assert peer["status"] == "balí balíček", "hook nesmí přepsat, na čem agent dělá"
 
     def test_own_messages_are_not_echoed_back(self, db: Path):
         Store(db).say("claude-code", "beru si to")
