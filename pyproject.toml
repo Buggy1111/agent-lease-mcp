@@ -28,6 +28,9 @@ dev = [
 
 [project.scripts]
 agent-lease-mcp = "agent_lease_mcp.server:main"
+# CLI cesta do místnosti — pro klienty, kde MCP volání narazí na schvalování
+# (Codex s approval_policy = "never").
+agent-lease = "agent_lease_mcp.cli:main"
 # Hook je součást balíčku, ne skript vedle repa — po instalaci má stabilní cestu
 # a nepotřebuje sys.path hacky ani vědět, kde projekt leží.
 agent-lease-guard = "agent_lease_mcp.guard:main"
