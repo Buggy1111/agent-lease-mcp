@@ -15,6 +15,7 @@ Vypisuje se schválně stručně a v holém textu, ať to jde přečíst i z ter
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from .briefing import session_briefing
@@ -56,12 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     me = settings.agent
 
     if args.cmd == "room":
-        store.heartbeat(me, status=args.status or None)
+        store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
         text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me))
         print(text or f"[agent-lease] Jsi v místnosti jako `{me}`. Nikdo další tu není a nic nového.")
 
     elif args.cmd == "claim":
         result = store.claim(args.paths, agent=me, purpose=args.purpose, ttl_seconds=args.ttl)
+        store.heartbeat(me, status=args.purpose or None, cwd=os.getcwd())
         if result.ok:
             print(f"OK, držíš: {', '.join(result.granted)}")
         else:
@@ -72,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "release":
         released = store.release_all(me) if not args.paths else store.release(args.paths, me)
+        store.heartbeat(me, cwd=os.getcwd())
         print(f"Uvolněno: {', '.join(released) if released else '(nic jsi nedržel)'}")
 
     elif args.cmd == "owner":
@@ -81,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "say":
         store.say(me, args.text)
-        store.heartbeat(me)  # status patří práci, ne volání
+        store.heartbeat(me, cwd=os.getcwd())  # status patří práci, ne volání
         print("Odesláno. ⚠️ Druhý agent to uvidí až při svém dalším promptu, ne hned.")
 
     elif args.cmd == "history":
