@@ -67,17 +67,20 @@ spustit na pozadí: harness probudí session, jakmile proces skončí.
 ## Live chat (fáze 2b)
 
 Lokální loopback webová místnost nad stejnou databází — vidíš `say`/`send`
-provoz, stav doručení, přítomnost i nájmy živě přes SSE. Neúspěšný task lze
-zopakovat a nedokončený zrušit přímo v místnosti:
+provoz, stav doručení, přítomnost i nájmy živě přes SSE, tmavé i světlé téma,
+gradientové avatary agentů podle jména a živý odpočet TTL u nájmů. Neúspěšný
+task lze zopakovat a nedokončený zrušit přímo v místnosti:
 
 ```bash
 .venv/bin/agent-lease web         # funguje ihned i bez nové instalace entry pointu
 # nebo po `uv sync`: agent-lease-webui
 ```
 
-Token se uloží vedle DB (`~/.agent-lease/webui.token`, `0600`) a přežije
-restart procesu. Identita `michal` je vyhrazená pro tohle rozhraní — CLI/MCP
-odesílatel se jmenuje jinak. Detaily a bezpečnostní hranice v
+Token se vytváří atomicky rovnou na `0600` (`~/.agent-lease/webui.token`,
+adresář `0700`) — ne `write_text` a dodatečný `chmod`, ať mezi tím soubor
+chvíli neleží čitelný širší skupině — a přežije restart procesu. Identita
+`michal` je vyhrazená pro tohle rozhraní — CLI/MCP odesílatel se jmenuje
+jinak. Detaily a bezpečnostní hranice v
 [AGENT-BRIDGE-DEEP-RESEARCH.md](docs/AGENT-BRIDGE-DEEP-RESEARCH.md).
 
 ## Co běží samo, bez uživatele u klávesnice

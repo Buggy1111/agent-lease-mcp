@@ -42,17 +42,35 @@ def _token_path(settings: Settings) -> Path:
 
 
 def load_or_create_token(settings: Settings) -> str:
-    """Token žije vedle DB, ne v env — přežije restart procesu i terminálu."""
+    """
+    Token žije vedle DB, ne v env — přežije restart procesu i terminálu.
+
+    Vytváří se atomicky rovnou na 0600 (`O_EXCL`), ne `write_text` + dodatečný
+    `chmod` — mezi těma dvěma kroky (nebo když proces spadne přesně mezi nimi)
+    by soubor chvíli ležel na default umasku. Adresář dostává 0700 ze stejného
+    důvodu; existující volnější práva na obou opravíme, ne jen na nových.
+    """
     path = _token_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)  # mkdir mode neplatí, když adresář už existoval
     if path.exists():
         existing = path.read_text().strip()
         if existing:
             path.chmod(0o600)
             return existing
     token = secrets.token_urlsafe(32)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(token)
-    path.chmod(0o600)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Závod: mezi `exists()` a `open()` token vytvořil jiný proces (druhý
+        # start webui skoro současně) — použij, co napsal on, ne přepisuj.
+        existing = path.read_text().strip()
+        if existing:
+            path.chmod(0o600)
+            return existing
+        raise
+    with os.fdopen(fd, "w") as handle:
+        handle.write(token)
     return token
 
 
@@ -302,36 +320,171 @@ PAGE_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; display: flex; height: 100vh; }
-  #side { width: 260px; flex: none; border-right: 1px solid #8883; padding: 10px; overflow-y: auto; }
+  :root {
+    color-scheme: dark light;
+    --bg: #0a0b10; --surface: #12141c; --surface-2: #171a24; --raised: #1d212c;
+    --border: rgba(255,255,255,.08); --border-soft: rgba(255,255,255,.05);
+    --text: #eef0f6; --text-dim: #9aa0b4; --text-faint: #676d82;
+    --accent-1: #8b7bff; --accent-2: #ff6fae; --accent-3: #37e0c4;
+    --grad: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    --ok: #38d996; --warn: #ffb648; --bad: #ff5c7a;
+    --shadow: 0 8px 28px rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f0f1f7; --raised: #ffffff;
+      --border: rgba(15,17,30,.09); --border-soft: rgba(15,17,30,.05);
+      --text: #14162a; --text-dim: #565c74; --text-faint: #9498ab;
+      --shadow: 0 8px 24px rgba(30,20,60,.08);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; height: 100vh; display: flex; background: var(--bg); color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-1); color: #fff; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+
+  #side {
+    width: 280px; flex: none; padding: 18px 14px; overflow-y: auto;
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  #brand { display: flex; align-items: center; gap: 10px; padding: 0 2px 4px; }
+  #brand .mark {
+    width: 30px; height: 30px; border-radius: 9px; background: var(--grad);
+    box-shadow: var(--shadow); flex: none;
+  }
+  #brand .name { font-weight: 650; letter-spacing: -.01em; font-size: 15px; }
+  #brand .sub { font-size: 11px; color: var(--text-faint); }
+
+  h3 {
+    font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-faint); margin: 0 0 8px 2px;
+  }
+  .section { display: flex; flex-direction: column; gap: 8px; }
+
+  .peer {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px;
+    background: var(--surface-2); border: 1px solid var(--border-soft); transition: transform .15s;
+  }
+  .peer:hover { transform: translateX(2px); }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
+    color: #fff; font-weight: 700; font-size: 12px; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  }
+  .avatar .dot {
+    position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
+    border: 2px solid var(--surface-2); background: var(--text-faint);
+  }
+  .avatar .dot.on { background: var(--ok); box-shadow: 0 0 0 0 rgba(56,217,150,.6); animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(56,217,150,.55); }
+    70%  { box-shadow: 0 0 0 6px rgba(56,217,150,0); }
+    100% { box-shadow: 0 0 0 0 rgba(56,217,150,0); }
+  }
+  .peer .who { min-width: 0; }
+  .peer .agent { font-weight: 600; font-size: 12.5px; }
+  .peer .meta { font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .peer .task { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { font-size: 12px; color: var(--text-faint); padding: 6px 2px; }
+
+  .claim {
+    padding: 8px 10px; border-radius: 12px; background: var(--surface-2);
+    border: 1px solid var(--border-soft); font-size: 11.5px;
+  }
+  .claim .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
+  .claim .row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--text-faint); }
+  .ttl { font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 999px; background: var(--border-soft); }
+
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #feed { flex: 1; overflow-y: auto; padding: 10px; }
-  .msg { margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; background: #8881; }
-  .msg .meta { opacity: .6; font-size: 12px; }
-  .msg .state { float: right; font-weight: 600; }
-  .kind-task { border-left: 3px solid #e67e22; }
-  .kind-broadcast { border-left: 3px solid #8888; }
-  .kind-chat { border-left: 3px solid #3498db; }
-  .kind-control { border-left: 3px solid #c0392b; }
-  .kind-result { border-left: 3px solid #27ae60; }
-  #compose { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #8883; }
-  #compose input[type=text] { flex: 1; }
-  select, input, button { font: inherit; }
-  h3 { font-size: 12px; text-transform: uppercase; opacity: .6; margin: 12px 0 4px; }
-  .peer, .claim { font-size: 12px; margin-bottom: 4px; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-  .dot.on { background: #27ae60; } .dot.off { background: #999; }
-  #status { font-size: 12px; opacity: .6; padding: 4px 8px; }
+  #topbar {
+    display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
+    border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
+  }
+  #topbar .title { font-weight: 650; font-size: 14.5px; background: var(--grad);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-dim); }
+  #status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
+  #status .dot.live { background: var(--ok); animation: pulse 2s infinite; }
+  #status .dot.retry { background: var(--warn); }
+
+  #feed { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
+  .msg {
+    max-width: 720px; padding: 10px 14px; border-radius: 14px; background: var(--surface);
+    border: 1px solid var(--border); box-shadow: var(--shadow); animation: rise .25s ease-out;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .msg .meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-faint); margin-bottom: 4px; }
+  .msg .meta .who { color: var(--text-dim); font-weight: 600; }
+  .msg .meta .arrow { opacity: .6; }
+  .msg .text { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+  .pill {
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px; color: #fff; flex: none;
+  }
+  .pill.kind-chat      { background: linear-gradient(135deg,#4d7dff,#6fa8ff); }
+  .pill.kind-task      { background: linear-gradient(135deg,#ff9d42,#ffbe63); color:#2a1600; }
+  .pill.kind-broadcast { background: linear-gradient(135deg,#7d84a3,#9aa1c2); }
+  .pill.kind-control   { background: linear-gradient(135deg,#ff5c7a,#ff8aa0); }
+  .pill.kind-result    { background: linear-gradient(135deg,#2fd6a8,#5be8c4); color:#003326; }
+  .state { margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .state.pending, .state.leased, .state.expired { background: var(--border-soft); color: var(--text-dim); }
+  .state.started      { background: rgba(139,123,255,.18); color: #a598ff; }
+  .state.succeeded     { background: rgba(56,217,150,.16); color: var(--ok); }
+  .state.failed, .state.dead_letter { background: rgba(255,92,122,.16); color: var(--bad); }
+  .state.needs_review  { background: rgba(255,182,72,.18); color: var(--warn); }
+  .state.cancelled     { background: var(--border-soft); color: var(--text-faint); text-decoration: line-through; }
+  .msg .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .btn-ghost {
+    font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-ghost:hover { color: var(--text); border-color: var(--accent-1); }
+
+  #compose {
+    display: flex; gap: 8px; align-items: center; padding: 14px 22px; border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  select, input, button { font: inherit; color: var(--text); }
+  #kind {
+    appearance: none; padding: 9px 28px 9px 12px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%239aa0b4"/></svg>') no-repeat right 10px center;
+    cursor: pointer; flex: none;
+  }
+  #to {
+    width: 150px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  }
+  #text {
+    flex: 1; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  }
+  #to:focus, #text:focus, #kind:focus { outline: none; border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(139,123,255,.15); }
+  #sendBtn {
+    padding: 9px 18px; border-radius: 10px; border: none; background: var(--grad); color: #fff;
+    font-weight: 650; cursor: pointer; box-shadow: 0 4px 14px rgba(139,123,255,.35); transition: transform .12s, box-shadow .12s;
+  }
+  #sendBtn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(139,123,255,.45); }
+  #sendBtn:active { transform: translateY(0); }
+
+  @media (max-width: 720px) {
+    body { flex-direction: column; }
+    #side { width: auto; height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+  }
 </style>
 <div id="side">
-  <h3>Přítomnost</h3>
-  <div id="peers"></div>
-  <h3>Nájmy</h3>
-  <div id="claims"></div>
+  <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
+  <div class="section"><h3>Přítomnost</h3><div id="peers"></div></div>
+  <div class="section"><h3>Nájmy</h3><div id="claims"></div></div>
 </div>
 <div id="main">
-  <div id="status">připojuji…</div>
+  <div id="topbar">
+    <div class="title">Místnost</div>
+    <div id="status"><span class="dot"></span><span id="statusText">připojuji…</span></div>
+  </div>
   <div id="feed"></div>
   <div id="compose">
     <select id="kind">
@@ -340,8 +493,8 @@ PAGE_HTML = """<!doctype html>
       <option value="broadcast">broadcast</option>
       <option value="control">control</option>
     </select>
-    <input id="to" type="text" placeholder="komu (claude-code / codex)" size="16">
-    <input id="text" type="text" placeholder="zpráva…">
+    <input id="to" type="text" placeholder="komu">
+    <input id="text" type="text" placeholder="napiš zprávu…">
     <button id="sendBtn">Poslat</button>
   </div>
 </div>
@@ -350,58 +503,110 @@ const TOKEN = "__TOKEN__";
 const feed = document.getElementById("feed");
 const peersEl = document.getElementById("peers");
 const claimsEl = document.getElementById("claims");
-const statusEl = document.getElementById("status");
+const statusDot = document.querySelector("#status .dot");
+const statusText = document.getElementById("statusText");
 const kindEl = document.getElementById("kind");
 const toEl = document.getElementById("to");
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function esc(s) {
+  const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML;
+}
+
+function hueOf(name) {
+  let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+}
+function avatarStyle(name) {
+  const h = hueOf(name);
+  return `background: linear-gradient(135deg, hsl(${h} 75% 55%), hsl(${(h + 45) % 360} 75% 55%))`;
+}
+function initial(name) { return String(name || "?").trim().slice(0, 1).toUpperCase(); }
+
+function ago(seconds) {
+  const s = Math.max(0, seconds | 0);
+  if (s < 60) return `před ${s} s`;
+  if (s < 3600) return `před ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
+  return `před ${Math.floor(s / 86400)} d`;
+}
+function ttl(seconds) {
+  const s = Math.max(0, seconds | 0);
+  const m = Math.floor(s / 60), r = s % 60;
+  return m > 0 ? `${m}m ${r}s` : `${r}s`;
+}
+
+function updateStatus(mode) {
+  statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
+  statusText.textContent = mode === "live" ? "živě připojeno"
+    : mode === "retry" ? "spojení vypadlo, zkouším znovu…" : "připojuji…";
+}
 
 function renderMessage(m) {
   let div = document.getElementById("msg-" + m.id);
   const fresh = !div;
   if (fresh) div = document.createElement("div");
   div.id = "msg-" + m.id;
-  div.className = "msg kind-" + esc(m.kind || "chat");
-  const to = m.recipient && m.recipient !== "*" ? (" → " + esc(m.recipient)) : "";
-  const state = m.state ? `<span class="state">${esc(m.state)}</span>` : "";
-  div.innerHTML = `<div class="meta">#${m.id} ${esc(m.kind)} · ${esc(m.agent)}${to}${state}</div><div>${esc(m.text)}</div>`;
+  div.className = "msg";
+  const to = m.recipient && m.recipient !== "*" ? `<span class="arrow">→</span> ${esc(m.recipient)}` : "";
+  const state = m.state ? `<span class="state ${esc(m.state)}">${esc(m.state)}</span>` : "";
+  div.innerHTML =
+    `<div class="meta">` +
+      `<span class="pill kind-${esc(m.kind || "chat")}">${esc(m.kind || "chat")}</span>` +
+      `<span class="who">${esc(m.agent)}</span> ${to}` +
+      `<span>· ${ago(m.seconds_ago)}</span>` +
+      state +
+    `</div>` +
+    `<div class="text">${esc(m.text)}</div>`;
   if (m.kind === "task" && m.recipient && m.state) {
+    const actions = document.createElement("div");
+    actions.className = "actions";
     if (["pending", "leased", "started", "failed", "needs_review", "dead_letter"].includes(m.state)) {
       const cancel = document.createElement("button");
-      cancel.textContent = "Zrušit";
+      cancel.className = "btn-ghost"; cancel.textContent = "Zrušit";
       cancel.onclick = () => control("cancel", m.id, m.recipient);
-      div.appendChild(cancel);
+      actions.appendChild(cancel);
     }
     if (["failed", "needs_review", "dead_letter"].includes(m.state)) {
       const retry = document.createElement("button");
-      retry.textContent = "Opakovat";
+      retry.className = "btn-ghost"; retry.textContent = "Opakovat";
       retry.onclick = () => control("retry", m.id, m.recipient);
-      div.appendChild(retry);
+      actions.appendChild(retry);
     }
+    if (actions.childElementCount) div.appendChild(actions);
   }
   if (fresh) { feed.appendChild(div); feed.scrollTop = feed.scrollHeight; }
 }
 
 function renderRoom(r) {
   (r.messages || []).forEach(renderMessage);
-  peersEl.innerHTML = (r.peers || []).map(p =>
-    `<div class="peer"><span class="dot ${p.active ? "on" : "off"}"></span>${esc(p.agent)} · ${esc(p.presence || (p.active ? "online" : "offline"))}<br><span style="opacity:.6">${esc(p.status || "")}</span></div>`
-  ).join("") || "<div class='peer'>nikdo</div>";
-  claimsEl.innerHTML = (r.claims || []).map(c =>
-    `<div class="claim">🔒 ${esc(c.path)}<br><span style="opacity:.6">${esc(c.held_by)} · ${esc(c.purpose || "")}</span></div>`
-  ).join("") || "<div class='claim'>volno</div>";
+  peersEl.innerHTML = (r.peers || []).map(p => `
+    <div class="peer">
+      <div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}
+        <span class="dot ${p.active ? "on" : ""}"></span>
+      </div>
+      <div class="who">
+        <div class="agent">${esc(p.agent)}</div>
+        <div class="task">${esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
+      </div>
+    </div>`).join("") || "<div class='empty'>nikdo tu není</div>";
+  claimsEl.innerHTML = (r.claims || []).map(c => `
+    <div class="claim">
+      <div class="path">🔒 ${esc(c.path)}</div>
+      <div class="row"><span>${esc(c.held_by)}${c.purpose ? " · " + esc(c.purpose) : ""}</span>
+        <span class="ttl">${ttl(c.expires_in_seconds)}</span></div>
+    </div>`).join("") || "<div class='empty'>nic zamčené</div>";
 }
 
 function connect(since) {
   const es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN) + "&since=" + since);
   es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
   es.addEventListener("room", e => renderRoom(JSON.parse(e.data)));
-  es.onopen = () => statusEl.textContent = "živě připojeno";
-  es.onerror = () => statusEl.textContent = "spojení vypadlo, prohlížeč se sám zkusí znovu…";
+  es.onopen = () => updateStatus("live");
+  es.onerror = () => updateStatus("retry");
 }
 
-// Nejdřív snapshot, potom SSE od jeho posledního ID. Set `seen` navíc chrání
-// proti duplicitě při závodu mezi oběma požadavky i při reconnectu.
+// Nejdřív snapshot, ať karta nezačíná prázdná, pak SSE od jeho posledního ID —
+// `Last-Event-ID`/`since` na serveru zajistí navazující stream bez díry i bez duplicit.
 fetch("/api/snapshot?since=0", { headers: { "X-Agent-Lease-Token": TOKEN } })
   .then(r => r.json())
   .then(s => {
@@ -409,7 +614,7 @@ fetch("/api/snapshot?since=0", { headers: { "X-Agent-Lease-Token": TOKEN } })
     renderRoom(s);
     connect(s.messages.length ? s.messages[s.messages.length - 1].id : 0);
   })
-  .catch(() => { statusEl.textContent = "snapshot selhal, připojuji živý stream…"; connect(0); });
+  .catch(() => { updateStatus("retry"); connect(0); });
 
 function send() {
   const text = document.getElementById("text");
@@ -428,6 +633,9 @@ function control(action, id, to) {
     body: JSON.stringify({ id, to }),
   }).then(r => { if (!r.ok) r.text().then(t => alert(t)); });
 }
+function syncToField() { toEl.style.display = kindEl.value === "broadcast" ? "none" : ""; }
+kindEl.addEventListener("change", syncToField); syncToField();
+
 document.getElementById("sendBtn").onclick = send;
 document.getElementById("text").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
 </script>

@@ -13,9 +13,22 @@ Společná práce Claude Code a Codexu doplnila a ověřila:
   reconnect bez viditelných duplicit, přítomnost, nájmy a ovládání tasků;
 - privátní token `0600`, kontrolu Origin, zákaz poslouchat na `0.0.0.0` a
   rezervaci identity `michal` pouze pro autentizované UI;
-- 82 testů a lint. Tři skutečné socketové testy se v Codex sandboxu přeskakují,
+- 85 testů a lint. Tři skutečné socketové testy se v Codex sandboxu přeskakují,
   protože zakazuje i loopback bind; stejné HTTP handlery jsou proto testované
   přímo bez socketu.
+
+### ✅ Doladění 11. 9. 2026 večer — na přímé Michalovo zadání
+
+- **Permission race opravena:** token se vytváří atomicky rovnou na `0600`
+  (`os.open(O_CREAT|O_EXCL)`, adresář `0700`), ne `write_text` + dodatečný
+  `chmod` — nalezeno automatickým security review, ověřeno na reálném stroji
+  (`~/.agent-lease` bylo `755`, teď `700`).
+- **UI redesign:** gradientové avatary agentů podle jména, pulsující stav
+  online/offline, pill badge na `kind`/`state`, živý TTL odpočet u nájmů,
+  glass-card vzhled, tmavé i světlé téma (`prefers-color-scheme`), mobilní
+  layout pod 720px. HTTP kontrakt a JS logika beze změny — jen render vrstva.
+- Ověřeno vizuálně (Chrome, desktop 1400×900, mobil 390×844, obě témata) a
+  naostro nad reálnou databází místnosti, ne jen testovací.
 
 Spuštění bez reinstalace entry pointu:
 
