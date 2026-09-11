@@ -155,7 +155,7 @@ def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path:
 def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
-    store.say("claude-code", "ahoj")
+    store.send("claude-code", "codex", "ahoj", kind="task")
 
     status, raw = call_handler(
         store, settings, "secret", "GET", "/api/snapshot",
@@ -166,3 +166,4 @@ def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path)
     payload = json.loads(raw)
     assert payload["me"] == "michal"
     assert payload["messages"][0]["text"] == "ahoj"
+    assert payload["messages"][0]["state"] == "pending"
