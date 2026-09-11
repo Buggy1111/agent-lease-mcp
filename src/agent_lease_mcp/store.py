@@ -275,6 +275,9 @@ class Store:
                 "cwd": r["cwd"],
                 "seen_seconds_ago": int(now - r["seen_at"]),
                 "active": r["seen_at"] >= now - stale_after,
+                "presence": _presence_state(
+                    r["status"], now - r["seen_at"], stale_after
+                ),
             }
             for r in rows
         ]
@@ -581,3 +584,14 @@ def _row_to_message(row: sqlite3.Row, now: float) -> dict:
         "state": row["delivery_state"], "attempts": row["attempts"],
         "last_error": row["last_error"], "seconds_ago": int(now - row["sent_at"]),
     }
+
+
+def _presence_state(status: str, age: float, stale_after: int) -> str:
+    if age <= stale_after:
+        lowered = status.lower()
+        if "rate-limit" in lowered or "rate limit" in lowered or "kvót" in lowered:
+            return "rate-limited"
+        return "busy" if status else "idle"
+    if status and age <= stale_after * 2:
+        return "stalled"
+    return "offline"

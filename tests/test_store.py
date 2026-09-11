@@ -193,6 +193,24 @@ def test_peer_goes_stale(store: Store):
     assert store.peers(stale_after=0)[0]["active"] is False
 
 
+def test_presence_distinguishes_busy_stalled_and_offline(store: Store, monkeypatch):
+    store.heartbeat("codex", status="spouštím testy")
+    seen = time.time()
+    assert store.peers(stale_after=10)[0]["presence"] == "busy"
+
+    monkeypatch.setattr(time, "time", lambda: seen + 11)
+    assert store.peers(stale_after=10)[0]["presence"] == "stalled"
+
+    monkeypatch.setattr(time, "time", lambda: seen + 21)
+    assert store.peers(stale_after=10)[0]["presence"] == "offline"
+
+
+def test_presence_reports_rate_limit(store: Store):
+    store.heartbeat("claude-code", status="rate-limited do 20:00")
+
+    assert store.peers()[0]["presence"] == "rate-limited"
+
+
 def test_heartbeat_keeps_status_when_not_given(store: Store):
     """`room()` bez argumentu nesmí smazat popis práce ohlášený dřív."""
     store.heartbeat("codex", status="balím balíček", cwd="/repo")
