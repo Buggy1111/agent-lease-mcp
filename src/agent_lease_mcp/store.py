@@ -480,28 +480,42 @@ class Store:
         lease_token: str | None = None,
         error: str = "",
     ) -> bool:
-        """Posune stav; vlastněný lease lze potvrdit jen jeho tokenem."""
+        """Potvrdí pouze platný přechod vlastněného pracovního lease."""
         state_value = DeliveryState(state).value
         terminal = {
             DeliveryState.SUCCEEDED.value, DeliveryState.FAILED.value,
             DeliveryState.NEEDS_REVIEW.value, DeliveryState.CANCELLED.value,
             DeliveryState.EXPIRED.value, DeliveryState.DEAD_LETTER.value,
         }
+        allowed = {
+            DeliveryState.LEASED.value: terminal | {DeliveryState.STARTED.value},
+            DeliveryState.STARTED.value: terminal,
+        }
         with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT lease_token FROM deliveries WHERE message_id=? AND recipient=?",
+                "SELECT state, lease_token FROM deliveries "
+                "WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
             ).fetchone()
-            if not row or (row["lease_token"] and row["lease_token"] != lease_token):
+            if not row:
                 return False
-            clear_lease = state_value in terminal or state_value == DeliveryState.PENDING.value
+            current = row["state"]
+            # Opakované potvrzení téhož finálního výsledku je bezpečně idempotentní.
+            if current in terminal and state_value == current:
+                return True
+            if state_value not in allowed.get(current, set()):
+                return False
+            if not lease_token or row["lease_token"] != lease_token:
+                return False
+            clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
                 "lease_token=CASE WHEN ? THEN NULL ELSE lease_token END, "
                 "lease_until=CASE WHEN ? THEN NULL ELSE lease_until END "
-                "WHERE message_id=? AND recipient=?",
+                "WHERE message_id=? AND recipient=? AND state=?",
                 (state_value, error, time.time(), clear_lease, clear_lease,
-                 message_id, recipient),
+                 message_id, recipient, current),
             )
         return bool(cur.rowcount)
 

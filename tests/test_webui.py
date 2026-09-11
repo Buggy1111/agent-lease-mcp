@@ -212,7 +212,9 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     assert store.jobs("codex")[0]["state"] == "cancelled"
 
     failed_id = store.send("michal", "codex", "znovu", kind="task")
-    assert store.ack(failed_id, "codex", "failed")
+    delivery = store.lease_next("codex")
+    assert delivery is not None
+    assert store.ack(failed_id, "codex", "failed", lease_token=delivery.lease_token)
     status, raw = call_handler(
         store, settings, "secret", "POST", "/api/retry",
         headers=headers, body={"id": failed_id, "to": "codex"},

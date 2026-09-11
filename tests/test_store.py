@@ -135,6 +135,8 @@ def test_send_deduplicates_by_sender_key(store: Store):
 def test_task_lease_is_atomic_and_requires_token(store: Store):
     message_id = store.send("michal", "codex", "otestuj", kind="task")
 
+    assert not store.ack(message_id, "codex", "succeeded")
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         leased = list(pool.map(lambda _: store.lease_next("codex"), range(2)))
 
@@ -144,6 +146,8 @@ def test_task_lease_is_atomic_and_requires_token(store: Store):
     assert delivery.message_id == message_id
     assert not store.ack(message_id, "codex", "succeeded", lease_token="špatně")
     assert store.ack(message_id, "codex", "succeeded", lease_token=delivery.lease_token)
+    assert store.ack(message_id, "codex", "succeeded", lease_token=delivery.lease_token)
+    assert not store.ack(message_id, "codex", "failed", lease_token=delivery.lease_token)
     assert store.jobs("codex")[0]["state"] == "succeeded"
     assert store.inbox()[0]["state"] == "succeeded"
 
