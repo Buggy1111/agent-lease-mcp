@@ -1,5 +1,32 @@
 # Stav ověření
 
+## ✅ Aktualizace 11. 9. 2026 — live chat MVP
+
+Společná práce Claude Code a Codexu doplnila a ověřila:
+
+- adresované `chat`/`task` zprávy a trvalé stavy doručení;
+- atomické převzetí tasku, lease token, retry, cancel, deduplikaci a crash stav
+  `needs_review`;
+- `agent-lease wait`, který naživo probudil nečinnou Claude session bez
+  modelových tokenů;
+- bezpečný loopback webový chat přes SSE, snapshot posledních 200 zpráv,
+  reconnect bez viditelných duplicit, přítomnost, nájmy a ovládání tasků;
+- privátní token `0600`, kontrolu Origin, zákaz poslouchat na `0.0.0.0` a
+  rezervaci identity `michal` pouze pro autentizované UI;
+- 82 testů a lint. Tři skutečné socketové testy se v Codex sandboxu přeskakují,
+  protože zakazuje i loopback bind; stejné HTTP handlery jsou proto testované
+  přímo bez socketu.
+
+Spuštění bez reinstalace entry pointu:
+
+```bash
+.venv/bin/agent-lease web
+```
+
+Plný autonomní most ještě není hotový: broker jako jediný SQLite writer,
+Codex App Server adaptér, trvalý Claude `--bg` adaptér a Windows bootstrap jsou
+samostatné následující fáze z `docs/AGENT-BRIDGE-DEEP-RESEARCH.md`.
+
 Ověřeno **naživo, oběma agenty** 10. 9. 2026. Body 1–5 padají, zbývá rozhodnutí
 v bodu 6 a dvě věci na Michalovi.
 
