@@ -128,6 +128,16 @@ def test_token_file_is_private(tmp_path: Path):
     assert mode == 0o600
 
 
+def test_existing_token_permissions_are_repaired(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    path = tmp_path / "webui.token"
+    path.write_text("existing")
+    path.chmod(0o644)
+
+    assert load_or_create_token(settings) == "existing"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
@@ -167,3 +177,46 @@ def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path)
     assert payload["me"] == "michal"
     assert payload["messages"][0]["text"] == "ahoj"
     assert payload["messages"][0]["state"] == "pending"
+
+
+def test_initial_snapshot_returns_newest_200_messages(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    for i in range(205):
+        store.say("claude-code", str(i))
+
+    status, raw = call_handler(
+        store, settings, "secret", "GET", "/api/snapshot?since=0",
+        headers={"X-Agent-Lease-Token": "secret"},
+    )
+
+    assert status == 200
+    messages = json.loads(raw)["messages"]
+    assert len(messages) == 200
+    assert messages[0]["text"] == "5"
+    assert messages[-1]["text"] == "204"
+
+
+def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    message_id = store.send("michal", "codex", "práce", kind="task")
+    headers = {"X-Agent-Lease-Token": "secret", "Origin": "http://localhost:8765"}
+
+    status, raw = call_handler(
+        store, settings, "secret", "POST", "/api/cancel",
+        headers=headers, body={"id": message_id, "to": "codex"},
+    )
+    assert status == 200
+    assert json.loads(raw)["state"] == "cancelled"
+    assert store.jobs("codex")[0]["state"] == "cancelled"
+
+    failed_id = store.send("michal", "codex", "znovu", kind="task")
+    assert store.ack(failed_id, "codex", "failed")
+    status, raw = call_handler(
+        store, settings, "secret", "POST", "/api/retry",
+        headers=headers, body={"id": failed_id, "to": "codex"},
+    )
+    assert status == 200
+    assert json.loads(raw)["state"] == "pending"
+    assert store.jobs("codex")[0]["state"] == "pending"

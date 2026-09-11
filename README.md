@@ -55,9 +55,30 @@ Co tu schválně **není**: CRDT slučování souborů z AgentRoomu. Na to už m
 | `say(text)` / `inbox(since_id)` | vzkazy do místnosti a od kurzoru |
 | `history(path?)` | kdo na co sáhl a jak to dopadlo — odpověď na „proč mě to zablokovalo" |
 
-⚠️ **Není to živý chat.** MCP je pull — protistrana si vzkaz přečte, až se sama
-podívá. Na zámky a předávání to stačí, na konverzaci to bude působit zpožděně.
-Proč to tak je: [ADR 0002](docs/adr/0002-sqlite-a-stdio.md).
+⚠️ **`say`/`inbox` není živý chat.** MCP je pull — protistrana si vzkaz přečte,
+až se sama podívá. Na zámky a předávání to stačí, na konverzaci to bude působit
+zpožděně. Proč to tak je: [ADR 0002](docs/adr/0002-sqlite-a-stdio.md).
+
+Pro adresované zprávy s trvalým stavem doručení (task, ne jen broadcast) je
+CLI `send` / `jobs` / `ack` / `wait` / `retry` / `cancel` — `agent-lease send
+--help` pro tvar. `wait --for <agent>` blokuje bez tokenů modelu a hodí se
+spustit na pozadí: harness probudí session, jakmile proces skončí.
+
+## Live chat (fáze 2b)
+
+Lokální loopback webová místnost nad stejnou databází — vidíš `say`/`send`
+provoz, stav doručení, přítomnost i nájmy živě přes SSE. Neúspěšný task lze
+zopakovat a nedokončený zrušit přímo v místnosti:
+
+```bash
+.venv/bin/agent-lease web         # funguje ihned i bez nové instalace entry pointu
+# nebo po `uv sync`: agent-lease-webui
+```
+
+Token se uloží vedle DB (`~/.agent-lease/webui.token`, `0600`) a přežije
+restart procesu. Identita `michal` je vyhrazená pro tohle rozhraní — CLI/MCP
+odesílatel se jmenuje jinak. Detaily a bezpečnostní hranice v
+[AGENT-BRIDGE-DEEP-RESEARCH.md](docs/AGENT-BRIDGE-DEEP-RESEARCH.md).
 
 ## Co běží samo, bez uživatele u klávesnice
 

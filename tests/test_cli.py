@@ -111,3 +111,16 @@ def test_cli_cannot_impersonate_human_identity(db: Path, monkeypatch):
 
     sender = Store(db).inbox()[0]["agent"]
     assert sender.startswith("untrusted-michal-")
+
+
+def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
+    called = {}
+
+    def fake_web_main(argv):
+        called["argv"] = argv
+        return 0
+
+    monkeypatch.setattr("agent_lease_mcp.webui.main", fake_web_main)
+
+    assert main(["web", "--port", "9876"]) == 0
+    assert called["argv"] == ["--host", "127.0.0.1", "--port", "9876"]

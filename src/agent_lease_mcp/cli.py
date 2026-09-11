@@ -81,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
     p_cancel.add_argument("message_id", type=int)
     p_cancel.add_argument("--for", required=True, dest="recipient")
 
+    p_web = sub.add_parser("web", help="spustit lokální live chat")
+    p_web.add_argument("--host", default="127.0.0.1")
+    p_web.add_argument("--port", type=int, default=8765)
+
     p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
     p_hist.add_argument("--path", default=None)
     p_hist.add_argument("--limit", type=int, default=20)
@@ -174,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
             print("Zrušení odmítnuto: task neexistuje nebo už skončil.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → cancelled")
+
+    elif args.cmd == "web":
+        from .webui import main as web_main
+
+        return web_main(["--host", args.host, "--port", str(args.port)])
 
     elif args.cmd == "history":
         for e in store.history(limit=args.limit, path=args.path):

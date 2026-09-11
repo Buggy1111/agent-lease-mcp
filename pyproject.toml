@@ -37,6 +37,8 @@ agent-lease-guard = "agent_lease_mcp.guard:main"
 # Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
 agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
 agent-lease-release = "agent_lease_mcp.lifecycle:release_main"
+# Fáze 2b: lokální loopback live chat nad stejnou DB (viz docs/AGENT-BRIDGE-DEEP-RESEARCH.md).
+agent-lease-webui = "agent_lease_mcp.webui:main"
 
 [build-system]
 requires = ["hatchling"]

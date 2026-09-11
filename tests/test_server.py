@@ -18,7 +18,7 @@ EXPECTED_TOOLS = {
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def server(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
     monkeypatch.setenv("AGENT_NAME", "test-agent")
     # Import až po nastavení prostředí — server si settings čte při načtení modulu.
@@ -27,6 +27,11 @@ def client(tmp_path, monkeypatch):
     from agent_lease_mcp import server
 
     importlib.reload(server)
+    return server
+
+
+@pytest.fixture
+def client(server):
     return Client(server.mcp)
 
 
@@ -36,60 +41,45 @@ async def test_tool_surface_is_stable(client):
         assert {t.name for t in await c.list_tools()} == EXPECTED_TOOLS
 
 
-@pytest.mark.asyncio
-async def test_claim_then_owner_roundtrip(client, tmp_path):
+def test_claim_then_owner_roundtrip(server, tmp_path):
     target = str(tmp_path / "a.txt")
-    async with client as c:
-        assert (await c.call_tool("claim", {"paths": [target]})).data["ok"] is True
-        assert (await c.call_tool("owner", {"path": target})).data["held_by"] == "test-agent"
+    assert server.claim([target])["ok"] is True
+    assert server.owner(target)["held_by"] == "test-agent"
 
 
-@pytest.mark.asyncio
-async def test_release_frees_the_path(client, tmp_path):
+def test_release_frees_the_path(server, tmp_path):
     target = str(tmp_path / "a.txt")
-    async with client as c:
-        await c.call_tool("claim", {"paths": [target]})
-        await c.call_tool("release", {})
-        assert (await c.call_tool("owner", {"path": target})).data["held_by"] is None
+    server.claim([target])
+    server.release()
+    assert server.owner(target)["held_by"] is None
 
 
-@pytest.mark.asyncio
-async def test_room_reports_me_claims_and_messages(client, tmp_path):
-    async with client as c:
-        await c.call_tool("claim", {"paths": [str(tmp_path / "a.txt")], "purpose": "oprava"})
-        await c.call_tool("say", {"text": "beru si a.txt"})
+def test_room_reports_me_claims_and_messages(server, tmp_path):
+    server.claim([str(tmp_path / "a.txt")], purpose="oprava")
+    server.say("beru si a.txt")
 
-        room = (await c.call_tool("room", {"status": "pracuju"})).data
+    state = server.room(status="pracuju")
 
-        assert room["me"] == "test-agent"
-        assert room["claims"][0]["purpose"] == "oprava"
-        assert room["recent_messages"][0]["text"] == "beru si a.txt"
+    assert state["me"] == "test-agent"
+    assert state["claims"][0]["purpose"] == "oprava"
+    assert state["recent_messages"][0]["text"] == "beru si a.txt"
 
 
-@pytest.mark.asyncio
-async def test_history_answers_who_touched_the_path(client, tmp_path):
+def test_history_answers_who_touched_the_path(server, tmp_path):
     target = str(tmp_path / "a.txt")
-    async with client as c:
-        await c.call_tool("claim", {"paths": [target], "purpose": "balení"})
+    server.claim([target], purpose="balení")
 
-        events = (await c.call_tool("history", {"path": target})).data["events"]
+    events = server.history(path=target)["events"]
 
-        assert events[0]["action"] == "claim"
-        assert events[0]["agent"] == "test-agent"
+    assert events[0]["action"] == "claim"
+    assert events[0]["agent"] == "test-agent"
 
 
-@pytest.mark.asyncio
-async def test_addressed_task_roundtrip(client):
-    async with client as c:
-        sent = (await c.call_tool(
-            "send", {"to": "test-agent", "text": "zkontroluj", "kind": "task"}
-        )).data
-        task = (await c.call_tool("next_task", {})).data["task"]
+def test_addressed_task_roundtrip(server):
+    sent = server.send("test-agent", "zkontroluj", kind="task")
+    task = server.next_task()["task"]
 
-        assert task["id"] == sent["id"]
-        assert task["text"] == "zkontroluj"
-        acked = (await c.call_tool(
-            "ack",
-            {"message_id": task["id"], "state": "succeeded", "lease_token": task["lease_token"]},
-        )).data
-        assert acked["ok"] is True
+    assert task["id"] == sent["id"]
+    assert task["text"] == "zkontroluj"
+    acked = server.ack(task["id"], "succeeded", task["lease_token"])
+    assert acked["ok"] is True
