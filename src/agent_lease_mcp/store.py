@@ -333,39 +333,25 @@ class Store:
         now = time.time()
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM messages WHERE id > ? ORDER BY id LIMIT ?", (since_id, limit)
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "FROM messages m LEFT JOIN deliveries d "
+                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "WHERE m.id > ? ORDER BY m.id LIMIT ?", (since_id, limit)
             ).fetchall()
-        return [
-            {
-                "id": r["id"],
-                "agent": r["agent"],
-                "recipient": r["recipient"],
-                "kind": r["kind"],
-                "text": r["text"],
-                "reply_to": r["reply_to"],
-                "seconds_ago": int(now - r["sent_at"]),
-            }
-            for r in rows
-        ]
+        return [_row_to_message(row, now) for row in rows]
 
     def latest_messages(self, limit: int = 200) -> list[dict]:
         """Nejnovější historie v chronologickém pořadí pro první UI snapshot."""
         now = time.time()
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ?) "
-                "ORDER BY id",
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "FROM messages m LEFT JOIN deliveries d "
+                "ON d.message_id=m.id AND d.recipient=m.recipient WHERE m.id IN "
+                "(SELECT id FROM messages ORDER BY id DESC LIMIT ?) ORDER BY m.id",
                 (limit,),
             ).fetchall()
-        return [
-            {
-                "id": row["id"], "agent": row["agent"],
-                "recipient": row["recipient"], "kind": row["kind"],
-                "text": row["text"], "reply_to": row["reply_to"],
-                "seconds_ago": int(now - row["sent_at"]),
-            }
-            for row in rows
-        ]
+        return [_row_to_message(row, now) for row in rows]
 
     # ── audit ────────────────────────────────────────────────────────────────
 
@@ -400,19 +386,14 @@ class Store:
         now = time.time()
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM messages WHERE id>? AND agent<>? "
-                "AND recipient IN ('*', ?) ORDER BY id LIMIT ?",
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "FROM messages m LEFT JOIN deliveries d "
+                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "WHERE m.id>? AND m.agent<>? AND m.recipient IN ('*', ?) "
+                "ORDER BY m.id LIMIT ?",
                 (self.cursor(agent), agent, agent, limit),
             ).fetchall()
-        return [
-            {
-                "id": row["id"], "agent": row["agent"],
-                "recipient": row["recipient"], "kind": row["kind"],
-                "text": row["text"], "reply_to": row["reply_to"],
-                "seconds_ago": int(now - row["sent_at"]),
-            }
-            for row in rows
-        ]
+        return [_row_to_message(row, now) for row in rows]
 
     def jobs(self, recipient: str, *, limit: int = 50) -> list[dict]:
         """Adresovaná doručení pro agenta, včetně historie stavů."""
@@ -432,19 +413,13 @@ class Store:
         now = time.time()
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM messages WHERE id>? AND recipient=? "
-                "ORDER BY id LIMIT ?",
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "FROM messages m LEFT JOIN deliveries d "
+                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "WHERE m.id>? AND m.recipient=? ORDER BY m.id LIMIT ?",
                 (since_id, recipient, limit),
             ).fetchall()
-        return [
-            {
-                "id": row["id"], "agent": row["agent"],
-                "recipient": row["recipient"], "kind": row["kind"],
-                "text": row["text"], "reply_to": row["reply_to"],
-                "seconds_ago": int(now - row["sent_at"]),
-            }
-            for row in rows
-        ]
+        return [_row_to_message(row, now) for row in rows]
 
     def lease_next(self, recipient: str, *, lease_seconds: int = 60) -> Delivery | None:
         """Atomicky převezme nejstarší připravený task pro jeden worker."""
@@ -596,4 +571,13 @@ def _row_to_job(row: sqlite3.Row, now: float) -> dict:
         "attempts": row["attempts"], "lease_token": row["lease_token"],
         "lease_until": row["lease_until"], "last_error": row["last_error"],
         "reply_to": row["reply_to"], "seconds_ago": int(now - row["sent_at"]),
+    }
+
+
+def _row_to_message(row: sqlite3.Row, now: float) -> dict:
+    return {
+        "id": row["id"], "agent": row["agent"], "recipient": row["recipient"],
+        "kind": row["kind"], "text": row["text"], "reply_to": row["reply_to"],
+        "state": row["delivery_state"], "attempts": row["attempts"],
+        "last_error": row["last_error"], "seconds_ago": int(now - row["sent_at"]),
     }

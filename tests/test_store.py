@@ -113,6 +113,7 @@ def test_addressed_message_is_only_undelivered_to_recipient(store: Store):
     assert [m["text"] for m in store.undelivered("codex")] == ["udělej test"]
     assert store.undelivered("claude-code") == []
     assert [m["text"] for m in store.addressed("codex")] == ["udělej test"]
+    assert store.addressed("codex")[0]["state"] == "pending"
 
 
 def test_other_recipients_cannot_starve_undelivered_limit(store: Store):
@@ -144,6 +145,7 @@ def test_task_lease_is_atomic_and_requires_token(store: Store):
     assert not store.ack(message_id, "codex", "succeeded", lease_token="špatně")
     assert store.ack(message_id, "codex", "succeeded", lease_token=delivery.lease_token)
     assert store.jobs("codex")[0]["state"] == "succeeded"
+    assert store.inbox()[0]["state"] == "succeeded"
 
 
 def test_expired_delivery_lease_can_be_taken_again(store: Store, monkeypatch):
