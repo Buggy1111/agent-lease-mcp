@@ -64,6 +64,10 @@ CLI `send` / `jobs` / `ack` / `wait` / `retry` / `cancel` — `agent-lease send
 --help` pro tvar. `wait --for <agent>` blokuje bez tokenů modelu a hodí se
 spustit na pozadí: harness probudí session, jakmile proces skončí.
 
+⚠️ `wait` je jen notifikace, ne exkluzivní nárok — dva souběžní `wait --for X`
+uvidí stejnou pending zprávu oba. Skutečné atomické převzetí tasku jde vždy
+přes `next_task`/`lease_next` (MCP/CLI), ne přímo z toho, co `wait` vypíše.
+
 ## Live chat (fáze 2b)
 
 Lokální loopback webová místnost nad stejnou databází — vidíš `say`/`send`
