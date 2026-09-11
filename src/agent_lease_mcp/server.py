@@ -17,6 +17,7 @@ import os
 from fastmcp import FastMCP
 
 from .config import Settings
+from .models import DeliveryState, MessageKind
 from .store import Store
 
 mcp = FastMCP("agent-lease")
@@ -77,6 +78,82 @@ def say(text: str) -> dict:
     msg_id = _store.say(_settings.agent, text)
     _store.heartbeat(_settings.agent, cwd=os.getcwd())  # status patří práci, ne volání
     return {"id": msg_id}
+
+
+@mcp.tool
+def send(
+    to: str,
+    text: str,
+    kind: str = "chat",
+    dedupe_key: str | None = None,
+    reply_to: int | None = None,
+) -> dict:
+    """Adresovaná chat zpráva nebo trvalý task; `chat` samo nespouští práci."""
+    msg_id = _store.send(
+        _settings.agent, to, text, kind=MessageKind(kind),
+        dedupe_key=dedupe_key, reply_to=reply_to,
+    )
+    _store.heartbeat(_settings.agent, cwd=os.getcwd())
+    return {"id": msg_id, "to": to, "kind": kind}
+
+
+@mcp.tool
+def jobs(recipient: str | None = None, limit: int = 50) -> dict:
+    """Adresované položky a jejich aktuální stav doručení."""
+    target = recipient or _settings.agent
+    return {"recipient": target, "jobs": _store.jobs(target, limit=limit)}
+
+
+@mcp.tool
+def next_task(lease_seconds: int = 60) -> dict:
+    """Atomicky převezme nejstarší připravený task pro tohoto agenta."""
+    delivery = _store.lease_next(_settings.agent, lease_seconds=lease_seconds)
+    if delivery is None:
+        return {"task": None}
+    return {
+        "task": {
+            "id": delivery.message_id,
+            "from": delivery.sender,
+            "to": delivery.recipient,
+            "kind": delivery.kind.value,
+            "text": delivery.text,
+            "state": delivery.state.value,
+            "attempts": delivery.attempts,
+            "lease_token": delivery.lease_token,
+            "lease_until": delivery.lease_until,
+            "reply_to": delivery.reply_to,
+        }
+    }
+
+
+@mcp.tool
+def ack(message_id: int, state: str, lease_token: str | None = None, error: str = "") -> dict:
+    """Potvrdí stav vlastního doručení; aktivní lease vyžaduje správný token."""
+    ok = _store.ack(
+        message_id, _settings.agent, DeliveryState(state),
+        lease_token=lease_token, error=error,
+    )
+    return {"ok": ok, "id": message_id, "state": state}
+
+
+@mcp.tool
+def retry(message_id: int, recipient: str, not_before: float = 0) -> dict:
+    """Vrátí failed/needs_review/dead_letter doručení do pending fronty."""
+    return {
+        "ok": _store.retry(message_id, recipient, not_before=not_before),
+        "id": message_id,
+        "state": "pending",
+    }
+
+
+@mcp.tool
+def cancel(message_id: int, recipient: str) -> dict:
+    """Zruší nedokončené doručení bez odstranění jeho historie."""
+    return {
+        "ok": _store.cancel(message_id, recipient),
+        "id": message_id,
+        "state": "cancelled",
+    }
 
 
 @mcp.tool

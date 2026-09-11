@@ -10,6 +10,8 @@ s cizím statusem: CLI na rozdíl od MCP serveru presence nehlásilo.
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Thread
+from time import sleep
 
 import pytest
 
@@ -66,3 +68,37 @@ def test_claim_conflict_exits_nonzero(db: Path, tmp_path: Path):
     Store(db).claim([str(tmp_path / "deploy")], agent="claude-code", purpose="už tam jsem")
 
     assert main(["claim", str(tmp_path / "deploy")]) == 1
+
+
+def test_send_and_jobs_roundtrip(db: Path, capsys):
+    assert main(["send", "proveď kontrolu", "--to", "claude-code", "--kind", "task"]) == 0
+    capsys.readouterr()
+
+    assert main(["jobs", "--for", "claude-code"]) == 0
+    assert "pending" in capsys.readouterr().out
+
+
+def test_wait_wakes_for_addressed_message(db: Path, capsys):
+    def send_later():
+        sleep(0.05)
+        Store(db).send("claude-code", "codex", "hotovo", kind="chat")
+
+    sender = Thread(target=send_later)
+    sender.start()
+    assert main(["wait", "--for", "codex", "--timeout", "2"]) == 0
+    sender.join()
+
+    assert "claude-code → codex: hotovo" in capsys.readouterr().out
+
+
+def test_wait_ignores_broadcast_and_times_out(db: Path):
+    Store(db).say("claude-code", "jen nástěnka")
+
+    assert main(["wait", "--for", "codex", "--timeout", "0"]) == 124
+
+
+def test_cancel_command(db: Path):
+    message_id = Store(db).send("michal", "codex", "neprováděj", kind="task")
+
+    assert main(["cancel", str(message_id), "--for", "codex"]) == 0
+    assert Store(db).jobs("codex")[0]["state"] == "cancelled"

@@ -10,7 +10,11 @@ from __future__ import annotations
 import pytest
 from fastmcp import Client
 
-EXPECTED_TOOLS = {"claim", "release", "owner", "say", "inbox", "room", "history"}
+EXPECTED_TOOLS = {
+    "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
+    "cancel",
+    "inbox", "room", "history",
+}
 
 
 @pytest.fixture
@@ -72,3 +76,20 @@ async def test_history_answers_who_touched_the_path(client, tmp_path):
 
         assert events[0]["action"] == "claim"
         assert events[0]["agent"] == "test-agent"
+
+
+@pytest.mark.asyncio
+async def test_addressed_task_roundtrip(client):
+    async with client as c:
+        sent = (await c.call_tool(
+            "send", {"to": "test-agent", "text": "zkontroluj", "kind": "task"}
+        )).data
+        task = (await c.call_tool("next_task", {})).data["task"]
+
+        assert task["id"] == sent["id"]
+        assert task["text"] == "zkontroluj"
+        acked = (await c.call_tool(
+            "ack",
+            {"message_id": task["id"], "state": "succeeded", "lease_token": task["lease_token"]},
+        )).data
+        assert acked["ok"] is True

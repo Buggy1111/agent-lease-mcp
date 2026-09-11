@@ -46,6 +46,44 @@ class Verdict(str, Enum):
     DENY = "deny"            # drží ji někdo jiný
 
 
+class MessageKind(str, Enum):
+    """Zpráva v místnosti není automaticky oprávnění spustit práci."""
+
+    CHAT = "chat"
+    TASK = "task"
+    BROADCAST = "broadcast"
+    CONTROL = "control"
+    RESULT = "result"
+
+
+class DeliveryState(str, Enum):
+    """Trvalý stav adresovaného doručení."""
+
+    PENDING = "pending"
+    LEASED = "leased"
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    NEEDS_REVIEW = "needs_review"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    DEAD_LETTER = "dead_letter"
+
+
+@dataclass(frozen=True)
+class Delivery:
+    message_id: int
+    sender: str
+    recipient: str
+    kind: MessageKind
+    text: str
+    state: DeliveryState
+    attempts: int
+    lease_token: str | None = None
+    lease_until: float | None = None
+    reply_to: int | None = None
+
+
 @dataclass(frozen=True)
 class Decision:
     """

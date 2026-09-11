@@ -100,6 +100,84 @@ def test_messages_use_cursor(store: Store):
     assert len(store.inbox(since_id=first)) == 1
 
 
+def test_addressed_message_is_only_undelivered_to_recipient(store: Store):
+    store.send("michal", "codex", "udělej test", kind="task")
+
+    assert [m["text"] for m in store.undelivered("codex")] == ["udělej test"]
+    assert store.undelivered("claude-code") == []
+    assert [m["text"] for m in store.addressed("codex")] == ["udělej test"]
+
+
+def test_other_recipients_cannot_starve_undelivered_limit(store: Store):
+    for i in range(25):
+        store.send("michal", "claude-code", f"cizí {i}", kind="chat")
+    store.send("michal", "codex", "pro mě", kind="chat")
+
+    assert [m["text"] for m in store.undelivered("codex", limit=20)] == ["pro mě"]
+
+
+def test_send_deduplicates_by_sender_key(store: Store):
+    first = store.send("michal", "codex", "jednou", kind="task", dedupe_key="task-1")
+    second = store.send("michal", "codex", "podruhé", kind="task", dedupe_key="task-1")
+
+    assert second == first
+    assert len(store.jobs("codex")) == 1
+
+
+def test_task_lease_is_atomic_and_requires_token(store: Store):
+    message_id = store.send("michal", "codex", "otestuj", kind="task")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leased = list(pool.map(lambda _: store.lease_next("codex"), range(2)))
+
+    deliveries = [item for item in leased if item is not None]
+    assert len(deliveries) == 1
+    delivery = deliveries[0]
+    assert delivery.message_id == message_id
+    assert not store.ack(message_id, "codex", "succeeded", lease_token="špatně")
+    assert store.ack(message_id, "codex", "succeeded", lease_token=delivery.lease_token)
+    assert store.jobs("codex")[0]["state"] == "succeeded"
+
+
+def test_expired_delivery_lease_can_be_taken_again(store: Store, monkeypatch):
+    store.send("michal", "codex", "otestuj", kind="task")
+    first = store.lease_next("codex", lease_seconds=1)
+    assert first is not None
+    monkeypatch.setattr(time, "time", lambda: first.lease_until + 1)
+
+    second = store.lease_next("codex")
+
+    assert second is not None
+    assert second.lease_token != first.lease_token
+    assert second.attempts == 2
+
+
+def test_expired_started_task_needs_review(store: Store, monkeypatch):
+    message_id = store.send("michal", "codex", "otestuj", kind="task")
+    delivery = store.lease_next("codex", lease_seconds=1)
+    assert delivery is not None
+    assert store.ack(message_id, "codex", "started", lease_token=delivery.lease_token)
+    monkeypatch.setattr(time, "time", lambda: delivery.lease_until + 1)
+
+    assert store.lease_next("codex") is None
+    job = store.jobs("codex")[0]
+    assert job["state"] == "needs_review"
+    assert job["last_error"] == "worker lease expired after start"
+
+
+def test_failed_task_can_retry_then_cancel(store: Store):
+    message_id = store.send("michal", "codex", "otestuj", kind="task")
+    delivery = store.lease_next("codex")
+    assert delivery is not None
+    assert store.ack(message_id, "codex", "failed", lease_token=delivery.lease_token)
+
+    assert store.retry(message_id, "codex")
+    assert store.jobs("codex")[0]["state"] == "pending"
+    assert store.cancel(message_id, "codex")
+    assert store.jobs("codex")[0]["state"] == "cancelled"
+    assert not store.retry(message_id, "codex")
+
+
 def test_peer_goes_stale(store: Store):
     store.heartbeat("codex", status="kontrola")
     assert store.peers(stale_after=900)[0]["active"] is True

@@ -14,11 +14,12 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 from .config import MAX_TTL_SECONDS, STALE_PEER_SECONDS, Settings
-from .models import Claim, ClaimResult
+from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
 from .policy import covers, normalize_path
 
 SCHEMA = """
@@ -41,8 +42,30 @@ CREATE TABLE IF NOT EXISTS messages (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     agent    TEXT NOT NULL,
     text     TEXT NOT NULL,
-    sent_at  REAL NOT NULL
+    sent_at  REAL NOT NULL,
+    recipient TEXT NOT NULL DEFAULT '*',
+    kind      TEXT NOT NULL DEFAULT 'broadcast',
+    project   TEXT NOT NULL DEFAULT '',
+    not_before REAL NOT NULL DEFAULT 0,
+    expires_at REAL,
+    dedupe_key TEXT,
+    reply_to  INTEGER REFERENCES messages(id)
 );
+
+CREATE TABLE IF NOT EXISTS deliveries (
+    message_id  INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    recipient   TEXT NOT NULL,
+    state       TEXT NOT NULL DEFAULT 'pending',
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    lease_token TEXT,
+    lease_until REAL,
+    last_error  TEXT NOT NULL DEFAULT '',
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY(message_id, recipient)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deliveries_queue
+ON deliveries(recipient, state, message_id);
 
 -- Audit: kdo, kdy, na co sáhl a jak to dopadlo.
 -- Celý projekt vznikl proto, že po kolizi nešlo zpětně zjistit, kdo co kdy
@@ -79,6 +102,29 @@ class Store:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as con:
             con.executescript(SCHEMA)
+            self._migrate_messages(con)
+
+    @staticmethod
+    def _migrate_messages(con: sqlite3.Connection) -> None:
+        """Rozšíří databáze z původní broadcast-only verze bez ztráty historie."""
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(messages)")}
+        additions = {
+            "recipient": "TEXT NOT NULL DEFAULT '*'",
+            "kind": "TEXT NOT NULL DEFAULT 'broadcast'",
+            "project": "TEXT NOT NULL DEFAULT ''",
+            "not_before": "REAL NOT NULL DEFAULT 0",
+            "expires_at": "REAL",
+            "dedupe_key": "TEXT",
+            "reply_to": "INTEGER REFERENCES messages(id)",
+        }
+        for name, declaration in additions.items():
+            if name not in columns:
+                con.execute(f"ALTER TABLE messages ADD COLUMN {name} {declaration}")
+        con.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedupe "
+            "ON messages(agent, dedupe_key) WHERE dedupe_key IS NOT NULL"
+        )
+        con.execute("PRAGMA user_version=1")
 
     @contextmanager
     def _connect(self):
@@ -236,12 +282,52 @@ class Store:
     # ── vzkazy ───────────────────────────────────────────────────────────────
 
     def say(self, agent: str, text: str) -> int:
+        """Zpětně kompatibilní broadcast do místnosti."""
+        return self.send(agent, "*", text, kind=MessageKind.BROADCAST)
+
+    def send(
+        self,
+        agent: str,
+        recipient: str,
+        text: str,
+        *,
+        kind: MessageKind | str = MessageKind.CHAT,
+        project: str = "",
+        not_before: float = 0,
+        expires_at: float | None = None,
+        dedupe_key: str | None = None,
+        reply_to: int | None = None,
+    ) -> int:
+        """Atomicky uloží adresovanou zprávu a její doručení."""
+        kind_value = MessageKind(kind).value
+        recipient = recipient.strip()
+        if not recipient:
+            raise ValueError("recipient nesmí být prázdný")
+        if not text.strip():
+            raise ValueError("text nesmí být prázdný")
+        now = time.time()
         with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if dedupe_key:
+                existing = con.execute(
+                    "SELECT id FROM messages WHERE agent = ? AND dedupe_key = ?",
+                    (agent, dedupe_key),
+                ).fetchone()
+                if existing:
+                    return int(existing["id"])
             cur = con.execute(
-                "INSERT INTO messages(agent, text, sent_at) VALUES(?,?,?)",
-                (agent, text, time.time()),
+                "INSERT INTO messages(agent, text, sent_at, recipient, kind, project, "
+                "not_before, expires_at, dedupe_key, reply_to) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (agent, text, now, recipient, kind_value, project, not_before,
+                 expires_at, dedupe_key, reply_to),
             )
-        return int(cur.lastrowid)
+            message_id = int(cur.lastrowid)
+            if recipient != "*":
+                con.execute(
+                    "INSERT INTO deliveries(message_id, recipient, updated_at) VALUES(?,?,?)",
+                    (message_id, recipient, now),
+                )
+        return message_id
 
     def inbox(self, since_id: int = 0, limit: int = 50) -> list[dict]:
         now = time.time()
@@ -253,7 +339,10 @@ class Store:
             {
                 "id": r["id"],
                 "agent": r["agent"],
+                "recipient": r["recipient"],
+                "kind": r["kind"],
                 "text": r["text"],
+                "reply_to": r["reply_to"],
                 "seconds_ago": int(now - r["sent_at"]),
             }
             for r in rows
@@ -289,7 +378,163 @@ class Store:
 
     def undelivered(self, agent: str, limit: int = 20) -> list[dict]:
         """Vzkazy od ostatních, které tenhle agent ještě neviděl."""
-        return [m for m in self.inbox(since_id=self.cursor(agent), limit=limit) if m["agent"] != agent]
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM messages WHERE id>? AND agent<>? "
+                "AND recipient IN ('*', ?) ORDER BY id LIMIT ?",
+                (self.cursor(agent), agent, agent, limit),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"], "agent": row["agent"],
+                "recipient": row["recipient"], "kind": row["kind"],
+                "text": row["text"], "reply_to": row["reply_to"],
+                "seconds_ago": int(now - row["sent_at"]),
+            }
+            for row in rows
+        ]
+
+    def jobs(self, recipient: str, *, limit: int = 50) -> list[dict]:
+        """Adresovaná doručení pro agenta, včetně historie stavů."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.*, d.state, d.attempts, d.lease_token, d.lease_until, "
+                "d.last_error, d.updated_at FROM deliveries d "
+                "JOIN messages m ON m.id = d.message_id "
+                "WHERE d.recipient = ? ORDER BY m.id DESC LIMIT ?",
+                (recipient, limit),
+            ).fetchall()
+        return [_row_to_job(r, now) for r in rows]
+
+    def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
+        """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM messages WHERE id>? AND recipient=? "
+                "ORDER BY id LIMIT ?",
+                (since_id, recipient, limit),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"], "agent": row["agent"],
+                "recipient": row["recipient"], "kind": row["kind"],
+                "text": row["text"], "reply_to": row["reply_to"],
+                "seconds_ago": int(now - row["sent_at"]),
+            }
+            for row in rows
+        ]
+
+    def lease_next(self, recipient: str, *, lease_seconds: int = 60) -> Delivery | None:
+        """Atomicky převezme nejstarší připravený task pro jeden worker."""
+        now = time.time()
+        token = uuid.uuid4().hex
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "UPDATE deliveries SET state='expired', lease_token=NULL, lease_until=NULL, "
+                "updated_at=? WHERE recipient=? AND state='pending' AND message_id IN "
+                "(SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)",
+                (now, recipient, now),
+            )
+            con.execute(
+                "UPDATE deliveries SET state='needs_review', lease_token=NULL, lease_until=NULL, "
+                "last_error='worker lease expired after start', updated_at=? "
+                "WHERE recipient=? AND state='started' AND lease_until<=?",
+                (now, recipient, now),
+            )
+            con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                "updated_at=? WHERE recipient=? AND state='leased' AND lease_until<=?",
+                (now, recipient, now),
+            )
+            row = con.execute(
+                "SELECT m.*, d.state, d.attempts FROM deliveries d "
+                "JOIN messages m ON m.id=d.message_id "
+                "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
+                "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
+                "ORDER BY m.id LIMIT 1",
+                (recipient, now, now),
+            ).fetchone()
+            if not row:
+                return None
+            con.execute(
+                "UPDATE deliveries SET state='leased', attempts=attempts+1, "
+                "lease_token=?, lease_until=?, updated_at=? "
+                "WHERE message_id=? AND recipient=? AND state='pending'",
+                (token, now + max(1, lease_seconds), now, row["id"], recipient),
+            )
+            return Delivery(
+                message_id=row["id"], sender=row["agent"], recipient=recipient,
+                kind=MessageKind(row["kind"]), text=row["text"],
+                state=DeliveryState.LEASED, attempts=row["attempts"] + 1,
+                lease_token=token, lease_until=now + max(1, lease_seconds),
+                reply_to=row["reply_to"],
+            )
+
+    def ack(
+        self,
+        message_id: int,
+        recipient: str,
+        state: DeliveryState | str,
+        *,
+        lease_token: str | None = None,
+        error: str = "",
+    ) -> bool:
+        """Posune stav; vlastněný lease lze potvrdit jen jeho tokenem."""
+        state_value = DeliveryState(state).value
+        terminal = {
+            DeliveryState.SUCCEEDED.value, DeliveryState.FAILED.value,
+            DeliveryState.NEEDS_REVIEW.value, DeliveryState.CANCELLED.value,
+            DeliveryState.EXPIRED.value, DeliveryState.DEAD_LETTER.value,
+        }
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT lease_token FROM deliveries WHERE message_id=? AND recipient=?",
+                (message_id, recipient),
+            ).fetchone()
+            if not row or (row["lease_token"] and row["lease_token"] != lease_token):
+                return False
+            clear_lease = state_value in terminal or state_value == DeliveryState.PENDING.value
+            cur = con.execute(
+                "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
+                "lease_token=CASE WHEN ? THEN NULL ELSE lease_token END, "
+                "lease_until=CASE WHEN ? THEN NULL ELSE lease_until END "
+                "WHERE message_id=? AND recipient=?",
+                (state_value, error, time.time(), clear_lease, clear_lease,
+                 message_id, recipient),
+            )
+        return bool(cur.rowcount)
+
+    def retry(self, message_id: int, recipient: str, *, not_before: float = 0) -> bool:
+        """Vrátí neúspěšné doručení do fronty a zachová počet pokusů."""
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            cur = con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                "last_error='', updated_at=? WHERE message_id=? AND recipient=? "
+                "AND state IN ('failed','needs_review','dead_letter')",
+                (time.time(), message_id, recipient),
+            )
+            if cur.rowcount:
+                con.execute(
+                    "UPDATE messages SET not_before=? WHERE id=?",
+                    (not_before, message_id),
+                )
+        return bool(cur.rowcount)
+
+    def cancel(self, message_id: int, recipient: str) -> bool:
+        """Zruší nedokončené doručení; výsledek zůstane v auditu fronty."""
+        with self._connect() as con:
+            cur = con.execute(
+                "UPDATE deliveries SET state='cancelled', lease_token=NULL, lease_until=NULL, "
+                "updated_at=? WHERE message_id=? AND recipient=? "
+                "AND state NOT IN ('succeeded','cancelled','expired')",
+                (time.time(), message_id, recipient),
+            )
+        return bool(cur.rowcount)
 
     def history(self, limit: int = 50, path: str | None = None) -> list[dict]:
         """Kdo na co sáhl a jak to dopadlo — odpověď na 'proč mě to zablokovalo'."""
@@ -323,3 +568,13 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
         claimed_at=row["claimed_at"],
         expires_at=row["expires_at"],
     )
+
+
+def _row_to_job(row: sqlite3.Row, now: float) -> dict:
+    return {
+        "id": row["id"], "agent": row["agent"], "recipient": row["recipient"],
+        "kind": row["kind"], "text": row["text"], "state": row["state"],
+        "attempts": row["attempts"], "lease_token": row["lease_token"],
+        "lease_until": row["lease_until"], "last_error": row["last_error"],
+        "reply_to": row["reply_to"], "seconds_ago": int(now - row["sent_at"]),
+    }
