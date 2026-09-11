@@ -16,6 +16,7 @@ from pathlib import Path
 DEFAULT_TTL_SECONDS = 1800
 MAX_TTL_SECONDS = 8 * 3600
 STALE_PEER_SECONDS = 900
+RESERVED_HUMAN_AGENT = "michal"
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,12 @@ class Settings:
         Fallback je schválně ošklivý a unikátní: když ho uvidíš v `room`, je to
         signál, že někde chybí konfigurace — ne stav, ve kterém se má zůstat.
         """
-        return os.environ.get("AGENT_NAME") or f"unconfigured-{socket.gethostname()}-{os.getpid()}"
+        configured = os.environ.get("AGENT_NAME")
+        if configured == RESERVED_HUMAN_AGENT:
+            # Lidskou autoritu smí vytvořit jen autentizovaný webový endpoint.
+            # CLI/MCP/hook se samotnou proměnnou prostředí za člověka vydávat nesmí.
+            return f"untrusted-{RESERVED_HUMAN_AGENT}-{os.getpid()}"
+        return configured or f"unconfigured-{socket.gethostname()}-{os.getpid()}"
 
 
 def _int_env(name: str, default: int) -> int:

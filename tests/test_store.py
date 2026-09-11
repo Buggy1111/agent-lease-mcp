@@ -100,6 +100,13 @@ def test_messages_use_cursor(store: Store):
     assert len(store.inbox(since_id=first)) == 1
 
 
+def test_latest_messages_returns_tail_in_chronological_order(store: Store):
+    for i in range(5):
+        store.say("claude", str(i))
+
+    assert [m["text"] for m in store.latest_messages(limit=3)] == ["2", "3", "4"]
+
+
 def test_addressed_message_is_only_undelivered_to_recipient(store: Store):
     store.send("michal", "codex", "udělej test", kind="task")
 

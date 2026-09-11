@@ -348,6 +348,25 @@ class Store:
             for r in rows
         ]
 
+    def latest_messages(self, limit: int = 200) -> list[dict]:
+        """Nejnovější historie v chronologickém pořadí pro první UI snapshot."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM (SELECT * FROM messages ORDER BY id DESC LIMIT ?) "
+                "ORDER BY id",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"], "agent": row["agent"],
+                "recipient": row["recipient"], "kind": row["kind"],
+                "text": row["text"], "reply_to": row["reply_to"],
+                "seconds_ago": int(now - row["sent_at"]),
+            }
+            for row in rows
+        ]
+
     # ── audit ────────────────────────────────────────────────────────────────
 
     def record(self, agent: str, action: str, path: str = "", detail: str = "") -> None:

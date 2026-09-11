@@ -102,3 +102,12 @@ def test_cancel_command(db: Path):
 
     assert main(["cancel", str(message_id), "--for", "codex"]) == 0
     assert Store(db).jobs("codex")[0]["state"] == "cancelled"
+
+
+def test_cli_cannot_impersonate_human_identity(db: Path, monkeypatch):
+    monkeypatch.setenv("AGENT_NAME", "michal")
+
+    assert main(["say", "jsem člověk"]) == 0
+
+    sender = Store(db).inbox()[0]["agent"]
+    assert sender.startswith("untrusted-michal-")
