@@ -16,8 +16,8 @@ import json
 import sys
 
 from .briefing import prompt_update, session_briefing
+from .broker import open_store
 from .config import Settings
-from .store import Store
 
 
 def _emit(event: str, text: str) -> None:
@@ -41,7 +41,7 @@ def context_main() -> int:
     settings = Settings.from_env()
 
     try:
-        store = Store(settings=settings)
+        store = open_store(settings)
         me = settings.agent
         messages = store.undelivered(me)
         # Příjem se zapíše AŽ po úspěšném sestavení textu (viz níže), ale `awaiting`
@@ -80,7 +80,7 @@ def release_main() -> int:
     """
     settings = Settings.from_env()
     try:
-        released = Store(settings=settings).release_all(settings.agent)
+        released = open_store(settings).release_all(settings.agent)
         if released:
             print(f"[agent-lease] uvolněno {len(released)} nájmů", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001

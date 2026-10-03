@@ -19,14 +19,19 @@ Záruky (viz akceptační kritéria):
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import shlex
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 
+from .broker import open_store
 from .config import Settings
 from .hygiene import redact
 from .models import DeliveryState, MessageKind
@@ -95,10 +100,47 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> 
     return RunResult(proc.returncode == 0, output[-4000:])
 
 
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPENROUTER_URL,
+                   timeout: float = 600) -> RunResult:
+    """
+    Úkol pro libovolný model přes OpenRouter (jeden klíč, stovky modelů).
+
+    Je to čistý textový dotaz bez nástrojů — model nemá přístup k souborům ani
+    shellu, takže je z podstaty read-only. Hodí se na review, plán, rešerši,
+    druhý názor. Klíč jde jen z prostředí a nikdy se neloguje.
+    """
+    body = json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(
+        base_url, data=body, method="POST",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                 "X-Title": "agent-lease"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        if exc.code in (402, 429):
+            wait = exc.headers.get("Retry-After")
+            return RunResult(False, f"OpenRouter HTTP {exc.code}", True,
+                             float(wait) if wait and wait.isdigit() else 900.0)
+        return RunResult(False, f"OpenRouter HTTP {exc.code}")
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        return RunResult(False, f"OpenRouter nedostupný: {exc}")
+    try:
+        text = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return RunResult(False, f"OpenRouter: neočekávaná odpověď: {str(data)[:300]}")
+    return RunResult(True, str(text).strip()[-4000:])
+
+
 class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
-                 timeout: float = 1800, max_per_hour: int = 12) -> None:
+                 timeout: float = 1800, max_per_hour: int = 12, runner=None) -> None:
         self.store, self.agent, self.command = store, agent, command
+        self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
         self._starts: list[float] = []
 
@@ -137,7 +179,11 @@ class Bridge:
                 self.store.extend_lease(mid, self.agent, token, self.lease_seconds)
                 self.store.heartbeat(self.agent)
 
-        result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
+        if self.runner is not None:
+            tick()
+            result = self.runner(prompt)
+        else:
+            result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
         body = redact(result.output) or "(bez výstupu)"
         if result.ok:
             self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
@@ -175,16 +221,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--agent", required=True, help="komu patří fronta (codex, claude-code, …)")
     p.add_argument("--command", default=None,
                    help="šablona příkazu s {prompt}; výchozí podle agenta")
+    p.add_argument("--provider", choices=["cli", "openrouter"], default="cli",
+                   help="cli = codex/claude headless; openrouter = libovolný model přes API")
+    p.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", ""),
+                   help="např. anthropic/claude-sonnet-4.5 (jen pro --provider openrouter)")
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--timeout", type=float, default=1800)
     p.add_argument("--once", action="store_true", help="zpracuj jeden průchod a skonči")
     args = p.parse_args(argv)
-    command = args.command or DEFAULT_COMMANDS.get(args.agent)
-    if not command:
+    runner = None
+    command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
+    if args.provider == "openrouter":
+        key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not key or not args.model:
+            print("OpenRouter potřebuje OPENROUTER_API_KEY v prostředí a --model.", file=sys.stderr)
+            return 2
+
+        def runner(prompt: str) -> RunResult:
+            return run_openrouter(prompt, model=args.model, api_key=key, timeout=args.timeout)
+    elif not command:
         print("Chybí --command a pro tohoto agenta není výchozí.", file=sys.stderr)
         return 2
     settings = Settings.from_env()
-    bridge = Bridge(Store(settings=settings), args.agent, command,
+    bridge = Bridge(open_store(settings), args.agent, command, runner=runner,
                     timeout=args.timeout, max_per_hour=args.max_per_hour)
     if args.once:
         bridge.step()

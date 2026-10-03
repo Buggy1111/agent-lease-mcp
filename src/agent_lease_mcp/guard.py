@@ -20,9 +20,9 @@ from __future__ import annotations
 import json
 import sys
 
+from .broker import open_store
 from .config import Settings
 from .policy import decide, extract_targets, is_write_tool, script_target
-from .store import Store
 
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
 
@@ -55,7 +55,7 @@ def main() -> int:
         return 0
 
     try:
-        store = Store(settings=settings)
+        store = open_store(settings)
         for raw_path in paths:
             blocker = store.edit_gate(raw_path, settings.agent)
             if blocker is not None:

@@ -94,3 +94,56 @@ def test_doctor_runs(tmp_path: Path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "identita agenta: codex" in out and code in (0, 1)
     assert os.path.isdir(tmp_path / "d")
+
+
+def _fake_openrouter(status=200, body=None, headers=None):
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    seen = {}
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen["auth"] = self.headers.get("Authorization")
+            seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            payload = json.dumps(body or {"choices": [{"message": {"content": "ahoj z modelu"}}]})
+            self.send_response(status)
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload.encode())
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, seen
+
+
+def test_openrouter_runner_success_and_request_shape():
+    from agent_lease_mcp.bridge import run_openrouter
+    srv, seen = _fake_openrouter()
+    r = run_openrouter("otázka", model="x/y", api_key="sk-test",
+                       base_url=f"http://127.0.0.1:{srv.server_port}/v1")
+    srv.shutdown()
+    assert r.ok and r.output == "ahoj z modelu"
+    assert seen["auth"] == "Bearer sk-test" and seen["body"]["model"] == "x/y"
+
+
+def test_openrouter_429_is_deferred_not_failed(store: Store):
+    from agent_lease_mcp.bridge import run_openrouter
+    srv, _ = _fake_openrouter(429, {"error": "slow"}, {"Retry-After": "120"})
+    mid = store.send("michal", "kimi", "úkol", kind="task")
+
+    def runner(prompt):
+        return run_openrouter(prompt, model="m", api_key="k",
+                              base_url=f"http://127.0.0.1:{srv.server_port}/v1")
+
+    Bridge(store, "kimi", "", runner=runner).step()
+    srv.shutdown()
+    job = next(j for j in store.jobs("kimi") if j["id"] == mid)
+    assert job["state"] == "pending"  # odloženo, ne ztraceno
+    assert store.lease_next("kimi") is None

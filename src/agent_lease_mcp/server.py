@@ -16,13 +16,13 @@ import os
 
 from fastmcp import FastMCP
 
+from .broker import open_store
 from .config import Settings
 from .models import DeliveryState, MessageKind
-from .store import Store
 
 mcp = FastMCP("agent-lease")
 _settings = Settings.from_env()
-_store = Store(settings=_settings)
+_store = open_store(_settings)
 
 
 @mcp.tool

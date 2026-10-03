@@ -20,9 +20,9 @@ import sys
 import time
 
 from .briefing import session_briefing
+from .broker import open_store
 from .config import Settings
 from .models import DeliveryState, MessageKind
-from .store import Store
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,12 +98,17 @@ def main(argv: list[str] | None = None) -> int:
     p_overdue = sub.add_parser("overdue", help="zprávy, které nikdo nepotvrdil / nedoručeno")
     p_overdue.add_argument("--seconds", type=int, default=120)
 
+    p_broker = sub.add_parser("broker", help="spustit broker (jediný writer SQLite, Unix socket 0600)")
+    p_broker.add_argument("--socket", default=None)
+
     sub.add_parser("doctor", help="zkontrolovat instalaci, oprávnění a hooky")
 
     p_bridge = sub.add_parser("bridge", help="autonomní worker pro frontu jednoho agenta")
     p_bridge.add_argument("--agent", required=True)
     p_bridge.add_argument("--command", default=None)
     p_bridge.add_argument("--once", action="store_true")
+    p_bridge.add_argument("--provider", choices=["cli", "openrouter"], default="cli")
+    p_bridge.add_argument("--model", default="")
 
     p_prune = sub.add_parser("prune", help="smazat dokončené zprávy a audit starší než N dní")
     p_prune.add_argument("--days", type=int, default=None)
@@ -117,14 +122,20 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import run_doctor
 
         return run_doctor()
+    if args.cmd == "broker":
+        from .broker import main as broker_main
+
+        return broker_main(["--socket", args.socket] if args.socket else [])
     if args.cmd == "bridge":
         from .bridge import main as bridge_main
 
         return bridge_main(["--agent", args.agent]
                            + (["--command", args.command] if args.command else [])
-                           + (["--once"] if args.once else []))
+                           + (["--once"] if args.once else [])
+                           + ["--provider", args.provider]
+                           + (["--model", args.model] if args.model else []))
     settings = Settings.from_env()
-    store = Store(settings=settings)
+    store = open_store(settings)
     me = settings.agent
 
     if args.cmd == "room":

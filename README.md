@@ -200,6 +200,29 @@ podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissi
 | `AGENT_NAME` | `unconfigured-<host>-<pid>` | jméno v místnosti |
 | `AGENT_LEASE_DB` | `~/.agent-lease/room.db` | kde je stav |
 | `AGENT_LEASE_TTL` | `1800` | výchozí délka nájmu (s) |
+| `AGENT_LEASE_SOCKET` | `~/.agent-lease/broker.sock` | socket brokera (použije se, jen když běží) |
+| `AGENT_LEASE_TASK_SENDERS` | člověk + nakonfigurovaní agenti | čárkou oddělený seznam, kdo smí zadávat `task` |
+| `AGENT_LEASE_FAIL_CLOSED` | vypnuto | `1` = guard při chybě/nečitelném vstupu blokuje |
+| `AGENT_LEASE_RETENTION_DAYS` | `30` | `agent-lease prune` maže dokončené starší než N dní |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | — | pro `bridge --provider openrouter` |
+
+## Potvrzení příjmu, bridge a broker (v0.2)
+
+- **Každá adresovaná zpráva má viditelný stav** ⏳ → 👁 viděl → ✔ beru → hotovo.
+  „Viděl" píše hook automaticky, „beru" musí agent potvrdit (`accept`) a
+  připomíná se mu při každém promptu. Nic se neztratí potichu.
+  Podrobně: [docs/ZPRAVY-A-POTVRZENI.md](docs/ZPRAVY-A-POTVRZENI.md).
+- `agent-lease overdue` — co nikdo nepotvrdil; `agent-lease doctor` — ověří
+  instalaci a oprávnění; `agent-lease prune` — retence.
+- `agent-lease broker` — jediný writer SQLite přes Unix socket `0600`; ostatní
+  nástroje ho použijí automaticky, když běží (sandboxovaný Codex pak nepotřebuje
+  přístup k DB).
+- `agent-lease bridge --agent codex` — autonomní worker: task převezme, hned
+  potvrdí, spustí `codex exec` / `claude -p` read-only a vrátí výsledek.
+  `--provider openrouter --model <model>` pustí úkol na libovolný model přes
+  OpenRouter (čistý text bez nástrojů, tedy bezpečně read-only; vhodné na review
+  a druhý názor). Klíč jen z prostředí.
+- systemd: `deploy/systemd/`, Windows/WSL: `deploy/windows/start-bridge.ps1`.
 
 ## Struktura
 
@@ -228,13 +251,19 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
   škodu způsobil: **spouštění skriptu** (`bash x.sh`, `./x.sh`, `python x.py`)
   si ten soubor vezme do nájmu. Na skripty, které zapisují jinam, je `claim`.
 - **Jeden stroj.** Stav je soubor na disku.
-- **Vzkazy nikoho nevyruší.**
+- **Probuzení spící session závisí na klientovi.** `wait --rewake` je navržený pro
+  `asyncRewake` hook Claude Code; ověř jednou ručně (viz
+  [ZPRAVY-A-POTVRZENI.md](docs/ZPRAVY-A-POTVRZENI.md)). Bez něj zpráva počká do
+  dalšího promptu — ale **nezmizí** a vyžádá si potvrzení.
+- **Bridge běží read-only a headless.** Nevyšívá do otevřených oken; zápis do kódu
+  (izolované worktrees, fáze 5) je záměrně vypnutý, dokud nepřejdou crash a
+  prompt-injection testy na tvém stroji.
 
 ## Vývoj
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 59 testů
+.venv/bin/python -m pytest tests -q     # 121 testů
 .venv/bin/python -m ruff check src tests
 ```
 

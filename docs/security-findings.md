@@ -35,27 +35,31 @@ No runtime system, live database, live credential, browser history, external age
 production service was exercised. Suggested validation steps below are proposals for a
 separately approved Phase 3 and must use synthetic data and isolated scratch state.
 
+## Status update (v0.2)
+
+Phase 3 changes were implemented with tests in `tests/test_receipts.py`, `test_webui.py`, `test_hook.py`. The last column below shows the resulting status; “unverified” in the per-item text refers to the original discovery state.
+
 ## Summary
 
 | ID | Candidate | Severity | Confidence | Status |
 |---|---|---:|---:|---|
-| APP-001 | SQLite files may inherit permissive creation modes | High | High | `unverified` |
-| APP-002 | Machine identity is forgeable through the environment | High | High | `unverified` |
-| APP-003 | Cross-recipient task access may disclose or misuse capabilities | High | High | `unverified` |
-| APP-004 | Peer content crosses into model context without trust labeling | High | High | `unverified` |
-| APP-005 | Machine peers can create tasks without sender authority policy | High | High | `unverified` |
-| APP-006 | Guard coverage permits unsupported write-capable tool shapes | High | High | `unverified` |
-| APP-007 | Guard auto-claim check and acquisition are not one decision | High | High | `unverified` |
-| APP-008 | Guard fails open on malformed input and internal errors | Medium | High | `unverified` |
-| APP-009 | Several non-web inputs lack explicit resource bounds | Medium | High | `unverified` |
-| APP-010 | Persistent human-authority token is carried in URLs and stdout | Medium | High | `unverified` |
-| APP-011 | Unbounded SSE connections may exhaust local server resources | Medium | Medium | `unverified` |
-| APP-012 | Shared message data has no redaction or retention policy | Medium | High | `unverified` |
-| APP-013 | Path checks may be subject to a symlink/rename race | Medium | Medium-low | `unverified` |
-| DEP-001 | Development pytest version matches a published advisory range | Moderate | High version match; unverified reachability | `unverified` |
-| REPO-001 | Effective default branch conflicts with repository documentation | Low | High | `unverified` |
-| REPO-002 | Effective default branch has no branch protection | High | High configuration fact | `unverified` |
-| REPO-003 | Dependabot alerts and security updates are disabled | Medium | High configuration fact | `unverified` |
+| APP-001 | SQLite files may inherit permissive creation modes | High | High | **mitigated** (v0.2) |
+| APP-002 | Machine identity is forgeable through the environment | High | High | **mitigated (reserved names + validation; same-user env spoofing remains by design)** (v0.2) |
+| APP-003 | Cross-recipient task access may disclose or misuse capabilities | High | High | **mitigated** (v0.2) |
+| APP-004 | Peer content crosses into model context without trust labeling | High | High | **mitigated (labeling, not a sandbox)** (v0.2) |
+| APP-005 | Machine peers can create tasks without sender authority policy | High | High | **mitigated** (v0.2) |
+| APP-006 | Guard coverage permits unsupported write-capable tool shapes | High | High | **mitigated** (v0.2) |
+| APP-007 | Guard auto-claim check and acquisition are not one decision | High | High | **fixed** (v0.2) |
+| APP-008 | Guard fails open on malformed input and internal errors | Medium | High | **mitigated (opt-in fail-closed)** (v0.2) |
+| APP-009 | Several non-web inputs lack explicit resource bounds | Medium | High | **fixed** (v0.2) |
+| APP-010 | Persistent human-authority token is carried in URLs and stdout | Medium | High | **fixed** (v0.2) |
+| APP-011 | Unbounded SSE connections may exhaust local server resources | Medium | Medium | **fixed** (v0.2) |
+| APP-012 | Shared message data has no redaction or retention policy | Medium | High | **mitigated (redaction + prune)** (v0.2) |
+| APP-013 | Path checks may be subject to a symlink/rename race | Medium | Medium-low | **accepted (documented residual race)** (v0.2) |
+| DEP-001 | Development pytest version matches a published advisory range | Moderate | High version match; unverified reachability | **fixed (pytest 9)** (v0.2) |
+| REPO-001 | Effective default branch conflicts with repository documentation | Low | High | **open (needs repo settings)** (v0.2) |
+| REPO-002 | Effective default branch has no branch protection | High | High configuration fact | **open (needs repo settings)** (v0.2) |
+| REPO-003 | Dependabot alerts and security updates are disabled | Medium | High configuration fact | **open (Dependabot config added; enable alerts in settings)** (v0.2) |
 
 ## Application candidates
 

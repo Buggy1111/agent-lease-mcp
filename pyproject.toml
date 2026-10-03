@@ -35,6 +35,7 @@ agent-lease = "agent_lease_mcp.cli:main"
 # a nepotřebuje sys.path hacky ani vědět, kde projekt leží.
 agent-lease-guard = "agent_lease_mcp.guard:main"
 # Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
+agent-lease-broker = "agent_lease_mcp.broker:main"
 agent-lease-bridge = "agent_lease_mcp.bridge:main"
 agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
 agent-lease-release = "agent_lease_mcp.lifecycle:release_main"
