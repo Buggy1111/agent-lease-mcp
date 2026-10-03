@@ -88,6 +88,23 @@ CREATE TABLE IF NOT EXISTS receipts (
     PRIMARY KEY(message_id, recipient)
 );
 
+-- Výsledky screeningu vzkazů (Jev): cache, ať se jedna zpráva neposuzuje dvakrát.
+CREATE TABLE IF NOT EXISTS screens (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    risk       REAL NOT NULL,
+    actionable REAL,
+    at         REAL NOT NULL
+);
+
+-- Vyčerpané limity agentů (kvóta poskytovatele). Dokud `until` neuplyne, agent
+-- se nepočítá jako dostupný a jeho nepřevzaté úkoly se přesouvají na náhradu.
+CREATE TABLE IF NOT EXISTS limits (
+    agent  TEXT PRIMARY KEY,
+    until  REAL NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    at     REAL NOT NULL
+);
+
 -- Audit: kdo, kdy, na co sáhl a jak to dopadlo.
 -- Celý projekt vznikl proto, že po kolizi nešlo zpětně zjistit, kdo co kdy
 -- editoval. Koordinace bez záznamu rozhodnutí by tu otázku nezodpověděla ani teď.
@@ -337,6 +354,8 @@ class Store:
         now = time.time()
         with self._connect() as con:
             rows = con.execute("SELECT * FROM agents ORDER BY seen_at DESC").fetchall()
+            limited = {r["agent"]: r["until"] for r in
+                       con.execute("SELECT agent, until FROM limits WHERE until > ?", (now,))}
         return [
             {
                 "agent": r["agent"],
@@ -344,9 +363,10 @@ class Store:
                 "cwd": r["cwd"],
                 "seen_seconds_ago": int(now - r["seen_at"]),
                 "active": r["seen_at"] >= now - stale_after,
-                "presence": _presence_state(
+                "presence": "rate-limited" if r["agent"] in limited else _presence_state(
                     r["status"], now - r["seen_at"], stale_after
                 ),
+                "limited_until": limited.get(r["agent"]),
             }
             for r in rows
         ]
@@ -506,6 +526,103 @@ class Store:
         self._signal(msg["agent"])
         return True
 
+    # ── limity a failover ────────────────────────────────────────────────────
+
+    def report_limit(self, agent: str, until: float, reason: str = "") -> None:
+        """Agent (nebo bridge) hlásí vyčerpaný limit do času `until` (epoch)."""
+        _check_agent(agent)
+        reason = redact(check_short("reason", reason))
+        until = min(until, time.time() + 7 * 86400)  # strop: týden
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO limits(agent, until, reason, at) VALUES(?,?,?,?)",
+                        (agent, until, reason, time.time()))
+            self._record(con, agent, "limit", "", f"do {int(until)}: {reason}")
+        self.failover_sweep(grace=0)  # bez čekání: kdo hlásí limit, nic nepřevezme
+
+    def clear_limit(self, agent: str) -> bool:
+        with self._connect() as con:
+            return bool(con.execute("DELETE FROM limits WHERE agent=?", (agent,)).rowcount)
+
+    def limits(self) -> list[dict]:
+        now = time.time()
+        with self._connect() as con:
+            con.execute("DELETE FROM limits WHERE until <= ?", (now,))
+            rows = con.execute("SELECT * FROM limits ORDER BY until").fetchall()
+        return [{"agent": r["agent"], "until": r["until"], "reason": r["reason"],
+                 "seconds_left": int(r["until"] - now)} for r in rows]
+
+    def is_available(self, agent: str) -> bool:
+        """Agent žije (nedávný heartbeat) a nemá vyčerpaný limit."""
+        if any(l["agent"] == agent for l in self.limits()):
+            return False
+        return any(p["agent"] == agent and p["presence"] in ("idle", "busy")
+                   for p in self.peers())
+
+    def failover_sweep(self, *, grace: int | None = None) -> list[dict]:
+        """
+        Přesune NEZAHÁJENÉ úkoly od nedostupného agenta na první dostupnou náhradu
+        z jeho řetězce (`AGENT_LEASE_FALLBACKS`). Nic nespouští ani nemaže:
+        - jen `pending` tasky (cokoli rozdělaného zůstává u svého agenta),
+        - jen po `grace` sekundách čekání (krátký výpadek nevyvolá přeskakování),
+        - odesílatel i člověk dostanou zprávu, kam úkol putuje.
+        Idempotentní; volá ho broker (každých ~15 s), bridge a hooky.
+        """
+        grace = self.settings.failover_grace if grace is None else grace
+        chains = self.settings.fallbacks
+        if not chains:
+            return []
+        now = time.time()
+        limited = {l["agent"]: l for l in self.limits()}
+        alive = {p["agent"] for p in self.peers() if p["presence"] in ("idle", "busy")}
+        moves: list[dict] = []
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            for src, chain in chains.items():
+                if src in alive and src not in limited:
+                    continue  # zdroj je v pořádku
+                target = next((c for c in chain if c in alive and c not in limited), None)
+                if not target:
+                    continue
+                rows = con.execute(
+                    "SELECT m.id, m.agent, m.text, m.sent_at FROM deliveries d "
+                    "JOIN messages m ON m.id=d.message_id "
+                    "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
+                    "AND m.sent_at <= ? AND m.agent<>?",
+                    (src, now - grace, target),
+                ).fetchall()
+                for r in rows:
+                    if con.execute("SELECT 1 FROM deliveries WHERE message_id=? AND recipient=?",
+                                   (r["id"], target)).fetchone():
+                        continue
+                    con.execute("UPDATE deliveries SET recipient=?, updated_at=? "
+                                "WHERE message_id=? AND recipient=?", (target, now, r["id"], src))
+                    con.execute("UPDATE messages SET recipient=? WHERE id=?", (target, r["id"]))
+                    con.execute("DELETE FROM receipts WHERE message_id=? AND recipient=?",
+                                (r["id"], src))
+                    why = (f"limit do {time.strftime('%H:%M', time.localtime(limited[src]['until']))}"
+                           if src in limited else "není dostupný")
+                    note = f"↪ úkol #{r['id']} přesunut {src} → {target} ({src}: {why})"
+                    for to in {r["agent"], "michal"}:
+                        con.execute(
+                            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                            "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
+                    self._record(con, "broker", "failover", "", f"#{r['id']} {src}->{target}")
+                    moves.append({"id": r["id"], "from": src, "to": target})
+        for m in moves:
+            self._signal(m["to"])
+        return moves
+
+    def get_screen(self, message_id: int) -> dict | None:
+        with self._connect() as con:
+            row = con.execute("SELECT risk, actionable FROM screens WHERE message_id=?",
+                              (message_id,)).fetchone()
+        return {"risk": float(row["risk"]), "actionable": row["actionable"]} if row else None
+
+    def set_screen(self, message_id: int, risk: float, actionable: float | None = None) -> None:
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO screens(message_id, risk, actionable, at) "
+                        "VALUES(?,?,?,?)", (message_id, risk, actionable, time.time()))
+
     def overdue(self, seconds: int = 120) -> list[dict]:
         """Adresované zprávy, které déle než `seconds` nikdo nepotvrdil (nebo ani neviděl)."""
         now = time.time()
@@ -547,8 +664,11 @@ class Store:
                 "SELECT m.*, r.seen_at FROM messages m "
                 "JOIN deliveries d ON d.message_id=m.id AND d.recipient=m.recipient "
                 "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "LEFT JOIN screens sc ON sc.message_id=m.id "
                 "WHERE m.recipient=? AND m.agent<>? AND m.kind IN ('chat','task','control') "
                 "AND d.state IN ('pending','leased') AND (r.accepted_at IS NULL) "
+                # informativní chat (Jev: akce < 30 %) se nepřipomíná; „viděl" stačí
+                "AND NOT (m.kind='chat' AND sc.actionable IS NOT NULL AND sc.actionable < 0.3) "
                 "ORDER BY m.id LIMIT ?", (recipient, recipient, limit),
             ).fetchall()
         return [

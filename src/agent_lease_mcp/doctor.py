@@ -103,6 +103,24 @@ def run_doctor() -> int:
     if shutil.which("systemctl") and os.path.exists("/run/systemd/system"):
         _line(OK, "systemd dostupný (deploy/systemd/*.service)")
 
+    from .broker import default_socket_path, ping
+    from .store import Store
+
+    sock = default_socket_path(settings)
+    _line(OK if ping(sock) else WARN,
+          f"broker běží ({sock})" if ping(sock) else "broker neběží (nástroje píšou přímo do SQLite)")
+    if settings.fallbacks:
+        _line(OK, f"řetězce náhrady při limitu: {settings.fallbacks}")
+    else:
+        _line(WARN, "AGENT_LEASE_FALLBACKS není nastaveno — při limitu agenta jeho fronta počká")
+    try:
+        for lim in Store(settings=settings).limits():
+            _line(WARN, f"{lim['agent']} má limit ještě {lim['seconds_left'] // 60} min")
+    except Exception:  # noqa: BLE001, S110
+        pass
+    jev_on = os.environ.get("AGENT_LEASE_JEV", "") in ("1", "true", "yes")
+    _line(OK if jev_on else WARN, "Jev zapnutý" if jev_on else "Jev vypnutý (volitelné, docs/JEV.md)")
+
     print()
     if problems:
         print(f"{problems} problém(ů) k opravě.")

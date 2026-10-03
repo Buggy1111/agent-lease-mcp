@@ -64,3 +64,24 @@ def untrusted(text: str, limit: int = 600) -> str:
     if len(flat) > limit:
         flat = flat[: limit - 1] + "…"
     return flat.replace("[agent-lease]", "[agent-lease\u200b]")  # zero-width: nelze zfalšovat hlavičku
+
+
+# Deterministická první linie proti vložení pokynů do cizí zprávy. Nezávislá na
+# jakémkoli modelu — Jev i LLM umí nechat pokyny uvnitř textu posunout odpověď,
+# regex ne. Schválně jen vzory „přebij pokyny" a „vynes tajemství"; obyčejné
+# `rm -rf build` v zadání od kolegy agenta nesmí vyvolat falešný poplach.
+_INJECTION = (
+    re.compile(r"(?i)\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|above|all|your)\b.{0,30}"
+               r"\b(instruction|prompt|rule|guideline)s?"),
+    re.compile(r"(?i)\b(ignoruj|zapome[ňn]|p[řr]ehlédni)\b.{0,40}\b(pokyn|instrukc|pravidl|zadání)"),
+    re.compile(r"(?i)\b(you are now|from now on you|jsi nyní|od teď jsi)\b"),
+    re.compile(r"(?i)\b(print|show|send|cat|vypiš|pošli|ukaž)\b.{0,40}(\.ssh|id_rsa|\.env\b|"
+               r"api[ _-]?key|token|password|heslo|credentials)"),
+    re.compile(r"(?i)(curl|wget)[^\n|]{0,120}\|\s*(ba|z)?sh\b"),
+    re.compile(r"(?i)\bsystem prompt\b|\bpřepiš (svá|svoje) pravidla"),
+)
+
+
+def heuristic_risk(text: str) -> float:
+    """0.0 nic nenalezeno; 0.85 při shodě s některým vzorem."""
+    return 0.85 if any(p.search(text) for p in _INJECTION) else 0.0

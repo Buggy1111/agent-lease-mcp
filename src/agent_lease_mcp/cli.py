@@ -25,6 +25,20 @@ from .config import Settings
 from .models import DeliveryState, MessageKind
 
 
+def parse_until(text: str) -> float:
+    """`+2h`, `+30m`, epoch nebo ISO čas → epoch."""
+    import re
+    from datetime import datetime
+
+    m = re.fullmatch(r"\+(\d+)([smhd])", text.strip())
+    if m:
+        return time.time() + int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    try:
+        return float(text)
+    except ValueError:
+        return datetime.fromisoformat(text).timestamp()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent-lease",
@@ -94,6 +108,14 @@ def main(argv: list[str] | None = None) -> int:
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
     p_web.add_argument("--show-token-url", action="store_true")
+
+    p_limit = sub.add_parser("limit", help="ohlásit vyčerpaný limit (úkoly se přesunou na náhradu)")
+    p_limit.add_argument("--until", default="+1h", help="+2h, +30m, ISO čas nebo epoch")
+    p_limit.add_argument("--reason", default="")
+    p_limit.add_argument("--agent", default=None)
+    p_limit.add_argument("--clear", action="store_true", help="limit už neplatí")
+
+    sub.add_parser("limits", help="aktivní limity a řetězce náhrady")
 
     p_overdue = sub.add_parser("overdue", help="zprávy, které nikdo nepotvrdil / nedoručeno")
     p_overdue.add_argument("--seconds", type=int, default=120)
@@ -170,6 +192,17 @@ def main(argv: list[str] | None = None) -> int:
         print("Odesláno. ⚠️ Druhý agent to uvidí až při svém dalším promptu, ne hned.")
 
     elif args.cmd == "send":
+        if args.recipient == "auto":
+            from . import jev
+
+            candidates = [p["agent"] for p in store.peers() if p["agent"] != me and p["active"]]
+            chosen = jev.route(args.text, candidates) if jev.enabled() else None
+            if not chosen:
+                print("auto: nelze rozhodnout (Jev vypnutý/nedostupný nebo není kandidát) — "
+                      "zadej --to <agent>.", file=sys.stderr)
+                return 1
+            args.recipient = chosen
+            print(f"auto → {chosen}")
         message_id = store.send(
             me, args.recipient, args.text, kind=args.kind,
             dedupe_key=args.dedupe_key, reply_to=args.reply_to,
@@ -251,6 +284,22 @@ def main(argv: list[str] | None = None) -> int:
 
         return web_main(["--host", args.host, "--port", str(args.port)]
                         + (["--show-token-url"] if args.show_token_url else []))
+
+    elif args.cmd == "limit":
+        who = args.agent or me
+        if args.clear:
+            print("Limit zrušen." if store.clear_limit(who) else "Žádný limit nebyl.")
+        else:
+            until = parse_until(args.until)
+            store.report_limit(who, until, args.reason)
+            print(f"Limit {who} do {time.strftime('%H:%M', time.localtime(until))}. "
+                  "Nezahájené úkoly se přesunou na náhradu (AGENT_LEASE_FALLBACKS).")
+
+    elif args.cmd == "limits":
+        rows = store.limits()
+        for r in rows:
+            print(f"{r['agent']:<14} ještě {r['seconds_left'] // 60} min  {r['reason']}")
+        print("Řetězce náhrady:", settings.fallbacks or "(nenastaveno: AGENT_LEASE_FALLBACKS)")
 
     elif args.cmd == "overdue":
         late = store.overdue(args.seconds)

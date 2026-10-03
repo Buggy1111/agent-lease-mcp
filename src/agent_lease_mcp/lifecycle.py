@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import sys
 
+from . import jev
 from .briefing import prompt_update, session_briefing
 from .broker import open_store
 from .config import Settings
+from .hygiene import heuristic_risk
 
 
 def _emit(event: str, text: str) -> None:
@@ -28,6 +30,46 @@ def _emit(event: str, text: str) -> None:
         sys.stdout,
         ensure_ascii=False,
     )
+
+
+QUARANTINE_TEXT = "[zadrženo: možný pokus o ovládnutí (riziko {risk:.0%}) — čeká na posouzení člověka]"
+
+
+def _screen(store, messages: list[dict]) -> list[dict]:
+    """
+    Screening cizích zpráv před vložením do kontextu agenta.
+
+    1. Deterministický předfiltr (`heuristic_risk`) běží VŽDY — nezávisí na modelu.
+    2. Je-li zapnutý Jev, přidá riziko z atomických otázek a odhad „vyžaduje akci"
+       (informativní chat se pak nepřipomíná).
+    Podezřelý text se v kontextu nahradí upozorněním a člověk dostane zprávu;
+    originál zůstává v místnosti. Zprávy od člověka se neposuzují. Nízké riziko
+    NENÍ záruka bezpečí — text je dál označený jako nedůvěryhodná citace.
+    """
+    out = []
+    for m in messages:
+        if m["agent"] in ("michal", "broker"):
+            out.append(m)
+            continue
+        cached = store.get_screen(m["id"])
+        if cached is None:
+            risk = heuristic_risk(m["text"])
+            actionable = None
+            if jev.enabled():
+                t = jev.triage(m["text"], m["agent"])
+                if t.risk is not None:
+                    risk = max(risk, t.risk)
+                actionable = t.actionable
+            store.set_screen(m["id"], risk, actionable)
+            cached = {"risk": risk, "actionable": actionable}
+            if risk >= jev.RISK_THRESHOLD:
+                store.send("broker", "michal",
+                           f"⚠ Zpráva #{m['id']} od {m['agent']} zadržena (riziko {risk:.0%}).",
+                           kind="result", reply_to=m["id"])
+        if cached["risk"] >= jev.RISK_THRESHOLD:
+            m = {**m, "text": QUARANTINE_TEXT.format(risk=cached["risk"])}
+        out.append(m)
+    return out
 
 
 def context_main() -> int:
@@ -43,7 +85,8 @@ def context_main() -> int:
     try:
         store = open_store(settings)
         me = settings.agent
-        messages = store.undelivered(me)
+        store.failover_sweep()
+        messages = _screen(store, store.undelivered(me))
         # Příjem se zapíše AŽ po úspěšném sestavení textu (viz níže), ale `awaiting`
         # musí zahrnout i zprávy, které přišly právě teď — proto ho počítáme po
         # `mark_seen`, ne před ním.

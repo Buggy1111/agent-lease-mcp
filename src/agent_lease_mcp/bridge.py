@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from . import jev
 from .broker import open_store
 from .config import Settings
 from .hygiene import redact
@@ -152,6 +153,7 @@ class Bridge:
     def step(self) -> bool:
         """Jeden průchod. Vrací True, pokud se něco zpracovalo."""
         self.store.heartbeat(self.agent, status="bridge: čeká na task")
+        self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
         if not self._budget_left():
             self.store.heartbeat(self.agent, status="bridge: hodinový strop dosažen")
             return False
@@ -185,6 +187,18 @@ class Bridge:
         else:
             result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
         body = redact(result.output) or "(bez výstupu)"
+        if result.ok and jev.enabled():
+            # Ověření výstupu: nesedí-li na zadání, nepovažuj ho za hotový, ať se na něj
+            # podívá člověk (needs_review). Nevíme-li (výpadek), bereme výsledek jako dosud.
+            match = jev.result_matches_task(delivery.text, result.output)
+            if match is not None and match < 0.35:
+                self.store.send(self.agent, delivery.sender,
+                                f"Task #{mid}: výstup pravděpodobně neodpovídá zadání "
+                                f"({match:.0%}), čeká na kontrolu:\n{redact(result.output)}",
+                                kind=MessageKind.RESULT, reply_to=mid)
+                self.store.ack(mid, self.agent, DeliveryState.NEEDS_REVIEW, lease_token=token,
+                               error=f"jev: shoda se zadáním {match:.0%}")
+                return True
         if result.ok:
             self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
                             kind=MessageKind.RESULT, reply_to=mid)
@@ -195,6 +209,8 @@ class Bridge:
                            error=f"rate limit, znovu po {int(result.retry_after)} s")
             self.store.retry(mid, self.agent, not_before=until)
             self.store.heartbeat(self.agent, status="rate-limited (bridge)")
+            # nahlásit limit → zbytek fronty se přesune na náhradu, ne zamrzne
+            self.store.report_limit(self.agent, until, "limit poskytovatele (bridge)")
             self.store.send(self.agent, delivery.sender,
                             f"Task #{mid} odložen: limit poskytovatele, zkusím za "
                             f"{int(result.retry_after // 60)} min.",

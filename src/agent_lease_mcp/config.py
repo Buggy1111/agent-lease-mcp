@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_TTL_SECONDS = 1800
@@ -53,6 +53,9 @@ class Settings:
     task_senders: frozenset[str] = frozenset()
     retention_days: int = RETENTION_DAYS
     fail_closed: bool = False
+    # Řetězce náhrady při vyčerpaném limitu: {"codex": ("claude-code", "openrouter")}.
+    fallbacks: dict = field(default_factory=dict, hash=False, compare=False)
+    failover_grace: int = 60
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -67,6 +70,8 @@ class Settings:
                 if x.strip()
             ),
             retention_days=_int_env("AGENT_LEASE_RETENTION_DAYS", RETENTION_DAYS),
+            fallbacks=parse_fallbacks(os.environ.get("AGENT_LEASE_FALLBACKS", "")),
+            failover_grace=_int_env("AGENT_LEASE_FAILOVER_GRACE", 60),
             fail_closed=os.environ.get("AGENT_LEASE_FAIL_CLOSED", "") in ("1", "true", "yes"),
         )
 
@@ -90,6 +95,19 @@ class Settings:
             # (ani za interní roli) a divné znaky ve jménu končí v nedůvěryhodné větvi.
             return f"untrusted-{(configured or 'x')[:16]}-{os.getpid()}"
         return configured or f"unconfigured-{socket.gethostname()[:24]}-{os.getpid()}"
+
+
+def parse_fallbacks(raw: str) -> dict[str, tuple[str, ...]]:
+    """`codex=claude-code,openrouter;claude-code=codex,openrouter` → řetězce náhrady."""
+    out: dict[str, tuple[str, ...]] = {}
+    for part in raw.split(";"):
+        if "=" not in part:
+            continue
+        agent, chain = part.split("=", 1)
+        names = tuple(n.strip() for n in chain.split(",") if n.strip())
+        if agent.strip() and names:
+            out[agent.strip()] = names
+    return out
 
 
 def _int_env(name: str, default: int) -> int:

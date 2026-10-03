@@ -19,6 +19,7 @@ import os
 import socket
 import socketserver
 import sys
+import threading
 from enum import Enum
 from pathlib import Path
 
@@ -30,7 +31,8 @@ METHODS = frozenset({
     "claim", "release", "release_all", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
     "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
     "jobs", "addressed", "lease_next", "ack", "retry", "cancel", "history", "prune", "mark_seen",
-    "accept", "awaiting_accept", "overdue", "extend_lease", "signal_mtime",
+    "accept", "awaiting_accept", "report_limit", "clear_limit", "limits", "is_available",
+    "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
 })
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
@@ -179,6 +181,18 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
+    store = server.RequestHandlerClass.store
+
+    def sweeper() -> None:
+        import time as _t
+        while True:
+            _t.sleep(15)
+            try:
+                store.failover_sweep()
+            except Exception as exc:  # noqa: BLE001 — sweep nesmí shodit broker
+                print(f"failover_sweep: {exc}", file=sys.stderr)
+
+    threading.Thread(target=sweeper, daemon=True).start()
     print(f"broker poslouchá na {path or default_socket_path(settings)} (0600)", flush=True)
     try:
         server.serve_forever()

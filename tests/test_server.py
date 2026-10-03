@@ -11,6 +11,7 @@ import pytest
 from fastmcp import Client
 
 EXPECTED_TOOLS = {
+    "report_limit",
     "accept",
     "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
     "cancel",

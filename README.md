@@ -205,6 +205,9 @@ podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissi
 | `AGENT_LEASE_FAIL_CLOSED` | vypnuto | `1` = guard při chybě/nečitelném vstupu blokuje |
 | `AGENT_LEASE_RETENTION_DAYS` | `30` | `agent-lease prune` maže dokončené starší než N dní |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | — | pro `bridge --provider openrouter` |
+| `AGENT_LEASE_FALLBACKS` | — | řetězce náhrady při limitu: `codex=claude-code,openrouter;…` |
+| `AGENT_LEASE_FAILOVER_GRACE` | `60` | jak dlouho úkol čeká, než se přesune (s) |
+| `AGENT_LEASE_JEV` | vypnuto | `1` = Jev (TypeSafe) screening/ověření/routing, viz [docs/JEV.md](docs/JEV.md) |
 
 ## Potvrzení příjmu, bridge a broker (v0.2)
 
@@ -222,6 +225,10 @@ podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissi
   `--provider openrouter --model <model>` pustí úkol na libovolný model přes
   OpenRouter (čistý text bez nástrojů, tedy bezpečně read-only; vhodné na review
   a druhý názor). Klíč jen z prostředí.
+- **Limity a failover:** dojde-li agentovi kvóta, jeho nezahájené úkoly se samy
+  přesunou na další v řetězci a odesílatel to ví — [docs/LIMITY-A-FAILOVER.md](docs/LIMITY-A-FAILOVER.md).
+- **Jev (TypeSafe AI):** volitelný rychlý rozhodovač (screening zpráv, ověření
+  výsledku, routing) — [docs/JEV.md](docs/JEV.md).
 - systemd: `deploy/systemd/`, Windows/WSL: `deploy/windows/start-bridge.ps1`.
 
 ## Struktura
@@ -263,7 +270,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 121 testů
+.venv/bin/python -m pytest tests -q     # 142 testů
 .venv/bin/python -m ruff check src tests
 ```
 

@@ -150,6 +150,19 @@ def accept(message_id: int, note: str = "") -> dict:
 
 
 @mcp.tool
+def report_limit(minutes: int = 60, reason: str = "") -> dict:
+    """
+    Dojde ti limit/kvóta? Zavolej TOHLE dřív, než skončíš.
+
+    Tvoje nezahájené úkoly se po krátké lhůtě samy přesunou na dalšího agenta
+    z řetězce náhrady a odesílatel dostane zprávu. `minutes` = odhad do resetu.
+    """
+    import time as _t
+    _store.report_limit(_settings.agent, _t.time() + max(1, minutes) * 60, reason)
+    return {"ok": True, "limited_minutes": minutes}
+
+
+@mcp.tool
 def retry(message_id: int, recipient: str, not_before: float = 0) -> dict:
     """Vrátí failed/needs_review/dead_letter doručení do pending fronty."""
     return {
