@@ -81,7 +81,7 @@ def _cli(db: Path, agent: str, *args: str, timeout=20) -> subprocess.CompletedPr
     }
     return subprocess.run(
         [sys.executable, "-m", "agent_lease_mcp.cli", *args],
-        capture_output=True, text=True, env=env, timeout=timeout,
+        capture_output=True, text=True, env=env, timeout=timeout, check=False,
     )
 
 
@@ -173,7 +173,7 @@ def test_edit_gate_is_atomic_check_and_claim(tmp_path: Path):
 
 def test_apply_patch_paths_are_all_guarded():
     patch = "*** Begin Patch\n*** Update File: a.py\n@@\n*** Add File: b.py\n+x\n*** End Patch"
-    tool, paths = extract_targets({"tool_name": "apply_patch", "tool_input": {"input": patch}})
+    _tool, paths = extract_targets({"tool_name": "apply_patch", "tool_input": {"input": patch}})
     assert paths == ["a.py", "b.py"]
     _, unknown = extract_targets({"tool_name": "mcp__fs__write_file", "tool_input": {"path": "c"}})
     assert unknown == ["c"]

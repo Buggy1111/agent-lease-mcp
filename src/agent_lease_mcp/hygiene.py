@@ -63,4 +63,4 @@ def untrusted(text: str, limit: int = 600) -> str:
     flat = " ".join(_CONTROL.sub("", text).split())
     if len(flat) > limit:
         flat = flat[: limit - 1] + "…"
-    return flat.replace("[agent-lease]", "[agent-lease​]")  # zero-width: nelze zfalšovat hlavičku
+    return flat.replace("[agent-lease]", "[agent-lease\u200b]")  # zero-width: nelze zfalšovat hlavičku

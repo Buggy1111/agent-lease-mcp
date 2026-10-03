@@ -33,7 +33,7 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
-            raise ValueError("payload není objekt")
+            raise ValueError("payload není objekt")  # noqa: TRY004
     except (json.JSONDecodeError, ValueError) as exc:
         if closed:
             print(f"[agent-lease] nečitelný vstup hooku, blokuji (fail-closed): {exc}",

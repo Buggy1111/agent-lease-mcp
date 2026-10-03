@@ -506,6 +506,39 @@ class Store:
         self._signal(msg["agent"])
         return True
 
+    def overdue(self, seconds: int = 120) -> list[dict]:
+        """Adresované zprávy, které déle než `seconds` nikdo nepotvrdil (nebo ani neviděl)."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.id, m.agent, m.recipient, m.kind, m.text, m.sent_at, "
+                "r.seen_at, r.accepted_at FROM messages m "
+                "JOIN deliveries d ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "WHERE m.kind IN ('chat','task','control') AND d.state IN ('pending','leased') "
+                "AND r.accepted_at IS NULL AND m.sent_at <= ? ORDER BY m.id",
+                (now - seconds,),
+            ).fetchall()
+        return [
+            {"id": r["id"], "from": r["agent"], "to": r["recipient"], "kind": r["kind"],
+             "text": r["text"], "waiting_seconds": int(now - r["sent_at"]),
+             "problem": "viděno, nepotvrzeno" if r["seen_at"] else "nedoručeno"}
+            for r in rows
+        ]
+
+    def extend_lease(self, message_id: int, recipient: str, lease_token: str,
+                     lease_seconds: int = 60) -> bool:
+        """Heartbeat dlouhé práce: bez něj by běžící task po vypršení lease skončil v needs_review."""
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            cur = con.execute(
+                "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
+                "AND recipient=? AND lease_token=? AND state IN ('leased','started')",
+                (time.time() + max(1, lease_seconds), time.time(), message_id, recipient,
+                 lease_token),
+            )
+        return bool(cur.rowcount)
+
     def awaiting_accept(self, recipient: str, *, limit: int = 10) -> list[dict]:
         """Adresované zprávy, které `recipient` viděl, ale ještě je nepotvrdil."""
         now = time.time()

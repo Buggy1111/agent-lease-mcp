@@ -26,10 +26,10 @@ WRITE_TOOLS = frozenset(
 
 # APP-006: neznámý nástroj, který nese cestu a jehož jméno vypadá jako zápis, se
 # bere za zápis. Jmenný seznam by jinak zastaral s každým novým klientem.
-_WRITE_NAME = re.compile(r"(edit|write|patch|create|replace|delete|remove|move|rename|append)", re.I)
-_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.M)
-_PATCH_MOVE = re.compile(r"^\*\*\* Move to: (.+?)\s*$", re.M)
-_DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.M)
+_WRITE_NAME = re.compile(r"(edit|write|patch|create|replace|delete|remove|move|rename|append)", re.IGNORECASE)
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.MULTILINE)
+_PATCH_MOVE = re.compile(r"^\*\*\* Move to: (.+?)\s*$", re.MULTILINE)
+_DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.MULTILINE)
 
 
 def is_write_tool(tool: str) -> bool:

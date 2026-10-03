@@ -93,6 +93,17 @@ def main(argv: list[str] | None = None) -> int:
     p_web = sub.add_parser("web", help="spustit lokální live chat")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
+    p_web.add_argument("--show-token-url", action="store_true")
+
+    p_overdue = sub.add_parser("overdue", help="zprávy, které nikdo nepotvrdil / nedoručeno")
+    p_overdue.add_argument("--seconds", type=int, default=120)
+
+    sub.add_parser("doctor", help="zkontrolovat instalaci, oprávnění a hooky")
+
+    p_bridge = sub.add_parser("bridge", help="autonomní worker pro frontu jednoho agenta")
+    p_bridge.add_argument("--agent", required=True)
+    p_bridge.add_argument("--command", default=None)
+    p_bridge.add_argument("--once", action="store_true")
 
     p_prune = sub.add_parser("prune", help="smazat dokončené zprávy a audit starší než N dní")
     p_prune.add_argument("--days", type=int, default=None)
@@ -102,6 +113,16 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "doctor":
+        from .doctor import run_doctor
+
+        return run_doctor()
+    if args.cmd == "bridge":
+        from .bridge import main as bridge_main
+
+        return bridge_main(["--agent", args.agent]
+                           + (["--command", args.command] if args.command else [])
+                           + (["--once"] if args.once else []))
     settings = Settings.from_env()
     store = Store(settings=settings)
     me = settings.agent
@@ -217,7 +238,17 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "web":
         from .webui import main as web_main
 
-        return web_main(["--host", args.host, "--port", str(args.port)])
+        return web_main(["--host", args.host, "--port", str(args.port)]
+                        + (["--show-token-url"] if args.show_token_url else []))
+
+    elif args.cmd == "overdue":
+        late = store.overdue(args.seconds)
+        for m in late:
+            print(f"#{m['id']:<5} {m['problem']:<20} {m['from']} → {m['to']} "
+                  f"({m['waiting_seconds']} s): {m['text'][:70]}")
+        if not late:
+            print("Nic nečeká déle než limit.")
+        return 1 if late else 0
 
     elif args.cmd == "prune":
         removed = store.prune(args.days)
