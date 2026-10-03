@@ -71,6 +71,15 @@ def main(argv: list[str] | None = None) -> int:
     p_wait.add_argument("--for", required=True, dest="recipient")
     p_wait.add_argument("--since", type=int, default=0)
     p_wait.add_argument("--timeout", type=float, default=3600)
+    p_wait.add_argument(
+        "--rewake", action="store_true",
+        help="pro asyncRewake hook: zprávu vypiš na stderr a skonči s kódem 2 (probudí session)",
+    )
+
+    p_accept = sub.add_parser("accept", help="potvrdit, že beru adresovanou zprávu/task")
+    p_accept.add_argument("message_id", type=int)
+    p_accept.add_argument("--note", default="", help="co udělám — uvidí to odesílatel")
+    p_accept.add_argument("--for", dest="recipient", default=None)
 
     p_retry = sub.add_parser("retry", help="vrátit neúspěšný task do fronty")
     p_retry.add_argument("message_id", type=int)
@@ -85,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
 
+    p_prune = sub.add_parser("prune", help="smazat dokončené zprávy a audit starší než N dní")
+    p_prune.add_argument("--days", type=int, default=None)
+
     p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
     p_hist.add_argument("--path", default=None)
     p_hist.add_argument("--limit", type=int, default=20)
@@ -96,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
-        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me))
+        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me), store.awaiting_accept(me))
         print(text or f"[agent-lease] Jsi v místnosti jako `{me}`. Nikdo další tu není a nic nového.")
 
     elif args.cmd == "claim":
@@ -131,7 +143,8 @@ def main(argv: list[str] | None = None) -> int:
             dedupe_key=args.dedupe_key, reply_to=args.reply_to,
         )
         store.heartbeat(me, cwd=os.getcwd())
-        print(f"Uloženo #{message_id} pro {args.recipient} ({args.kind}).")
+        print(f"Uloženo #{message_id} pro {args.recipient} ({args.kind}). "
+              "Příjem (viděl / beru) ti přijde zpět do místnosti.")
 
     elif args.cmd == "jobs":
         recipient = args.recipient or me
@@ -153,28 +166,50 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "wait":
         deadline = time.monotonic() + max(0, args.timeout)
+        seen_signal = 0.0
+        next_db = 0.0
         while True:
-            messages = store.addressed(args.recipient, since_id=args.since)
-            if messages:
-                for message in messages:
-                    print(
-                        f"#{message['id']} {message['kind']} "
-                        f"{message['agent']} → {message['recipient']}: {message['text']}"
-                    )
-                return 0
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            # Signální soubor se mění při každém odeslání → reakce do desetin sekundy
+            # bez dotazování DB; DB se projde i bez signálu každých 5 s (pojistka).
+            signal = store.signal_mtime(args.recipient)
+            now = time.monotonic()
+            if signal != seen_signal or now >= next_db:
+                seen_signal, next_db = signal, now + 5.0
+                messages = [
+                    m for m in store.addressed(args.recipient, since_id=args.since)
+                    if m["kind"] != "result" or args.rewake is False
+                ]
+                if args.rewake:
+                    messages = [m for m in messages if m["state"] in ("pending", "leased")
+                                or m["kind"] == "result"]
+                if messages:
+                    out = sys.stderr if args.rewake else sys.stdout
+                    for message in messages:
+                        print(
+                            f"#{message['id']} {message['kind']} "
+                            f"{message['agent']} → {message['recipient']}: {message['text']}",
+                            file=out,
+                        )
+                    return 2 if args.rewake else 0
+            if deadline - time.monotonic() <= 0:
                 return 124
-            time.sleep(min(1.0, remaining))
+            time.sleep(0.2)
+
+    elif args.cmd == "accept":
+        recipient = args.recipient or me
+        if not store.accept(args.message_id, recipient, args.note):
+            print("Nepotvrzeno: zpráva neexistuje nebo není adresovaná tobě.", file=sys.stderr)
+            return 1
+        print(f"✔ Potvrzeno #{args.message_id}. Odesílatel to ví. Teď pracuj.")
 
     elif args.cmd == "retry":
-        if not store.retry(args.message_id, args.recipient, not_before=args.not_before):
+        if not store.retry(args.message_id, args.recipient, not_before=args.not_before, actor=me):
             print("Retry odmítnut: task neexistuje nebo není v chybovém stavu.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → pending")
 
     elif args.cmd == "cancel":
-        if not store.cancel(args.message_id, args.recipient):
+        if not store.cancel(args.message_id, args.recipient, actor=me):
             print("Zrušení odmítnuto: task neexistuje nebo už skončil.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → cancelled")
@@ -183,6 +218,10 @@ def main(argv: list[str] | None = None) -> int:
         from .webui import main as web_main
 
         return web_main(["--host", args.host, "--port", str(args.port)])
+
+    elif args.cmd == "prune":
+        removed = store.prune(args.days)
+        print(f"Smazáno: {removed['messages']} zpráv, {removed['audit']} záznamů auditu.")
 
     elif args.cmd == "history":
         for e in store.history(limit=args.limit, path=args.path):

@@ -6,6 +6,7 @@ od SQLite mechaniky pod ní i od MCP slupky nad ní.
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 
@@ -22,6 +23,49 @@ WRITE_TOOLS = frozenset(
         "edit", "write", "apply_patch", "str_replace", "create_file",    # Codex
     }
 )
+
+# APP-006: neznámý nástroj, který nese cestu a jehož jméno vypadá jako zápis, se
+# bere za zápis. Jmenný seznam by jinak zastaral s každým novým klientem.
+_WRITE_NAME = re.compile(r"(edit|write|patch|create|replace|delete|remove|move|rename|append)", re.I)
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+?)\s*$", re.M)
+_PATCH_MOVE = re.compile(r"^\*\*\* Move to: (.+?)\s*$", re.M)
+_DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?(\S+)", re.M)
+
+
+def is_write_tool(tool: str) -> bool:
+    return tool in WRITE_TOOLS or bool(tool and _WRITE_NAME.search(tool))
+
+
+def extract_targets(payload: dict) -> tuple[str, list[str]]:
+    """
+    Jméno nástroje a VŠECHNY cesty, které volání mění (APP-006).
+
+    `apply_patch` nese víc souborů v jednom textu; jedna cesta by nechala
+    ostatní bez ochrany.
+    """
+    tool, single = extract_target(payload)
+    raw_input = payload.get("tool_input") or payload.get("toolInput") or payload.get("input") or {}
+    paths: list[str] = [single] if single else []
+    blobs: list[str] = []
+    if isinstance(raw_input, str):
+        blobs.append(raw_input)
+    elif isinstance(raw_input, dict):
+        for key in ("input", "patch", "diff", "command", "content_patch"):
+            value = raw_input.get(key)
+            if isinstance(value, str) and ("*** " in value or "+++ " in value):
+                blobs.append(value)
+        edits = raw_input.get("edits")
+        if isinstance(edits, list):  # MultiEdit-like tvary s cestou v položkách
+            for item in edits:
+                if isinstance(item, dict):
+                    for key in _PATH_KEYS:
+                        if isinstance(item.get(key), str) and item[key]:
+                            paths.append(item[key])
+    for blob in blobs:
+        paths += _PATCH_FILE.findall(blob) + _PATCH_MOVE.findall(blob) + _DIFF_FILE.findall(blob)
+    seen: set[str] = set()
+    return tool, [p for p in paths if not (p in seen or seen.add(p))]
+
 
 # Klíče, pod kterými klienti nesou cestu k souboru.
 _PATH_KEYS = ("file_path", "path", "filePath", "target_file", "notebook_path")
@@ -71,7 +115,7 @@ def decide(tool: str, path: str | None, holder: Claim | None, me: str) -> Decisi
     Čistá funkce: dostane stav, vrátí rozhodnutí. Nic nezapisuje — zápis
     (auto-nájem, audit) dělá volající, aby se tohle dalo testovat bez databáze.
     """
-    if tool not in WRITE_TOOLS or not path:
+    if not is_write_tool(tool) or not path:
         return Decision(verdict=Verdict.ALLOW, reason="nehlídaný nástroj")
 
     target = normalize_path(path)

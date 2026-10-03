@@ -44,17 +44,22 @@ def context_main() -> int:
         store = Store(settings=settings)
         me = settings.agent
         messages = store.undelivered(me)
+        # Příjem se zapíše AŽ po úspěšném sestavení textu (viz níže), ale `awaiting`
+        # musí zahrnout i zprávy, které přišly právě teď — proto ho počítáme po
+        # `mark_seen`, ne před ním.
+        store.mark_seen(me, [m["id"] for m in messages if m["recipient"] == me])
+        awaiting = store.awaiting_accept(me)
 
         if event == "SessionStart":
             store.heartbeat(me, status="start session")
-            text = session_briefing(me, store.peers(), store.claims(), messages)
+            text = session_briefing(me, store.peers(), store.claims(), messages, awaiting)
         else:
             # Ohlásit, že žiju, ale NEpřepsat status — ten patří `room(status=…)`.
             # Bez tohohle agent, který jede jen přes hooky (Codex nemá MCP), po
             # 15 minutách práce zmizí z místnosti jako neaktivní, i když maká;
             # druhý ho pak přestane brát v potaz. Přesně to se stalo 10.9.2026.
             store.heartbeat(me)
-            text = prompt_update(me, store.claims(), messages)
+            text = prompt_update(me, store.claims(), messages, awaiting)
 
         if messages:
             store.set_cursor(me, messages[-1]["id"])
