@@ -16,13 +16,13 @@ import os
 
 from fastmcp import FastMCP
 
+from .broker import open_store
 from .config import Settings
 from .models import DeliveryState, MessageKind
-from .store import Store
 
 mcp = FastMCP("agent-lease")
 _settings = Settings.from_env()
-_store = Store(settings=_settings)
+_store = open_store(_settings)
 
 
 @mcp.tool
@@ -137,10 +137,36 @@ def ack(message_id: int, state: str, lease_token: str | None = None, error: str 
 
 
 @mcp.tool
+def accept(message_id: int, note: str = "") -> dict:
+    """
+    Potvrď, že BEREŠ adresovanou zprávu/task — udělej to hned, PŘED prací.
+
+    Odesílatel dostane „✔ beru #id: <note>" a nemusí se ptát, jestli to vidíš.
+    `note` = jednou větou, co uděláš. Zprávu bez potvrzení ti hook připomíná
+    při každém promptu.
+    """
+    ok = _store.accept(message_id, _settings.agent, note)
+    return {"ok": ok, "id": message_id}
+
+
+@mcp.tool
+def report_limit(minutes: int = 60, reason: str = "") -> dict:
+    """
+    Dojde ti limit/kvóta? Zavolej TOHLE dřív, než skončíš.
+
+    Tvoje nezahájené úkoly se po krátké lhůtě samy přesunou na dalšího agenta
+    z řetězce náhrady a odesílatel dostane zprávu. `minutes` = odhad do resetu.
+    """
+    import time as _t
+    _store.report_limit(_settings.agent, _t.time() + max(1, minutes) * 60, reason)
+    return {"ok": True, "limited_minutes": minutes}
+
+
+@mcp.tool
 def retry(message_id: int, recipient: str, not_before: float = 0) -> dict:
     """Vrátí failed/needs_review/dead_letter doručení do pending fronty."""
     return {
-        "ok": _store.retry(message_id, recipient, not_before=not_before),
+        "ok": _store.retry(message_id, recipient, not_before=not_before, actor=_settings.agent),
         "id": message_id,
         "state": "pending",
     }
@@ -150,7 +176,7 @@ def retry(message_id: int, recipient: str, not_before: float = 0) -> dict:
 def cancel(message_id: int, recipient: str) -> dict:
     """Zruší nedokončené doručení bez odstranění jeho historie."""
     return {
-        "ok": _store.cancel(message_id, recipient),
+        "ok": _store.cancel(message_id, recipient, actor=_settings.agent),
         "id": message_id,
         "state": "cancelled",
     }

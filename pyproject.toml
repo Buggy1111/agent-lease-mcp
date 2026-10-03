@@ -1,6 +1,6 @@
 [project]
 name = "agent-lease-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server that keeps two coding agents (Claude Code, Codex) off each other's files — hook-enforced path leases, presence and a shared message log."
 authors = [{ name = "Michal Bugy", email = "michalbugy12@gmail.com" }]
 readme = "README.md"
@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8,<9",
+    "pytest>=9,<10",
     "pytest-asyncio>=0.23,<2",
     "ruff>=0.5,<1",
 ]
@@ -35,6 +35,8 @@ agent-lease = "agent_lease_mcp.cli:main"
 # a nepotřebuje sys.path hacky ani vědět, kde projekt leží.
 agent-lease-guard = "agent_lease_mcp.guard:main"
 # Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
+agent-lease-broker = "agent_lease_mcp.broker:main"
+agent-lease-bridge = "agent_lease_mcp.bridge:main"
 agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
 agent-lease-release = "agent_lease_mcp.lifecycle:release_main"
 # Fáze 2b: lokální loopback live chat nad stejnou DB (viz docs/AGENT-BRIDGE-DEEP-RESEARCH.md).

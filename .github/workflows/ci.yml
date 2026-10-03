@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [main, master, "auto/**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --extra dev --frozen
+      - run: uv run ruff check src tests
+      - run: uv run pytest -q
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx pip-audit --requirement <(uv export --frozen --no-hashes --no-emit-project) || true
+        shell: bash

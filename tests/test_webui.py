@@ -80,7 +80,6 @@ def test_index_and_snapshot_require_token(live_chat):
     port, token, _ = live_chat
 
     assert request(port, "GET", "/")[0] == 403
-    assert request(port, "GET", f"/?token={token}")[0] == 200
     assert request(port, "GET", "/api/snapshot")[0] == 403
     assert request(port, "GET", "/api/snapshot", token=token)[0] == 200
 
@@ -222,3 +221,52 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     assert status == 200
     assert json.loads(raw)["state"] == "pending"
     assert store.jobs("codex")[0]["state"] == "pending"
+
+
+def test_token_is_exchanged_for_cookie_session_and_leaves_the_url(live_chat):
+    import http.client
+    port, token, _ = live_chat
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", f"/?token={token}")
+    resp = conn.getresponse()
+    resp.read()
+    assert resp.status == 303 and resp.getheader("Location") == "/"
+    cookie = resp.getheader("Set-Cookie")
+    assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    sid = cookie.split(";")[0].split("=", 1)[1]
+    conn.close()
+
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", "/", headers={"Cookie": f"al_session={sid}"})
+    page = conn.getresponse()
+    body = page.read().decode()
+    assert page.status == 200 and token not in body and sid in body
+    conn.close()
+
+    # session v hlavičce stačí pro API, trvalý token se v UI vůbec neobjeví
+    assert request(port, "GET", "/api/snapshot", token=sid)[0] == 200
+    assert request(port, "GET", "/api/events?token=" + token)[0] == 403  # SSE jen přes cookie
+    assert request(port, "GET", "/api/snapshot", token="forged")[0] == 403
+
+
+def test_sse_slots_are_bounded(live_chat):
+    import http.client
+    port, token, _ = live_chat
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    conn.request("GET", f"/?token={token}")
+    r = conn.getresponse(); r.read()
+    sid = r.getheader("Set-Cookie").split(";")[0].split("=", 1)[1]
+    streams = []
+    try:
+        for _ in range(8):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            c.request("GET", "/api/events", headers={"Cookie": f"al_session={sid}"})
+            assert c.getresponse().status == 200
+            streams.append(c)
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("GET", "/api/events", headers={"Cookie": f"al_session={sid}"})
+        assert c.getresponse().status == 429
+        c.close()
+    finally:
+        for c in streams:
+            c.close()

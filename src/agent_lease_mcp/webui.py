@@ -23,7 +23,9 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -33,6 +35,8 @@ from .models import MessageKind
 from .store import Store
 
 WEB_AGENT = "michal"
+MAX_SSE_CLIENTS = 8
+SESSION_SECONDS = 12 * 3600
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 
@@ -87,6 +91,24 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
         f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"
     }
 
+    # APP-010: trvalý token se vymění za krátkou session v HttpOnly cookie hned
+    # při prvním otevření a z URL zmizí (přesměrování). Stránka i API pak používají
+    # jen session, takže trvalý token nezůstane v historii, referreru ani v DOM.
+    sessions: dict[str, float] = {}
+    sse_slots = threading.BoundedSemaphore(MAX_SSE_CLIENTS)  # APP-011
+
+    def _new_session() -> str:
+        now = time.time()
+        for sid in [k for k, exp in sessions.items() if exp < now]:
+            del sessions[sid]
+        sid = secrets.token_urlsafe(24)
+        sessions[sid] = now + SESSION_SECONDS
+        return sid
+
+    def _session_valid(sid: str) -> bool:
+        exp = sessions.get(sid)
+        return bool(exp) and exp >= time.time()
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "agent-lease-webui/0.1"
@@ -101,9 +123,19 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.send_header("Cache-Control", "no-store")
 
         # ── autentizace ─────────────────────────────────────────────────
+        def _cookie_session(self) -> str:
+            jar = SimpleCookie(self.headers.get("Cookie", ""))
+            return jar["al_session"].value if "al_session" in jar else ""
+
         def _bearer_ok(self) -> bool:
             header = self.headers.get("X-Agent-Lease-Token", "")
-            return bool(header) and secrets.compare_digest(header, token)
+            if not header:
+                return False
+            return secrets.compare_digest(header, token) or _session_valid(header)
+
+        def _cookie_ok(self) -> bool:
+            sid = self._cookie_session()
+            return bool(sid) and _session_valid(sid)
 
         def _query_token_ok(self, qs: dict[str, list[str]]) -> bool:
             values = qs.get("token", [])
@@ -150,9 +182,22 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         # ── handlery ────────────────────────────────────────────────────
         def _handle_index(self, qs: dict[str, list[str]]) -> None:
-            if not self._query_token_ok(qs):
-                return self._reject(403, "chybí nebo sedí špatný ?token=")
-            body = PAGE_HTML.replace("__TOKEN__", html.escape(qs["token"][0])).encode("utf-8")
+            if self._query_token_ok(qs):
+                # výměna trvalého tokenu za session + přesměrování bez tokenu v URL
+                sid = _new_session()
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.send_header(
+                    "Set-Cookie",
+                    f"al_session={sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_SECONDS}",
+                )
+                self._security_headers()
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if not self._cookie_ok():
+                return self._reject(403, "otevři adresu z `agent-lease web --show-token-url`")
+            body = PAGE_HTML.replace("__TOKEN__", html.escape(self._cookie_session())).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self._security_headers()
@@ -180,6 +225,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 ),
                 "peers": store.peers(),
                 "claims": [c.as_dict() for c in store.claims()],
+                "board": store.board(),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -267,8 +313,16 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._json_response({"id": message_id, "state": "cancelled"})
 
         def _handle_events(self, qs: dict[str, list[str]]) -> None:
-            if not self._query_token_ok(qs):
-                return self._reject(403, "bad token")
+            if not self._cookie_ok():
+                return self._reject(403, "bad session")
+            if not sse_slots.acquire(blocking=False):
+                return self._reject(429, "příliš mnoho otevřených streamů")
+            try:
+                self._stream_events(qs)
+            finally:
+                sse_slots.release()
+
+        def _stream_events(self, qs: dict[str, list[str]]) -> None:
             # Last-Event-ID má přednost před ?since= — to je to, co prohlížeč
             # pošle sám při reconnectu, a je to spolehlivější než náš JS.
             last_event_id = self.headers.get("Last-Event-ID")
@@ -302,6 +356,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         room = {
                             "peers": store.peers(),
                             "claims": [c.as_dict() for c in store.claims()],
+                            "board": store.board(),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -477,6 +532,7 @@ PAGE_HTML = """<!doctype html>
 </style>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
+  <div class="section"><h3>Přehled</h3><div id="board"></div></div>
   <div class="section"><h3>Přítomnost</h3><div id="peers"></div></div>
   <div class="section"><h3>Nájmy</h3><div id="claims"></div></div>
 </div>
@@ -549,12 +605,17 @@ function renderMessage(m) {
   div.className = "msg";
   const to = m.recipient && m.recipient !== "*" ? `<span class="arrow">→</span> ${esc(m.recipient)}` : "";
   const state = m.state ? `<span class="state ${esc(m.state)}">${esc(m.state)}</span>` : "";
+  // Příjem: ⏳ ještě nedorazilo do kontextu · 👁 viděl · ✔ bere (a co udělá)
+  const rcpt = (m.recipient && m.recipient !== "*" && m.kind !== "result" && m.agent !== "broker")
+    ? (m.accepted ? `<span class="state succeeded">✔ bere${m.accept_note ? ": " + esc(m.accept_note) : ""}</span>`
+       : m.seen ? `<span class="state started">👁 viděl, čeká na potvrzení</span>`
+       : `<span class="state pending">⏳ zatím nedorazilo</span>`) : "";
   div.innerHTML =
     `<div class="meta">` +
       `<span class="pill kind-${esc(m.kind || "chat")}">${esc(m.kind || "chat")}</span>` +
       `<span class="who">${esc(m.agent)}</span> ${to}` +
       `<span>· ${ago(m.seconds_ago)}</span>` +
-      state +
+      state + rcpt +
     `</div>` +
     `<div class="text">${esc(m.text)}</div>`;
   if (m.kind === "task" && m.recipient && m.state) {
@@ -577,7 +638,19 @@ function renderMessage(m) {
   if (fresh) { feed.appendChild(div); feed.scrollTop = feed.scrollHeight; }
 }
 
+function renderBoard(rows) {
+  const el = document.getElementById("board");
+  el.innerHTML = (rows || []).map(b => {
+    const lim = b.limited_until ? `<span class="state failed">⏸ limit do ${new Date(b.limited_until * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>` : "";
+    const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "volný")}</div>`;
+    const q = b.queued ? `<span class="state pending">fronta ${b.queued}${b.unaccepted ? " · nepotvrzeno " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · čeká " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
+    const rv = b.needs_review ? `<span class="state failed">ke kontrole ${b.needs_review}</span>` : "";
+    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}<div class="row">${lim}${q}${rv}</div></div>`;
+  }).join("") || "<div class='empty'>nikdo tu není</div>";
+}
+
 function renderRoom(r) {
+  renderBoard(r.board);
   (r.messages || []).forEach(renderMessage);
   peersEl.innerHTML = (r.peers || []).map(p => `
     <div class="peer">
@@ -586,7 +659,7 @@ function renderRoom(r) {
       </div>
       <div class="who">
         <div class="agent">${esc(p.agent)}</div>
-        <div class="task">${esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
+        <div class="task">${p.limited_until ? "⏸ limit do " + new Date(p.limited_until * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
       </div>
     </div>`).join("") || "<div class='empty'>nikdo tu není</div>";
   claimsEl.innerHTML = (r.claims || []).map(c => `
@@ -598,7 +671,7 @@ function renderRoom(r) {
 }
 
 function connect(since) {
-  const es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN) + "&since=" + since);
+  const es = new EventSource("/api/events?since=" + since);
   es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
   es.addEventListener("room", e => renderRoom(JSON.parse(e.data)));
   es.onopen = () => updateStatus("live");
@@ -642,16 +715,19 @@ document.getElementById("text").addEventListener("keydown", e => { if (e.key ===
 """
 
 
-def run(host: str = "127.0.0.1", port: int = 8765) -> int:
+def run(host: str = "127.0.0.1", port: int = 8765, show_token_url: bool = False) -> int:
     settings = Settings.from_env()
     store = Store(settings=settings)
     token = load_or_create_token(settings)
     handler = make_handler(store, settings, token, port)
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
-    url = f"http://{host}:{port}/?token={token}"
-    print(f"Live chat na {url}")
-    print("Token je uložený vedle DB (webui.token, 0600) — nesdílej ho, je to plná autorita 'michal'.")
+    print(f"Live chat na http://{host}:{port}/")
+    if show_token_url:
+        print(f"Přihlášení (jednorázově otevři v prohlížeči): http://{host}:{port}/?token={token}")
+    else:
+        print(f"Přihlašovací URL: `agent-lease web --show-token-url`; token je v {_token_path(settings)} (0600).")
+    print("Token = plná autorita 'michal' — nesdílej ho.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -665,11 +741,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-lease-webui", description="Lokální live chat nad agent-lease")
     parser.add_argument("--host", default="127.0.0.1", help="jen loopback — nikdy 0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--show-token-url", action="store_true",
+                        help="vypsat přihlašovací URL s tokenem (jinak se netiskne)")
     args = parser.parse_args(argv)
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("Odmítnuto: live chat smí poslouchat jen na loopbacku.", file=sys.stderr)
         return 2
-    return run(args.host, args.port)
+    return run(args.host, args.port, args.show_token_url)
 
 
 if __name__ == "__main__":
