@@ -49,8 +49,8 @@ def run_simulation(out=print) -> bool:
         step("codex získá soubor", st.edit_gate(f, "codex") is None)
         step("claude-code je zablokován", st.edit_gate(f, "claude-code") is not None)
         out("5) Codexu dojde limit")
-        busy = st.send("michal", "codex", "Rozdělaný refaktor", kind="task")
-        lease = st.lease_next("codex")
+        lease = st.lease_next("codex")  # nejstarší čekající = úkol z kroku 1, který právě rozdělá
+        busy = lease.message_id
         st.ack(busy, "codex", "started", lease_token=lease.lease_token)
         mid2 = st.send("michal", "codex", "Napiš dokumentaci", kind="task")
         st.report_limit("codex", time.time() + 7200, "simulovaný limit")
