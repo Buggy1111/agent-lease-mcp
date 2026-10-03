@@ -118,6 +118,7 @@ uv sync
 agent-lease init claude-code --write --rewake   # zapíše všechny hooky, uloží zálohu .bak
 agent-lease init codex --write
 export AGENT_LEASE_FALLBACKS="codex=claude-code;claude-code=codex"   # failover při limitu
+agent-lease simulate                              # 2 s: přehraje celý scénář v dočasné DB
 agent-lease doctor                                # ověří, že to opravdu funguje
 agent-lease web --show-token-url                  # živý chat
 ```
@@ -242,6 +243,11 @@ podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissi
   přesunou na další v řetězci a odesílatel to ví — [docs/LIMITY-A-FAILOVER.md](docs/LIMITY-A-FAILOVER.md).
 - **Jev (TypeSafe AI):** volitelný rychlý rozhodovač (screening zpráv, ověření
   výsledku, routing) — [docs/JEV.md](docs/JEV.md).
+- **Přehled „kdo co dělá"** je v panelu live chatu (aktivní úkol, fronta, nepotvrzené,
+  limity, ke kontrole). **Telegram:** `agent-lease notify --loop` pošle jen to, co čeká
+  na člověka (nepotvrzené déle než 5 min, přesun kvůli limitu, zadržená zpráva,
+  úkol ke kontrole), každou událost nejvýš jednou; `TELEGRAM_BOT_TOKEN` +
+  `TELEGRAM_CHAT_ID` jen z prostředí, `--dry` pro nanečisto.
 - systemd: `deploy/systemd/`, Windows/WSL: `deploy/windows/start-bridge.ps1`.
 
 ## Struktura
@@ -283,7 +289,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 152 testů
+.venv/bin/python -m pytest tests -q     # 157 testů
 .venv/bin/python -m ruff check src tests
 ```
 

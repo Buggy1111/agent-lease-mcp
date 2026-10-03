@@ -11,6 +11,7 @@
 - **Jev (volitelně):** atomické otázky, confidence gating, deterministický předfiltr proti injekci; informativní chat se nepřipomíná.
 - `agent-lease init` zapíše hooky (idempotentně, se zálohou); e2e scénář s reálnými podprocesy a brokerem; zátěžové testy souběhu.
 - Opravy z revize: failover neokrádá spícího agenta (offline lhůta, heartbeat v `wait`), přesunutý úkol dorazí i za kurzorem cíle, užší heuristika injekce.
+- `simulate` (2s ověření po instalaci), `notify` (Telegram, deduplikace, opakování při selhání), panel Přehled v live chatu.
 - CI (3 verze Pythonu, ruff, pytest), Dependabot, pytest 9.
 
 ## 0.1.0

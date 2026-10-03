@@ -105,6 +105,12 @@ CREATE TABLE IF NOT EXISTS limits (
     at     REAL NOT NULL
 );
 
+-- Co už šlo na Telegram/notifikace, ať se nic neposílá dvakrát.
+CREATE TABLE IF NOT EXISTS notified (
+    key TEXT PRIMARY KEY,
+    at  REAL NOT NULL
+);
+
 -- Audit: kdo, kdy, na co sáhl a jak to dopadlo.
 -- Celý projekt vznikl proto, že po kolizi nešlo zpětně zjistit, kdo co kdy
 -- editoval. Koordinace bez záznamu rozhodnutí by tu otázku nezodpověděla ani teď.
@@ -623,6 +629,67 @@ class Store:
         for m in moves:
             self._signal(m["to"])
         return moves
+
+    def mark_notified(self, key: str) -> bool:
+        """True, pokud je to poprvé (a tedy se má poslat)."""
+        with self._connect() as con:
+            return bool(con.execute("INSERT OR IGNORE INTO notified(key, at) VALUES(?,?)",
+                                    (key, time.time())).rowcount)
+
+    def unmark_notified(self, key: str) -> None:
+        with self._connect() as con:
+            con.execute("DELETE FROM notified WHERE key=?", (key,))
+
+    def needs_review_list(self, limit: int = 20) -> list[dict]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.id, m.recipient, m.text, d.last_error, d.updated_at FROM deliveries d "
+                "JOIN messages m ON m.id=d.message_id WHERE d.state IN "
+                "('needs_review','dead_letter','failed') ORDER BY m.id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return [{"id": r["id"], "to": r["recipient"], "text": r["text"],
+                 "error": r["last_error"], "updated_at": r["updated_at"]} for r in rows]
+
+    def recent_audit(self, actions: tuple[str, ...], since_id: int = 0, limit: int = 50) -> list[dict]:
+        marks = ",".join("?" * len(actions))
+        with self._connect() as con:
+            rows = con.execute(
+                f"SELECT id, at, agent, action, path, detail FROM audit WHERE id>? "
+                f"AND action IN ({marks}) ORDER BY id LIMIT ?", (since_id, *actions, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def board(self) -> list[dict]:
+        """Přehled „kdo co dělá": agent → přítomnost, limit, aktivní úkol, fronta, nepotvrzené."""
+        now = time.time()
+        peers = {p["agent"]: p for p in self.peers()}
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT d.recipient, d.state, d.message_id, m.text, m.agent AS sender, "
+                "m.sent_at, r.accepted_at FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "LEFT JOIN receipts r ON r.message_id=d.message_id AND r.recipient=d.recipient "
+                "WHERE d.state IN ('pending','leased','started','needs_review') "
+                "AND m.kind IN ('task','chat','control') ORDER BY d.message_id"
+            ).fetchall()
+            names = set(peers) | {r["recipient"] for r in rows}
+        board = []
+        for name in sorted(names):
+            mine = [r for r in rows if r["recipient"] == name]
+            active = next((r for r in mine if r["state"] in ("started", "leased")), None)
+            board.append({
+                "agent": name,
+                "presence": peers.get(name, {}).get("presence", "offline"),
+                "status": peers.get(name, {}).get("status", ""),
+                "limited_until": peers.get(name, {}).get("limited_until"),
+                "active": ({"id": active["message_id"], "text": active["text"][:120],
+                            "from": active["sender"]} if active else None),
+                "queued": sum(r["state"] == "pending" for r in mine),
+                "unaccepted": sum(r["state"] == "pending" and not r["accepted_at"] for r in mine),
+                "needs_review": sum(r["state"] == "needs_review" for r in mine),
+                "oldest_wait_s": int(now - min((r["sent_at"] for r in mine
+                                                if r["state"] == "pending"), default=now)),
+            })
+        return board
 
     def get_screen(self, message_id: int) -> dict | None:
         with self._connect() as con:

@@ -225,6 +225,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 ),
                 "peers": store.peers(),
                 "claims": [c.as_dict() for c in store.claims()],
+                "board": store.board(),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -355,6 +356,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         room = {
                             "peers": store.peers(),
                             "claims": [c.as_dict() for c in store.claims()],
+                            "board": store.board(),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -530,6 +532,7 @@ PAGE_HTML = """<!doctype html>
 </style>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
+  <div class="section"><h3>Přehled</h3><div id="board"></div></div>
   <div class="section"><h3>Přítomnost</h3><div id="peers"></div></div>
   <div class="section"><h3>Nájmy</h3><div id="claims"></div></div>
 </div>
@@ -635,7 +638,19 @@ function renderMessage(m) {
   if (fresh) { feed.appendChild(div); feed.scrollTop = feed.scrollHeight; }
 }
 
+function renderBoard(rows) {
+  const el = document.getElementById("board");
+  el.innerHTML = (rows || []).map(b => {
+    const lim = b.limited_until ? `<span class="state failed">⏸ limit do ${new Date(b.limited_until * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span>` : "";
+    const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "volný")}</div>`;
+    const q = b.queued ? `<span class="state pending">fronta ${b.queued}${b.unaccepted ? " · nepotvrzeno " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · čeká " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
+    const rv = b.needs_review ? `<span class="state failed">ke kontrole ${b.needs_review}</span>` : "";
+    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}<div class="row">${lim}${q}${rv}</div></div>`;
+  }).join("") || "<div class='empty'>nikdo tu není</div>";
+}
+
 function renderRoom(r) {
+  renderBoard(r.board);
   (r.messages || []).forEach(renderMessage);
   peersEl.innerHTML = (r.peers || []).map(p => `
     <div class="peer">

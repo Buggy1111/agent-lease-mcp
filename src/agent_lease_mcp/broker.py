@@ -31,7 +31,7 @@ METHODS = frozenset({
     "claim", "release", "release_all", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
     "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
     "jobs", "addressed", "lease_next", "ack", "retry", "cancel", "history", "prune", "mark_seen",
-    "accept", "awaiting_accept", "report_limit", "clear_limit", "limits", "is_available",
+    "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
 })
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}

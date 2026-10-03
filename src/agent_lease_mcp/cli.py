@@ -128,6 +128,13 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--write", action="store_true", help="skutečně zapsat (jinak jen ukázat)")
     p_init.add_argument("--rewake", action="store_true", help="přidat probuzení spící session")
 
+    sub.add_parser("simulate", help="přehrát celý scénář v dočasné DB (ověření po instalaci)")
+
+    p_notify = sub.add_parser("notify", help="Telegram upozornění na to, co čeká na člověka")
+    p_notify.add_argument("--dry", action="store_true")
+    p_notify.add_argument("--loop", action="store_true")
+    p_notify.add_argument("--overdue", type=int, default=300)
+
     sub.add_parser("doctor", help="zkontrolovat instalaci, oprávnění a hooky")
 
     p_bridge = sub.add_parser("bridge", help="autonomní worker pro frontu jednoho agenta")
@@ -145,6 +152,15 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "simulate":
+        from .simulate import run_simulation
+
+        return 0 if run_simulation() else 1
+    if args.cmd == "notify":
+        from .notifier import main as notify_main
+
+        return notify_main((["--dry"] if args.dry else []) + (["--loop"] if args.loop else [])
+                           + ["--overdue", str(args.overdue)])
     if args.cmd == "init":
         from .init_cmd import run_init
 
