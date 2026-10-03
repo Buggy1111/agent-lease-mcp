@@ -123,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     p_broker = sub.add_parser("broker", help="spustit broker (jediný writer SQLite, Unix socket 0600)")
     p_broker.add_argument("--socket", default=None)
 
+    p_init = sub.add_parser("init", help="zapsat hooky do nastavení klienta (idempotentně, se zálohou)")
+    p_init.add_argument("agent", choices=["claude-code", "codex"])
+    p_init.add_argument("--write", action="store_true", help="skutečně zapsat (jinak jen ukázat)")
+    p_init.add_argument("--rewake", action="store_true", help="přidat probuzení spící session")
+
     sub.add_parser("doctor", help="zkontrolovat instalaci, oprávnění a hooky")
 
     p_bridge = sub.add_parser("bridge", help="autonomní worker pro frontu jednoho agenta")
@@ -140,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "init":
+        from .init_cmd import run_init
+
+        return run_init(args.agent, write=args.write, rewake=args.rewake)
     if args.cmd == "doctor":
         from .doctor import run_doctor
 

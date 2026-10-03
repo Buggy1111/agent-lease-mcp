@@ -111,6 +111,19 @@ Injekce **mlčí, když není co říct.** Vstřikovat stav při každém prompt
 šum, agent by to začal přeskakovat a jsme zpátky u nástěnky, do které se nikdo
 nedívá.
 
+## Rychlý start (2 minuty)
+
+```bash
+uv sync
+agent-lease init claude-code --write --rewake   # zapíše všechny hooky, uloží zálohu .bak
+agent-lease init codex --write
+export AGENT_LEASE_FALLBACKS="codex=claude-code;claude-code=codex"   # failover při limitu
+agent-lease doctor                                # ověří, že to opravdu funguje
+agent-lease web --show-token-url                  # živý chat
+```
+
+`init` bez `--write` jen ukáže, co by zapsal. Ruční nastavení a vysvětlení níže.
+
 ## Instalace
 
 ```bash
@@ -270,7 +283,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 142 testů
+.venv/bin/python -m pytest tests -q     # 152 testů
 .venv/bin/python -m ruff check src tests
 ```
 

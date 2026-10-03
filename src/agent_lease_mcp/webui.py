@@ -644,7 +644,7 @@ function renderRoom(r) {
       </div>
       <div class="who">
         <div class="agent">${esc(p.agent)}</div>
-        <div class="task">${esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
+        <div class="task">${p.limited_until ? "⏸ limit do " + new Date(p.limited_until * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
       </div>
     </div>`).join("") || "<div class='empty'>nikdo tu není</div>";
   claimsEl.innerHTML = (r.claims || []).map(c => `
