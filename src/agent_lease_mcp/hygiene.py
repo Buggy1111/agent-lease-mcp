@@ -76,7 +76,7 @@ _INJECTION = (
     re.compile(r"(?i)\b(ignoruj|zapome[ňn]|p[řr]ehlédni)\b.{0,40}\b(pokyn|instrukc|pravidl|zadání)"),
     re.compile(r"(?i)\b(you are now|from now on you|jsi nyní|od teď jsi)\b"),
     re.compile(r"(?i)\b(print|show|send|cat|vypiš|pošli|ukaž)\b.{0,40}(\.ssh|id_rsa|\.env\b|"
-               r"api[ _-]?key|token|password|heslo|credentials)"),
+               r"api[ _-]?key|private key|credentials|soukrom[ýy] kl[íi][čc])"),
     re.compile(r"(?i)(curl|wget)[^\n|]{0,120}\|\s*(ba|z)?sh\b"),
     re.compile(r"(?i)\bsystem prompt\b|\bpřepiš (svá|svoje) pravidla"),
 )

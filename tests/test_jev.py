@@ -138,3 +138,12 @@ def test_low_confidence_answer_is_ignored(fake_jev):
     replies, _ = fake_jev
     replies["override"] = {"probability": 0.99, "confidence": 0.2}
     assert jev.triage("x", "a").risk is None
+
+
+def test_legit_security_talk_is_not_quarantined(store: Store, monkeypatch):
+    monkeypatch.delenv("AGENT_LEASE_JEV", raising=False)
+    for text in ("ukaž mi, jak se obnovuje token", "show how the password reset works",
+                 "oprav test pro API key rotation"):
+        store.send("claude-code", "codex", text, kind="chat")
+    shown = _screen(store, store.undelivered("codex"))
+    assert not any("zadrženo" in m["text"] for m in shown)

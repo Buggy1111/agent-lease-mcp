@@ -14,7 +14,7 @@ from agent_lease_mcp.store import Store
 def store(tmp_path: Path) -> Store:
     fb = parse_fallbacks("codex=claude-code,openrouter;claude-code=codex,openrouter")
     s = Store(tmp_path / "r.db", settings=Settings(tmp_path / "r.db", "x", 1800, fallbacks=fb,
-                                                   failover_grace=0))
+                                                   failover_grace=0, offline_grace=0))
     for a in ("codex", "claude-code", "openrouter"):
         s.heartbeat(a, status="")
     return s
@@ -95,3 +95,33 @@ def test_agent_sender_and_human_are_both_told(store: Store):
     store.report_limit("codex", time.time() + 3600)
     to = {m["recipient"] for m in store.inbox() if m["agent"] == "broker"}
     assert {"helper", "michal"} <= to
+
+
+def test_rerouted_task_reaches_target_even_when_its_cursor_is_ahead(store: Store):
+    mid = store.send("michal", "codex", "dlouhý úkol", kind="task")
+    for i in range(5):  # claude-code mezitím spotřeboval novější zprávy → kurzor za #mid
+        store.send("michal", "claude-code", f"šum {i}", kind="chat")
+    store.set_cursor("claude-code", store.inbox()[-1]["id"])
+    store.report_limit("codex", time.time() + 3600)
+    seen = [m["text"] for m in store.undelivered("claude-code")]
+    assert any("dlouhý úkol" in t and f"#{mid}" in t for t in seen)
+
+
+def test_sleeping_agent_is_not_robbed_of_fresh_task(tmp_path: Path):
+    import sqlite3
+    fb = parse_fallbacks("codex=claude-code")
+    s = Store(tmp_path / "r.db", settings=Settings(tmp_path / "r.db", "x", 1800, fallbacks=fb,
+                                                   failover_grace=0, offline_grace=900))
+    s.heartbeat("claude-code")
+    s.heartbeat("codex")
+    con = sqlite3.connect(s.db_path)
+    con.execute("UPDATE agents SET seen_at = seen_at - 3000 WHERE agent='codex'")  # spí ~50 min
+    con.commit()
+    con.close()
+    mid = s.send("michal", "codex", "t", kind="task")
+    assert s.failover_sweep() == []  # úkol je čerstvý, codex jen dlouho nic neřekl
+    con = sqlite3.connect(s.db_path)
+    con.execute("UPDATE messages SET sent_at = sent_at - 1000")
+    con.commit()
+    con.close()
+    assert [m["id"] for m in s.failover_sweep()] == [mid]  # po dlouhém mlčení už ano

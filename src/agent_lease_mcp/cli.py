@@ -233,11 +233,16 @@ def main(argv: list[str] | None = None) -> int:
         deadline = time.monotonic() + max(0, args.timeout)
         seen_signal = 0.0
         next_db = 0.0
+        next_beat = 0.0
         while True:
             # Signální soubor se mění při každém odeslání → reakce do desetin sekundy
             # bez dotazování DB; DB se projde i bez signálu každých 5 s (pojistka).
             signal = store.signal_mtime(args.recipient)
             now = time.monotonic()
+            if me == args.recipient and now >= next_beat:
+                # spící čekatel nesmí vypadat jako offline (jinak by mu failover bral úkoly)
+                store.heartbeat(me)
+                next_beat = now + 60.0
             if signal != seen_signal or now >= next_db:
                 seen_signal, next_db = signal, now + 5.0
                 messages = [

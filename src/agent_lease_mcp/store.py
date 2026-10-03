@@ -588,7 +588,10 @@ class Store:
                     "JOIN messages m ON m.id=d.message_id "
                     "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
                     "AND m.sent_at <= ? AND m.agent<>?",
-                    (src, now - grace, target),
+                    # Explicitní limit = krátká lhůta. Pouhé „nedává znamení" = dlouhá:
+                    # agent může spát v `wait` a úkol si vzít, jakmile ho probudíme.
+                    (src, now - (grace if src in limited
+                                 else max(grace, self.settings.offline_grace)), target),
                 ).fetchall()
                 for r in rows:
                     if con.execute("SELECT 1 FROM deliveries WHERE message_id=? AND recipient=?",
@@ -606,6 +609,15 @@ class Store:
                         con.execute(
                             "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
                             "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
+                    snippet = " ".join(r["text"].split())[:400]
+                    handover = (f"↪ Převzal jsi úkol #{r['id']} od {src} ({why}), "
+                                f"zadal {r['agent']}: {snippet}")
+                    # Nový příjemce dostane ZPRÁVU S NOVÝM ID: původní úkol má staré id,
+                    # které může být za kurzorem cíle, a do jeho kontextu by se nikdy nevložilo.
+                    con.execute(
+                        "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                        "VALUES('broker',?,?,?,'result',?)",
+                        (handover, now, target, r["id"]))
                     self._record(con, "broker", "failover", "", f"#{r['id']} {src}->{target}")
                     moves.append({"id": r["id"], "from": src, "to": target})
         for m in moves:

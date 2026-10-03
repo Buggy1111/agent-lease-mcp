@@ -56,6 +56,8 @@ class Settings:
     # Řetězce náhrady při vyčerpaném limitu: {"codex": ("claude-code", "openrouter")}.
     fallbacks: dict = field(default_factory=dict, hash=False, compare=False)
     failover_grace: int = 60
+    # Agent bez limitu, který jen dlouho nedal znamení (spí v `wait`), se předbíhat nesmí hned.
+    offline_grace: int = 900
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -72,6 +74,7 @@ class Settings:
             retention_days=_int_env("AGENT_LEASE_RETENTION_DAYS", RETENTION_DAYS),
             fallbacks=parse_fallbacks(os.environ.get("AGENT_LEASE_FALLBACKS", "")),
             failover_grace=_int_env("AGENT_LEASE_FAILOVER_GRACE", 60),
+            offline_grace=_int_env("AGENT_LEASE_OFFLINE_GRACE", 900),
             fail_closed=os.environ.get("AGENT_LEASE_FAIL_CLOSED", "") in ("1", "true", "yes"),
         )
 
