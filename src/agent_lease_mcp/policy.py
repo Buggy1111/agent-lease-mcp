@@ -72,7 +72,7 @@ def decide(tool: str, path: str | None, holder: Claim | None, me: str) -> Decisi
     (auto-nájem, audit) dělá volající, aby se tohle dalo testovat bez databáze.
     """
     if tool not in WRITE_TOOLS or not path:
-        return Decision(verdict=Verdict.ALLOW, reason="nehlídaný nástroj")
+        return Decision(verdict=Verdict.ALLOW, reason="unguarded tool")
 
     target = normalize_path(path)
 
@@ -80,16 +80,16 @@ def decide(tool: str, path: str | None, holder: Claim | None, me: str) -> Decisi
         return Decision(verdict=Verdict.AUTO_CLAIMED, path=target)
 
     if holder.agent == me:
-        return Decision(verdict=Verdict.ALLOW, path=target, reason="už je můj")
+        return Decision(verdict=Verdict.ALLOW, path=target, reason="already mine")
 
     return Decision(
         verdict=Verdict.DENY,
         path=target,
         blocked_by=holder,
         reason=(
-            f"[agent-lease] {Path(target).name} má rozpracovaný {holder.agent}"
-            f" ({holder.purpose or 'bez popisu'}), nájem vyprší za {holder.expires_in} s.\n"
-            f"Nesahej na něj. Vezmi si jinou práci, nebo se ozvi přes `say`."
+            f"[agent-lease] {Path(target).name} is being worked on by {holder.agent}"
+            f" ({holder.purpose or 'no description'}); the lease expires in {holder.expires_in} s.\n"
+            f"Do not touch it. Take other work, or ask via `say`/`send`."
         ),
     )
 

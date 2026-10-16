@@ -60,7 +60,7 @@ def context_main() -> int:
             store.set_cursor(me, messages[-1]["id"])
         _emit(event, text)
     except Exception as exc:  # noqa: BLE001
-        print(f"[agent-lease] kontext se nepodařilo načíst: {exc}", file=sys.stderr)
+        print(f"[agent-lease] could not load room context: {exc}", file=sys.stderr)
     return 0
 
 
@@ -77,9 +77,9 @@ def release_main() -> int:
     try:
         released = Store(settings=settings).release_all(settings.agent)
         if released:
-            print(f"[agent-lease] uvolněno {len(released)} nájmů", file=sys.stderr)
+            print(f"[agent-lease] released {len(released)} lease(s)", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001
-        print(f"[agent-lease] uvolnění selhalo: {exc}", file=sys.stderr)
+        print(f"[agent-lease] release failed: {exc}", file=sys.stderr)
     return 0
 
 

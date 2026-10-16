@@ -50,7 +50,7 @@ class TestHardBlockAlwaysActive:
         code, msg = evaluate(bash("rm -rf /"), classify=fail_if_called)
 
         assert code == 2
-        assert msg is not None and "natvrdo" in msg
+        assert msg is not None and "hard rule" in msg
 
     def test_blocks_even_when_jev_enabled(self, monkeypatch, tmp_path):
         monkeypatch.setenv("JEV_GUARD_ENABLED", "true")
@@ -154,7 +154,7 @@ class TestEnforceMode:
         code, msg = evaluate(bash("neco"), classify=broken)
 
         assert code == 0
-        assert msg is not None and "nedostupný" in msg
+        assert msg is not None and "unavailable" in msg
 
 
 def _hook_env(db: Path) -> dict:
@@ -177,7 +177,7 @@ def test_entrypoint_blocks_hard_rule_via_stdin(tmp_path: Path):
     )
 
     assert result.returncode == 2
-    assert "natvrdo" in result.stderr
+    assert "hard rule" in result.stderr
 
 
 def test_entrypoint_safe_command_passes_via_stdin(tmp_path: Path):

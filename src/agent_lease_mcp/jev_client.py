@@ -48,7 +48,7 @@ class JevAnswer:
 def classify_command(command: str) -> JevAnswer:
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not api_key:
-        raise JevError("chybí TYPESAFE_API_KEY")
+        raise JevError("TYPESAFE_API_KEY is not set")
 
     body = json.dumps(
         {
@@ -74,19 +74,19 @@ def classify_command(command: str) -> JevAnswer:
         with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             raw = response.read()
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise JevError(f"síť selhala: {exc}") from exc
+        raise JevError(f"network error: {exc}") from exc
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise JevError(f"nevalidní JSON: {exc}") from exc
+        raise JevError(f"invalid JSON: {exc}") from exc
 
     try:
         value = payload["answers"]["is_destructive"]["noul"]
     except (KeyError, TypeError) as exc:
-        raise JevError(f"neočekávaný tvar odpovědi: {exc}") from exc
+        raise JevError(f"unexpected response shape: {exc}") from exc
 
     if not isinstance(value, (int, float)):
-        raise JevError(f"noul není číslo: {value!r}")
+        raise JevError(f"noul is not a number: {value!r}")
 
     return JevAnswer(p_destructive=float(value))

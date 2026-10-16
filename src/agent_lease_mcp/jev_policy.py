@@ -45,15 +45,15 @@ _HARD_BLOCK_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             r"\brm\s+(?:(?:-{1,2}[\w-]+|--)\s+)*?"
             r"(?:-{1,2}[\w-]+\s+)*['\"]?(/|/\*|~/?|\$HOME/?|\.)['\"]?\s*(?:[;&|#]|$)"
         ),
-        "rm -rf na kořen, home nebo aktuální adresář",
+        "rm -rf on root, home or the current directory",
     ),
-    (re.compile(r"--no-preserve-root"), "rm bez ochrany kořene"),
+    (re.compile(r"--no-preserve-root"), "rm without root protection"),
     (re.compile(r"\bgit\s+push\b.*(\s-\w*f\w*\b|--force\b|\s\+[\w./-]+)"), "force push"),
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "git reset --hard"),
     (re.compile(r"\bchmod\s+-R\s+777\b"), "chmod -R 777"),
     (re.compile(r"\bcurl\b[^|]*\|\s*(sudo\s+)?(bash|sh)\b"), "curl | shell"),
     (re.compile(r"\bwget\b[^|]*\|\s*(sudo\s+)?(bash|sh)\b"), "wget | shell"),
-    (re.compile(r"\bdd\s+[^\n]*\bof=/dev/"), "dd přímo na blokové zařízení"),
+    (re.compile(r"\bdd\s+[^\n]*\bof=/dev/"), "dd straight onto a block device"),
     (re.compile(r"\bmkfs(\.\w+)?\b"), "mkfs"),
     (re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomba"),
 )
@@ -83,9 +83,9 @@ def decide_from_jev(p_destructive: float, threshold: float, enforce: bool) -> Gu
         return GuardDecision(
             GuardVerdict.BLOCK,
             reason=(
-                f"[jev-guard] Jev hodnotí příkaz jako destruktivní "
-                f"(p={p_destructive:.2f}, práh={threshold:.2f}). "
-                f"Pokud je to omyl, zeptej se Michala nebo sniž JEV_GUARD_THRESHOLD."
+                f"[jev-guard] the classifier rates this command as destructive "
+                f"(p={p_destructive:.2f}, threshold={threshold:.2f}). "
+                f"If this is wrong, ask the human or raise JEV_GUARD_THRESHOLD."
             ),
             source="jev",
         )

@@ -16,7 +16,10 @@ from pathlib import Path
 DEFAULT_TTL_SECONDS = 1800
 MAX_TTL_SECONDS = 8 * 3600
 STALE_PEER_SECONDS = 900
-RESERVED_HUMAN_AGENT = "michal"
+# Jméno člověka v místnosti. Vyhrazené: smí ho použít jen autentizované web UI,
+# agent se za člověka vydávat nesmí. Michalova instalace: AGENT_LEASE_HUMAN=michal.
+HUMAN_AGENT = os.environ.get("AGENT_LEASE_HUMAN", "human").strip() or "human"
+RESERVED_HUMAN_AGENT = HUMAN_AGENT
 
 # Meze vstupů (APP-009). Místnost je lokální, ale jeden zacyklený agent ji umí
 # zahltit stejně dobře jako útočník — a negativní LIMIT v SQLite znamená „vše".

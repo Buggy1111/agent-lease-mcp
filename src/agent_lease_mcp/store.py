@@ -211,7 +211,7 @@ class Store:
         ttl = max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
         purpose = _short(purpose)
         if not paths or len(paths) > MAX_LIST_LIMIT:
-            raise ValueError(f"claim chce 1–{MAX_LIST_LIMIT} cest")
+            raise ValueError(f"claim needs 1–{MAX_LIST_LIMIT} paths")
         now = time.time()
         wanted = [normalize_path(p) for p in paths]
 
@@ -224,7 +224,7 @@ class Store:
             conflicts = self._conflicts(con, wanted, agent)
             if conflicts:
                 for c in conflicts:
-                    self._record(con, agent, "claim-refused", c.path, f"drží {c.agent}")
+                    self._record(con, agent, "claim-refused", c.path, f"held by {c.agent}")
                 return ClaimResult(granted=[], conflicts=conflicts)
 
             for path in wanted:
@@ -362,13 +362,13 @@ class Store:
         kind_value = MessageKind(kind).value
         recipient = recipient.strip()
         if not recipient:
-            raise ValueError("recipient nesmí být prázdný")
+            raise ValueError("recipient must not be empty")
         if not text.strip():
-            raise ValueError("text nesmí být prázdný")
+            raise ValueError("text must not be empty")
         if len(text) > MAX_TEXT_CHARS:
-            raise ValueError(f"text je delší než {MAX_TEXT_CHARS} znaků")
+            raise ValueError(f"text is longer than {MAX_TEXT_CHARS} characters")
         if len(recipient) > 200 or (dedupe_key and len(dedupe_key) > 200):
-            raise ValueError("recipient/dedupe_key je příliš dlouhý")
+            raise ValueError("recipient/dedupe_key is too long")
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")

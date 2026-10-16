@@ -40,7 +40,7 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         if _fail_closed():
-            print("[agent-lease] nerozumím vstupu hooku, blokuji (fail-closed)", file=sys.stderr)
+            print("[agent-lease] unreadable hook input, blocking (fail-closed)", file=sys.stderr)
             return EXIT_BLOCK
         return 0  # nerozumím vstupu → pustit dál, ne blokovat naslepo
     if not isinstance(payload, dict):
@@ -93,9 +93,9 @@ def main() -> int:
         # pomocníka by se stala překážka a první, co by kdokoli udělal, je vypnout
         # hook. Selhání je vidět na stderr.
         if _fail_closed():
-            print(f"[agent-lease] hook selhal, blokuji (fail-closed): {exc}", file=sys.stderr)
+            print(f"[agent-lease] hook failed, blocking (fail-closed): {exc}", file=sys.stderr)
             return EXIT_BLOCK
-        print(f"[agent-lease] hook selhal, pouštím dál: {exc}", file=sys.stderr)
+        print(f"[agent-lease] hook failed, letting the call through: {exc}", file=sys.stderr)
 
     return 0
 

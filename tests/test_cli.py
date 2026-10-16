@@ -105,12 +105,14 @@ def test_cancel_command(db: Path):
 
 
 def test_cli_cannot_impersonate_human_identity(db: Path, monkeypatch):
-    monkeypatch.setenv("AGENT_NAME", "michal")
+    from agent_lease_mcp.config import HUMAN_AGENT
+
+    monkeypatch.setenv("AGENT_NAME", HUMAN_AGENT)
 
     assert main(["say", "jsem člověk"]) == 0
 
     sender = Store(db).inbox()[0]["agent"]
-    assert sender.startswith("untrusted-michal-")
+    assert sender.startswith(f"untrusted-{HUMAN_AGENT}-")
 
 
 def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):

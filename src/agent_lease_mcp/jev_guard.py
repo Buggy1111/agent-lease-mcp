@@ -103,8 +103,8 @@ def evaluate(payload: dict, classify=classify_command) -> tuple[int, str | None]
             }
         )
         return EXIT_BLOCK, (
-            f"[jev-guard] natvrdo zablokováno: {reason}. "
-            f"Pokud je to opravdu potřeba, zeptej se Michala přímo."
+            f"[jev-guard] blocked by a hard rule: {reason}. "
+            f"If this is really needed, ask the human directly."
         )
 
     if os.environ.get("JEV_GUARD_ENABLED", "false").lower() != "true":
@@ -119,7 +119,7 @@ def evaluate(payload: dict, classify=classify_command) -> tuple[int, str | None]
         answer: JevAnswer = classify(redact(command))
     except JevError as exc:
         _log({"ts": time.time(), "command": redact(command), "source": "jev-error", "error": str(exc)})
-        return 0, f"[jev-guard] Jev nedostupný, pouštím dál: {exc}"
+        return 0, f"[jev-guard] classifier unavailable, letting the call through: {exc}"
 
     decision = decide_from_jev(answer.p_destructive, threshold=threshold, enforce=enforce)
     _log(
