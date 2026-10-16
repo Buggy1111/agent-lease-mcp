@@ -95,9 +95,22 @@ class TestShellWriteTargets:
             ("ls > /dev/null", []),
             ("git commit -m 'a > b'", []),
             ("python x.py", []),
+            ("sudo tee f.txt", ["f.txt"]),
+            ("env A=1 B=2 tee g.txt", ["g.txt"]),
+            ("bash -c 'echo x > i.txt'", ["i.txt"]),
+            ("nohup python x.py > k.log", ["k.log"]),
         ],
     )
     def test_recognised_shapes(self, command, expected):
         from agent_lease_mcp.policy import shell_write_targets
 
         assert shell_write_targets(command) == expected
+
+
+def test_script_target_sees_through_wrappers(tmp_path, monkeypatch):
+    from agent_lease_mcp.policy import script_target
+
+    (tmp_path / "x.sh").write_text("echo")
+    monkeypatch.chdir(tmp_path)
+    assert script_target("sudo bash x.sh") == "x.sh"
+    assert script_target("env A=1 bash x.sh") == "x.sh"

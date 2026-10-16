@@ -99,6 +99,8 @@ def decide(tool: str, path: str | None, holder: Claim | None, me: str) -> Decisi
 # 9. 9. 2026 způsobil škodu: jeden agent skript SPOUŠTĚL, druhý ho zároveň
 # EDITOVAL. Bash čte skript průběžně, takže se mu text posunul pod rukama.
 # Spouštěný soubor si proto na dobu běhu bereme do nájmu.
+# Příkazy, které jen spouští další příkaz — skutečný příkaz je až za nimi.
+_WRAPPERS = frozenset({"sudo", "env", "command", "nice", "nohup", "time", "exec", "doas", "stdbuf"})
 _RUNNERS = frozenset({"bash", "sh", "zsh", "python", "python3", "node", "npx", "uv", "poetry"})
 _SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".js", ".mjs", ".cjs", ".ts", ".ps1")
 
@@ -115,6 +117,8 @@ def script_target(command: str) -> str | None:
         tokens = shlex.split(command)
     except ValueError:
         return None
+    while tokens and (Path(tokens[0]).name in _WRAPPERS or "=" in tokens[0]):
+        tokens = tokens[1:]  # `sudo bash x.sh`, `env A=1 ./x.sh`
     if not tokens:
         return None
 
@@ -137,10 +141,19 @@ def script_target(command: str) -> str | None:
 # blokuje se výhradně skutečná kolize.
 _SEPARATORS = frozenset({";", "&&", "||", "|", "&", "(", ")"})
 _REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
+_MAX_NESTING = 3
 
 
-def shell_write_targets(command: str) -> list[str]:
-    """Cesty, do kterých příkaz zjevně zapíše. Prázdný seznam, když nevím."""
+def shell_write_targets(command: str, _depth: int = 0) -> list[str]:
+    """
+    Cesty, do kterých příkaz zjevně zapíše. Prázdný seznam, když nevím.
+
+    ⚠️ Best effort proti omylu, ne hranice proti agentovi, který se snaží
+    obejít hook — shell se úplně rozparsovat nedá (`eval`, proměnné, aliasy).
+    """
+    if _depth > _MAX_NESTING:
+        return []
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
         lexer.whitespace_split = True
@@ -152,9 +165,23 @@ def shell_write_targets(command: str) -> list[str]:
     segment: list[str] = []
 
     def flush() -> None:
+        # Obaly (`sudo`, `env A=1`, `nohup`…) a přiřazení proměnných před
+        # příkazem přeskočit; `bash -c "…"` projít rekurzivně.
+        while segment and (
+            Path(segment[0]).name in _WRAPPERS
+            or ("=" in segment[0] and not segment[0].startswith(("-", "=")))
+            or (segment[0].startswith("-") and len(segment) > 1)
+        ):
+            segment.pop(0)
         if not segment:
             return
         name = Path(segment[0]).name
+        if name in _SHELLS and "-c" in segment[1:]:
+            idx = segment.index("-c")
+            if idx + 1 < len(segment):
+                targets.extend(shell_write_targets(segment[idx + 1], _depth + 1))
+            segment.clear()
+            return
         args = [t for t in segment[1:] if not t.startswith("-")]
         flags = [t for t in segment[1:] if t.startswith("-")]
         if name == "tee":
