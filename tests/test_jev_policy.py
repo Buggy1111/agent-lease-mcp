@@ -6,6 +6,8 @@ posune se práh), takže musí jít ověřit rychle.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_lease_mcp.jev_policy import GuardVerdict, decide_from_jev, hard_block
 
 
@@ -97,3 +99,24 @@ class TestDecideFromJev:
         d = decide_from_jev(p_destructive=0.91, threshold=0.5, enforce=True)
         assert "0.91" in d.reason
         assert "0.50" in d.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["rm -r -f /", "rm --recursive --force ~", 'rm -rf "/"', "sudo rm -fr /", "git push origin +main"],
+)
+def test_hard_block_catches_spelling_variants(command):
+    assert hard_block(command)
+
+
+@pytest.mark.parametrize("command", ["rm -rf ./build", "rm -rf /tmp/x", "git push -u origin feat"])
+def test_hard_block_stays_narrow(command):
+    assert hard_block(command) is None
+
+
+def test_redact_masks_secrets_and_keeps_shape():
+    from agent_lease_mcp.jev_policy import redact
+
+    out = redact('curl -H "Authorization: Bearer abc123" https://u:pw@x.io API_KEY=sk-abcdefghijklmnopqrstu')
+    assert "abc123" not in out and "pw@" not in out and "sk-abc" not in out
+    assert out.startswith("curl -H")

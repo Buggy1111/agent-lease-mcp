@@ -39,11 +39,16 @@ class GuardDecision:
 # falešný blok by agenta naučil hook obcházet.
 _HARD_BLOCK_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"\brm\s+-\w*[rf]\w*[rf]?\w*\s+(/\s*(?:#.*)?$|/\*|~\s*$|~/\s*$|\.\s*$)"),
+        # Volby v libovolném tvaru (`-rf`, `-r -f`, `--recursive --force`) a cíl
+        # kořen, home nebo aktuální adresář — i v uvozovkách nebo s `--`.
+        re.compile(
+            r"\brm\s+(?:(?:-{1,2}[\w-]+|--)\s+)*?"
+            r"(?:-{1,2}[\w-]+\s+)*['\"]?(/|/\*|~/?|\$HOME/?|\.)['\"]?\s*(?:[;&|#]|$)"
+        ),
         "rm -rf na kořen, home nebo aktuální adresář",
     ),
     (re.compile(r"--no-preserve-root"), "rm bez ochrany kořene"),
-    (re.compile(r"\bgit\s+push\b.*(-f\b|--force\b)"), "force push"),
+    (re.compile(r"\bgit\s+push\b.*(\s-\w*f\w*\b|--force\b|\s\+[\w./-]+)"), "force push"),
     (re.compile(r"\bgit\s+reset\s+--hard\b"), "git reset --hard"),
     (re.compile(r"\bchmod\s+-R\s+777\b"), "chmod -R 777"),
     (re.compile(r"\bcurl\b[^|]*\|\s*(sudo\s+)?(bash|sh)\b"), "curl | shell"),
@@ -85,3 +90,25 @@ def decide_from_jev(p_destructive: float, threshold: float, enforce: bool) -> Gu
             source="jev",
         )
     return GuardDecision(GuardVerdict.ALLOW, source="jev")
+
+
+# Tajné hodnoty, které nesmí do logu ani k externímu klasifikátoru. Úzké a
+# konzervativní: radši zamaskovat o něco víc, než pustit klíč ven.
+_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?i)(authorization:\s*(?:bearer|basic|token)\s+)[^\s'\"]+"),
+    re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|key)[\w-]*\s*[=:]\s*)['\"]?[^\s'\"]+"),
+    re.compile(r"(?i)(--(?:password|token|api-key|secret)[= ]\s*)[^\s'\"]+"),
+    re.compile(r"(://[^/\s:@]+:)[^@\s/]+(@)"),
+    re.compile(r"()\b(?:sk-[\w-]{16,}|gh[pousr]_\w{20,}|xox[abp]-[\w-]{10,}|AKIA[0-9A-Z]{16}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+)"),
+)
+MAX_LOGGED_COMMAND = 2000
+
+
+def redact(command: str) -> str:
+    """Příkaz se zamaskovanými tajnými hodnotami, oříznutý na rozumnou délku."""
+    out = command
+    for pattern in _SECRET_PATTERNS:
+        out = pattern.sub(lambda m: m.group(1) + "***" + (m.group(2) if m.re.groups >= 2 else ""), out)
+    if len(out) > MAX_LOGGED_COMMAND:
+        out = out[:MAX_LOGGED_COMMAND] + "…"
+    return out

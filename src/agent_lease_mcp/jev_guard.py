@@ -20,6 +20,12 @@ Chování, jakmile je tenhle hook zapojený v settings.json:
   doporučuje zdrojová dokumentace (bod 6, krok 2).
 - na chybu Jevu (síť, timeout, špatná odpověď) hook fail-open pustí dál,
   stejně jako lease `guard.py` — rozbitá klasifikace nesmí zastavit práci.
+- Jev je pravděpodobnostní a příkaz je text od agenta: dá se ho přesvědčit
+  (prompt injection v komentáři příkazu) a v shadow režimu nic neblokuje.
+  Je to doplňková vrstva na šedou zónu, NIKDY jediná ochrana — jistá rizika
+  řeší deterministická pravidla výš a sandbox klienta.
+- do logu i k Jevu jde příkaz se zamaskovanými tajnými hodnotami
+  (`jev_policy.redact`), log je `0600`.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ import time
 from pathlib import Path
 
 from .jev_client import JevAnswer, JevError, classify_command
-from .jev_policy import decide_from_jev, hard_block
+from .jev_policy import decide_from_jev, hard_block, redact
 
 EXIT_BLOCK = 2
 
@@ -45,8 +51,12 @@ def _log_path() -> Path:
 def _log(entry: dict) -> None:
     try:
         path = _log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Log obsahuje příkazy (i zamaskované prozradí, na čem se pracuje) — jen
+        # pro vlastníka, stejně jako room.db a webui.token.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        os.chmod(path, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError:
         pass  # logování nesmí shodit hook
@@ -86,7 +96,7 @@ def evaluate(payload: dict, classify=classify_command) -> tuple[int, str | None]
         _log(
             {
                 "ts": time.time(),
-                "command": command,
+                "command": redact(command),
                 "source": "hard-rule",
                 "verdict": "block",
                 "reason": reason,
@@ -104,16 +114,18 @@ def evaluate(payload: dict, classify=classify_command) -> tuple[int, str | None]
     threshold = _float_env("JEV_GUARD_THRESHOLD", 0.5)
 
     try:
-        answer: JevAnswer = classify(command)
+        # Ven jde jen zamaskovaný příkaz: klíče z příkazové řádky nemají co
+        # dělat u třetí strany.
+        answer: JevAnswer = classify(redact(command))
     except JevError as exc:
-        _log({"ts": time.time(), "command": command, "source": "jev-error", "error": str(exc)})
+        _log({"ts": time.time(), "command": redact(command), "source": "jev-error", "error": str(exc)})
         return 0, f"[jev-guard] Jev nedostupný, pouštím dál: {exc}"
 
     decision = decide_from_jev(answer.p_destructive, threshold=threshold, enforce=enforce)
     _log(
         {
             "ts": time.time(),
-            "command": command,
+            "command": redact(command),
             "p_destructive": answer.p_destructive,
             "threshold": threshold,
             "source": decision.source,

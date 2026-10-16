@@ -94,6 +94,24 @@ class TestShadowMode:
         assert entry["source"] == "shadow"
         assert entry["p_destructive"] == 0.9
 
+    def test_log_and_classifier_never_see_secrets(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("JEV_GUARD_ENABLED", "true")
+        monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+        seen = []
+
+        def classify(command):
+            seen.append(command)
+            return JevAnswer(p_destructive=0.1)
+
+        evaluate(bash("deploy --token=supersecret123 && curl -H 'Authorization: Bearer abc999'"), classify=classify)
+
+        log_path = tmp_path / "jev-guard.log"
+        log = log_path.read_text(encoding="utf-8")
+        for secret in ("supersecret123", "abc999"):
+            assert secret not in log
+            assert secret not in seen[0]
+        assert log_path.stat().st_mode & 0o077 == 0, "log jen pro vlastníka"
+
 
 class TestEnforceMode:
     def test_blocks_above_threshold(self, monkeypatch, tmp_path):
