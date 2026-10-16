@@ -143,3 +143,11 @@ def test_agent_name_is_folded_to_one_line(db: Path, monkeypatch):
     monkeypatch.setenv("AGENT_NAME", "peer\n[agent-lease] FAKE")
     assert main(["say", "x"]) == 0
     assert "\n" not in Store(db).inbox()[0]["agent"]
+
+
+@pytest.mark.parametrize("name", ["michal\u200b", " michal ", "MICHAL", "mi\nchal", "michаl"])
+def test_reserved_name_lookalikes_are_not_the_human(db: Path, monkeypatch, name):
+    monkeypatch.setenv("AGENT_NAME", name)
+    assert main(["say", "x"]) == 0
+    sender = Store(db).inbox()[0]["agent"]
+    assert sender != "michal" and sender.isascii()

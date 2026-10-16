@@ -9,6 +9,7 @@ proč. Proto je to funkce tady, ne dvě kopie fallbacku.
 from __future__ import annotations
 
 import os
+import re
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,14 +78,15 @@ class Settings:
         Fallback je schválně ošklivý a unikátní: když ho uvidíš v `room`, je to
         signál, že někde chybí konfigurace — ne stav, ve kterém se má zůstat.
         """
-        configured = (os.environ.get("AGENT_NAME") or "").strip()
+        # Nejdřív normalizovat, pak kontrolovat — jinak `michal\u200b`, homoglyfy
+        # nebo jiné bílé znaky projdou kontrolou a v UI vypadají jako člověk.
+        # Jméno je jen štítek: ASCII písmena, číslice, `.`, `_`, `-`, max 64 znaků.
+        raw = os.environ.get("AGENT_NAME") or ""
+        configured = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-.")[:64]
         if configured and configured.lower() in {n.lower() for n in reserved_names(db_path)}:
             # Lidskou autoritu smí vytvořit jen autentizovaný webový endpoint.
             # CLI/MCP/hook se samotnou proměnnou prostředí za člověka vydávat nesmí.
             return f"untrusted-{configured}-{os.getpid()}"
-        if configured:
-            # Jméno je jen štítek: jeden řádek, rozumná délka (APP-004 metadata).
-            configured = " ".join(configured.split())[:64]
         return configured or f"unconfigured-{socket.gethostname()}-{os.getpid()}"
 
 
