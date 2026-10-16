@@ -15,7 +15,7 @@ from threading import Thread
 import pytest
 
 from agent_lease_mcp import webui
-from agent_lease_mcp.config import Settings
+from agent_lease_mcp.config import Settings, human_name
 from agent_lease_mcp.store import Store
 from agent_lease_mcp.webui import (
     MAX_SSE_CONNECTIONS,
@@ -230,7 +230,7 @@ def test_send_is_authenticated_and_sender_is_not_client_controlled(live_chat):
     assert status == 200
     message_id = json.loads(raw)["id"]
     message = next(item for item in store.inbox() if item["id"] == message_id)
-    assert message["agent"] == "michal"
+    assert message["agent"] == human_name(store.db_path)
     assert message["recipient"] == "codex"
     assert message["kind"] == "task"
 
@@ -351,7 +351,7 @@ def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeyp
     captured = capsys.readouterr()
     assert "fallback-secret" not in captured.out
     assert captured.err.count("fallback-secret") == 1
-    assert "VAROVÁNÍ" in captured.err
+    assert "WARNING" in captured.err
 
 
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
@@ -381,7 +381,7 @@ def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path:
     assert status == 200
     assert json.loads(raw)["id"]
     message = store.latest_messages(1)[0]
-    assert message["agent"] == "michal"
+    assert message["agent"] == human_name(store.db_path)
     assert message["recipient"] == "codex"
     assert message["kind"] == "task"
 
@@ -400,7 +400,7 @@ def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path)
 
     assert status == 200
     payload = json.loads(raw)
-    assert payload["me"] == "michal"
+    assert payload["me"] == human_name(store.db_path)
     assert payload["messages"][0]["text"] == "ahoj"
     assert payload["messages"][0]["state"] == "pending"
 
@@ -454,3 +454,17 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     assert status == 200
     assert json.loads(raw)["state"] == "pending"
     assert store.jobs("codex")[0]["state"] == "pending"
+
+
+def test_web_ui_creates_owner_only_human_name_file(tmp_path, monkeypatch):
+    """Jméno člověka zakládá web UI vedle DB (0600); agent ho přes env nezmění."""
+    import stat
+
+    from agent_lease_mcp.config import Settings
+    from agent_lease_mcp.webui import ensure_human_name
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    name = ensure_human_name(Settings.from_env())
+    f = tmp_path / "human-name"
+    assert f.read_text() == name
+    assert stat.S_IMODE(f.stat().st_mode) == 0o600

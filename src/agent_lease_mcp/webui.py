@@ -12,7 +12,7 @@ ne jeho náhrada. Proto žádné nové závislosti: jen stdlib `http.server`.
 
 Identita `michal`: tenhle proces je jediné místo, které smí zprávy posílat
 pod jménem `michal` (viz doc řádek 95). Klient token pošle, ale odesílatele
-si nevybírá — je napevno `WEB_AGENT`.
+si nevybírá — je to jméno z `human-name` vedle DB (viz `ensure_human_name`).
 """
 
 from __future__ import annotations
@@ -30,11 +30,10 @@ from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from urllib.parse import parse_qs, urlsplit
 
-from .config import Settings
+from .config import HUMAN_AGENT, HUMAN_NAME_FILE, Settings, human_name
 from .models import MessageKind
 from .store import Store
 
-WEB_AGENT = "michal"
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 SESSION_COOKIE = "agent_lease_session"
@@ -93,7 +92,26 @@ def _sse_heartbeat() -> bytes:
     return b": heartbeat\n\n"
 
 
+def ensure_human_name(settings: Settings) -> str:
+    """
+    Jméno člověka pro místnost, uložené vedle DB (0600). Zakládá ho jen web UI —
+    agenti ho čtou, ale přes vlastní prostředí ho změnit nemohou.
+    """
+    path = settings.db_path.parent / HUMAN_NAME_FILE
+    if not path.exists():
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            pass
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(HUMAN_AGENT)
+    return human_name(settings.db_path)
+
+
 def make_handler(store: Store, settings: Settings, token: str, port: int):
+    web_agent = ensure_human_name(settings)
     allowed_origins = {
         f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"
     }
@@ -224,9 +242,9 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             try:
                 since = max(0, int(qs.get("since", ["0"])[0]))
             except ValueError:
-                return self._reject(400, "since musí být celé číslo")
+                return self._reject(400, "since must be an integer")
             payload = {
-                "me": WEB_AGENT,
+                "me": web_agent,
                 "messages": (
                     store.inbox(since_id=since, limit=200)
                     if since else store.latest_messages(limit=200)
@@ -245,16 +263,16 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
         def _read_json(self) -> dict | None:
             length = int(self.headers.get("Content-Length", "0") or "0")
             if length <= 0 or length > 8192:
-                self._reject(400, "prázdné nebo příliš dlouhé tělo")
+                self._reject(400, "empty or too long body")
                 return None
             raw = self.rfile.read(length)
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                self._reject(400, "špatný JSON")
+                self._reject(400, "invalid JSON")
                 return None
             if not isinstance(data, dict):
-                self._reject(400, "JSON tělo musí být objekt")
+                self._reject(400, "JSON body must be an object")
                 return None
             return data
 
@@ -275,17 +293,17 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             kind = str(data.get("kind", "chat"))
             recipient = str(data.get("to", "") or "").strip()
             if not text:
-                return self._reject(400, "prázdný text")
+                return self._reject(400, "empty text")
             try:
                 kind_enum = MessageKind(kind)
             except ValueError:
-                return self._reject(400, f"neznámý kind: {kind}")
+                return self._reject(400, f"unknown kind: {kind}")
             if kind_enum == MessageKind.BROADCAST:
                 recipient = "*"
             elif not recipient:
-                return self._reject(400, "chat/task/control potřebuje 'to'")
-            message_id = store.send(WEB_AGENT, recipient, text, kind=kind_enum)
-            store.heartbeat(WEB_AGENT, cwd=os.getcwd())
+                return self._reject(400, "chat/task/control needs 'to'")
+            message_id = store.send(web_agent, recipient, text, kind=kind_enum)
+            store.heartbeat(web_agent, cwd=os.getcwd())
             self._json_response({"id": message_id})
 
         def _handle_retry(self) -> None:
@@ -297,11 +315,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 recipient = str(data["to"]).strip()
                 not_before = float(data.get("not_before", 0))
             except (KeyError, TypeError, ValueError):
-                return self._reject(400, "retry potřebuje platné 'id' a 'to'")
+                return self._reject(400, "retry needs a valid 'id' and 'to'")
             if not recipient:
-                return self._reject(400, "retry potřebuje platné 'id' a 'to'")
+                return self._reject(400, "retry needs a valid 'id' and 'to'")
             if not store.retry(message_id, recipient, not_before=not_before):
-                return self._reject(409, "task není ve stavu, který lze opakovat")
+                return self._reject(409, "task is not in a state that can be retried")
             self._json_response({"id": message_id, "state": "pending"})
 
         def _handle_cancel(self) -> None:
@@ -312,11 +330,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 message_id = int(data["id"])
                 recipient = str(data["to"]).strip()
             except (KeyError, TypeError, ValueError):
-                return self._reject(400, "cancel potřebuje platné 'id' a 'to'")
+                return self._reject(400, "cancel needs a valid 'id' and 'to'")
             if not recipient:
-                return self._reject(400, "cancel potřebuje platné 'id' a 'to'")
+                return self._reject(400, "cancel needs a valid 'id' and 'to'")
             if not store.cancel(message_id, recipient):
-                return self._reject(409, "task už nejde zrušit nebo neexistuje")
+                return self._reject(409, "task can no longer be cancelled or does not exist")
             self._json_response({"id": message_id, "state": "cancelled"})
 
         def _handle_events(self, qs: dict[str, list[str]]) -> None:
@@ -330,7 +348,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                     0, int(last_event_id) if last_event_id else int(qs.get("since", ["0"])[0])
                 )
             except ValueError:
-                return self._reject(400, "since/Last-Event-ID musí být celé číslo")
+                return self._reject(400, "since/Last-Event-ID must be an integer")
 
             if not sse_slots.acquire(blocking=False):
                 return self._reject(503, "too many event streams")
@@ -544,13 +562,13 @@ PAGE_HTML = """<!doctype html>
 </style>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
-  <div class="section"><h3>Přítomnost</h3><div id="peers"></div></div>
-  <div class="section"><h3>Nájmy</h3><div id="claims"></div></div>
+  <div class="section"><h3>Presence</h3><div id="peers"></div></div>
+  <div class="section"><h3>Leases</h3><div id="claims"></div></div>
 </div>
 <div id="main">
   <div id="topbar">
-    <div class="title">Místnost</div>
-    <div id="status"><span class="dot"></span><span id="statusText">připojuji…</span></div>
+    <div class="title">Room</div>
+    <div id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
   </div>
   <div id="feed"></div>
   <div id="compose">
@@ -561,7 +579,7 @@ PAGE_HTML = """<!doctype html>
       <option value="control">control</option>
     </select>
     <input id="to" type="text" placeholder="komu">
-    <input id="text" type="text" placeholder="napiš zprávu…">
+    <input id="text" type="text" placeholder="write a message…">
     <button id="sendBtn">Poslat</button>
   </div>
 </div>
@@ -590,10 +608,10 @@ function initial(name) { return String(name || "?").trim().slice(0, 1).toUpperCa
 
 function ago(seconds) {
   const s = Math.max(0, seconds | 0);
-  if (s < 60) return `před ${s} s`;
-  if (s < 3600) return `před ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
-  return `před ${Math.floor(s / 86400)} d`;
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86400)} d ago`;
 }
 function ttl(seconds) {
   const s = Math.max(0, seconds | 0);
@@ -603,8 +621,8 @@ function ttl(seconds) {
 
 function updateStatus(mode) {
   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
-  statusText.textContent = mode === "live" ? "živě připojeno"
-    : mode === "retry" ? "spojení vypadlo, zkouším znovu…" : "připojuji…";
+  statusText.textContent = mode === "live" ? "live"
+    : mode === "retry" ? "connection lost, retrying…" : "connecting…";
 }
 
 function renderMessage(m) {
@@ -628,7 +646,7 @@ function renderMessage(m) {
     actions.className = "actions";
     if (["pending", "leased", "started", "failed", "needs_review", "dead_letter"].includes(m.state)) {
       const cancel = document.createElement("button");
-      cancel.className = "btn-ghost"; cancel.textContent = "Zrušit";
+      cancel.className = "btn-ghost"; cancel.textContent = "Cancel";
       cancel.onclick = () => control("cancel", m.id, m.recipient);
       actions.appendChild(cancel);
     }
@@ -654,13 +672,13 @@ function renderRoom(r) {
         <div class="agent">${esc(p.agent)}</div>
         <div class="task">${esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
       </div>
-    </div>`).join("") || "<div class='empty'>nikdo tu není</div>";
+    </div>`).join("") || "<div class='empty'>nobody here</div>";
   claimsEl.innerHTML = (r.claims || []).map(c => `
     <div class="claim">
       <div class="path">🔒 ${esc(c.path)}</div>
       <div class="row"><span>${esc(c.held_by)}${c.purpose ? " · " + esc(c.purpose) : ""}</span>
         <span class="ttl">${ttl(c.expires_in_seconds)}</span></div>
-    </div>`).join("") || "<div class='empty'>nic zamčené</div>";
+    </div>`).join("") || "<div class='empty'>nothing leased</div>";
 }
 
 function connect(since) {
@@ -676,11 +694,11 @@ function connect(since) {
 async function establishSession() {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   history.replaceState(null, "", location.pathname + location.search);
-  if (!token) throw new Error("V URL fragmentu chybí token");
+  if (!token) throw new Error("No token in the URL fragment — start with: agent-lease web --open");
   const response = await fetch("/session", {
     method: "POST", headers: { "X-Agent-Lease-Token": token },
   });
-  if (!response.ok) throw new Error("Přihlášení selhalo");
+  if (!response.ok) throw new Error("Login failed");
 }
 
 establishSession()
@@ -727,17 +745,17 @@ def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
     url = f"http://{host}:{port}/"
-    print(f"Live chat na {url}")
+    print(f"Live room at {url}")
     if open_browser:
         login_url = f"{url}#token={token}"
         if not webbrowser.open(login_url):
             print(
-                "Prohlížeč se nepodařilo otevřít. VAROVÁNÍ: následující URL "
-                f"obsahuje plnou autoritu 'michal': {login_url}",
+                "Could not open a browser. WARNING: the following URL carries full "
+                f"human authority for this room: {login_url}",
                 file=sys.stderr,
             )
     else:
-        print("Pro bezpečné přihlášení spusť znovu s --open.")
+        print("To log in safely, run again with --open.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -748,13 +766,13 @@ def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="agent-lease-webui", description="Lokální live chat nad agent-lease")
-    parser.add_argument("--host", default="127.0.0.1", help="jen loopback — nikdy 0.0.0.0")
+    parser = argparse.ArgumentParser(prog="agent-lease-webui", description="Local live web room for agent-lease")
+    parser.add_argument("--host", default="127.0.0.1", help="loopback only — never 0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open", action="store_true", dest="open_browser")
     args = parser.parse_args(argv)
     if args.host not in ("127.0.0.1", "::1", "localhost"):
-        print("Odmítnuto: live chat smí poslouchat jen na loopbacku.", file=sys.stderr)
+        print("Refused: the live room may only listen on loopback.", file=sys.stderr)
         return 2
     return run(args.host, args.port, open_browser=args.open_browser)
 
