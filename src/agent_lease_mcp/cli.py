@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     p_web = sub.add_parser("web", help="spustit lokální live chat")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
+    p_web.add_argument("--open", action="store_true", dest="open_browser")
 
     p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
     p_hist.add_argument("--path", default=None)
@@ -183,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "web":
         from .webui import main as web_main
 
-        return web_main(["--host", args.host, "--port", str(args.port)])
+        web_args = ["--host", args.host, "--port", str(args.port)]
+        if args.open_browser:
+            web_args.append("--open")
+        return web_main(web_args)
 
     elif args.cmd == "history":
         for e in store.history(limit=args.limit, path=args.path):

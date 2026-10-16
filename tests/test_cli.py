@@ -122,5 +122,5 @@ def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
 
     monkeypatch.setattr("agent_lease_mcp.webui.main", fake_web_main)
 
-    assert main(["web", "--port", "9876"]) == 0
-    assert called["argv"] == ["--host", "127.0.0.1", "--port", "9876"]
+    assert main(["web", "--port", "9876", "--open"]) == 0
+    assert called["argv"] == ["--host", "127.0.0.1", "--port", "9876", "--open"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import stat
+import time
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from io import BytesIO
@@ -49,6 +50,31 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
     return handler.response_code, handler.wfile.getvalue()
 
 
+def authenticated_handler(store: Store, settings: Settings, token: str, session_id: str = "session"):
+    handler_type = make_handler(store, settings, token, 8765)
+    handler_type.sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    return handler_type
+
+
+def exchange_session(port: int, token: str) -> tuple[int, str | None]:
+    connection = HTTPConnection("127.0.0.1", port, timeout=2)
+    connection.request(
+        "POST",
+        "/session",
+        headers={
+            "X-Agent-Lease-Token": token,
+            "Origin": f"http://127.0.0.1:{port}",
+            "Content-Length": "0",
+        },
+    )
+    response = connection.getresponse()
+    cookie = response.getheader("Set-Cookie")
+    response.read()
+    status = response.status
+    connection.close()
+    return status, cookie
+
+
 @pytest.fixture
 def live_chat(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
@@ -62,7 +88,10 @@ def live_chat(tmp_path: Path):
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield server.server_address[1], token, store
+        status, cookie = exchange_session(server.server_address[1], token)
+        assert status == 204 and cookie is not None
+        session_id = cookie.split(";", 1)[0].split("=", 1)[1]
+        yield server.server_address[1], token, session_id, store
     finally:
         server.shutdown()
         server.server_close()
@@ -87,35 +116,24 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
 
 
 def test_index_is_public_but_snapshot_requires_session_cookie(live_chat):
-    port, token, _ = live_chat
+    port, token, session_id, _ = live_chat
 
     assert request(port, "GET", "/")[0] == 200
     assert request(port, "GET", "/api/snapshot")[0] == 403
     assert request(port, "GET", f"/api/snapshot?token={token}")[0] == 403
-    assert request(port, "GET", "/api/snapshot", token=token)[0] == 200
+    assert request(port, "GET", "/api/snapshot", token=session_id)[0] == 200
 
 
 def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
-    port, token, _ = live_chat
-    connection = HTTPConnection("127.0.0.1", port, timeout=2)
-    connection.request(
-        "POST",
-        "/session",
-        headers={
-            "X-Agent-Lease-Token": token,
-            "Origin": f"http://127.0.0.1:{port}",
-            "Content-Length": "0",
-        },
-    )
-    response = connection.getresponse()
-    cookie = response.getheader("Set-Cookie")
-    response.read()
-    connection.close()
+    port, token, _, _ = live_chat
+    status, cookie = exchange_session(port, token)
 
-    assert response.status == 204
-    assert cookie == (
-        f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
-        f"Max-Age={SESSION_MAX_AGE_SECONDS}"
+    assert status == 204
+    assert cookie is not None
+    assert token not in cookie
+    assert cookie.startswith(f"{SESSION_COOKIE}=")
+    assert cookie.endswith(
+        f"; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_MAX_AGE_SECONDS}"
     )
     assert "location.hash" in PAGE_HTML
     assert "history.replaceState" in PAGE_HTML
@@ -140,10 +158,29 @@ def test_session_exchange_rejects_mismatched_host(tmp_path: Path):
     assert status == 403
 
 
+def test_master_token_and_expired_sessions_are_not_valid_cookies(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler_type = make_handler(store, settings, "master-secret", 8765)
+    handler_type.sessions["expired"] = time.monotonic() - 1
+
+    for cookie_value in ("master-secret", "expired"):
+        status, _ = call_handler(
+            store,
+            settings,
+            "master-secret",
+            "GET",
+            "/api/snapshot",
+            headers={"Cookie": f"{SESSION_COOKIE}={cookie_value}"},
+            handler_type=handler_type,
+        )
+        assert status == 403
+
+
 def test_sse_connection_limit_returns_service_unavailable(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
-    handler_type = make_handler(store, settings, "secret", 8765)
+    handler_type = authenticated_handler(store, settings, "secret")
     slots = handler_type.sse_slots
     acquired = 0
     try:
@@ -156,7 +193,7 @@ def test_sse_connection_limit_returns_service_unavailable(tmp_path: Path):
             "secret",
             "GET",
             "/api/events?since=0",
-            headers={"Cookie": f"{SESSION_COOKIE}=secret"},
+            headers={"Cookie": f"{SESSION_COOKIE}=session"},
             handler_type=handler_type,
         )
         assert status == 503
@@ -184,11 +221,11 @@ def test_handler_sets_socket_timeout_and_sse_heartbeat(tmp_path: Path):
 
 
 def test_send_is_authenticated_and_sender_is_not_client_controlled(live_chat):
-    port, token, store = live_chat
+    port, _, session_id, store = live_chat
     body = {"text": "zkontroluj", "kind": "task", "to": "codex", "agent": "attacker"}
 
     assert request(port, "POST", "/api/send", body=body)[0] == 403
-    status, raw = request(port, "POST", "/api/send", token=token, body=body)
+    status, raw = request(port, "POST", "/api/send", token=session_id, body=body)
 
     assert status == 200
     message_id = json.loads(raw)["id"]
@@ -199,7 +236,7 @@ def test_send_is_authenticated_and_sender_is_not_client_controlled(live_chat):
 
 
 def test_post_rejects_foreign_origin(live_chat):
-    port, token, _ = live_chat
+    port, _, session_id, _ = live_chat
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     payload = json.dumps({"text": "x", "kind": "chat", "to": "codex"})
     connection.request(
@@ -207,7 +244,7 @@ def test_post_rejects_foreign_origin(live_chat):
         headers={
             "Content-Type": "application/json",
             "Content-Length": str(len(payload)),
-            "Cookie": f"{SESSION_COOKIE}={token}",
+            "Cookie": f"{SESSION_COOKIE}={session_id}",
             "Origin": "https://evil.example",
         },
     )
@@ -259,27 +296,86 @@ def test_startup_output_never_contains_token(tmp_path: Path, monkeypatch, capsys
     output = capsys.readouterr().out
     assert "stdout-secret" not in output
     assert "http://127.0.0.1:9876/" in output
+    assert "--open" in output
+
+
+def test_open_passes_fragment_to_browser_without_printing_it(tmp_path: Path, monkeypatch, capsys):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    (tmp_path / "webui.token").write_text("browser-secret")
+    opened = []
+
+    class FakeServer:
+        daemon_threads = False
+
+        def __init__(self, *_args):
+            pass
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(webui.Settings, "from_env", lambda: settings)
+    monkeypatch.setattr(webui, "ThreadingHTTPServer", FakeServer)
+    monkeypatch.setattr(webui.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    assert webui.run(port=9876, open_browser=True) == 0
+    captured = capsys.readouterr()
+    assert opened == ["http://127.0.0.1:9876/#token=browser-secret"]
+    assert "browser-secret" not in captured.out
+    assert "browser-secret" not in captured.err
+
+
+def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeypatch, capsys):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    (tmp_path / "webui.token").write_text("fallback-secret")
+
+    class FakeServer:
+        daemon_threads = False
+
+        def __init__(self, *_args):
+            pass
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(webui.Settings, "from_env", lambda: settings)
+    monkeypatch.setattr(webui, "ThreadingHTTPServer", FakeServer)
+    monkeypatch.setattr(webui.webbrowser, "open", lambda _url: False)
+
+    assert webui.run(port=9876, open_browser=True) == 0
+    captured = capsys.readouterr()
+    assert "fallback-secret" not in captured.out
+    assert captured.err.count("fallback-secret") == 1
+    assert "VAROVÁNÍ" in captured.err
 
 
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
     token = "secret"
+    handler_type = authenticated_handler(store, settings, token)
     body = {"text": "proveď kontrolu", "kind": "task", "to": "codex", "agent": "fake"}
 
     assert call_handler(store, settings, token, "POST", "/api/send", body=body)[0] == 403
     assert call_handler(
         store, settings, token, "POST", "/api/send",
-        headers={"Cookie": f"{SESSION_COOKIE}={token}", "Origin": "https://evil.example"},
+        headers={"Cookie": f"{SESSION_COOKIE}=session", "Origin": "https://evil.example"},
         body=body,
+        handler_type=handler_type,
     )[0] == 403
     status, raw = call_handler(
         store, settings, token, "POST", "/api/send",
         headers={
-            "Cookie": f"{SESSION_COOKIE}={token}",
+            "Cookie": f"{SESSION_COOKIE}=session",
             "Origin": "http://localhost:8765",
         },
         body=body,
+        handler_type=handler_type,
     )
 
     assert status == 200
@@ -294,10 +390,12 @@ def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path)
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
     store.send("claude-code", "codex", "ahoj", kind="task")
+    handler_type = authenticated_handler(store, settings, "secret")
 
     status, raw = call_handler(
         store, settings, "secret", "GET", "/api/snapshot",
-        headers={"Cookie": f"{SESSION_COOKIE}=secret"},
+        headers={"Cookie": f"{SESSION_COOKIE}=session"},
+        handler_type=handler_type,
     )
 
     assert status == 200
@@ -312,10 +410,12 @@ def test_initial_snapshot_returns_newest_200_messages(tmp_path: Path):
     store = Store(settings=settings)
     for i in range(205):
         store.say("claude-code", str(i))
+    handler_type = authenticated_handler(store, settings, "secret")
 
     status, raw = call_handler(
         store, settings, "secret", "GET", "/api/snapshot?since=0",
-        headers={"Cookie": f"{SESSION_COOKIE}=secret"},
+        headers={"Cookie": f"{SESSION_COOKIE}=session"},
+        handler_type=handler_type,
     )
 
     assert status == 200
@@ -329,14 +429,15 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
     message_id = store.send("michal", "codex", "práce", kind="task")
+    handler_type = authenticated_handler(store, settings, "secret")
     headers = {
-        "Cookie": f"{SESSION_COOKIE}=secret",
+        "Cookie": f"{SESSION_COOKIE}=session",
         "Origin": "http://localhost:8765",
     }
 
     status, raw = call_handler(
         store, settings, "secret", "POST", "/api/cancel",
-        headers=headers, body={"id": message_id, "to": "codex"},
+        headers=headers, body={"id": message_id, "to": "codex"}, handler_type=handler_type,
     )
     assert status == 200
     assert json.loads(raw)["state"] == "cancelled"
@@ -348,7 +449,7 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     assert store.ack(failed_id, "codex", "failed", lease_token=delivery.lease_token)
     status, raw = call_handler(
         store, settings, "secret", "POST", "/api/retry",
-        headers=headers, body={"id": failed_id, "to": "codex"},
+        headers=headers, body={"id": failed_id, "to": "codex"}, handler_type=handler_type,
     )
     assert status == 200
     assert json.loads(raw)["state"] == "pending"

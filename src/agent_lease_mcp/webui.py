@@ -23,10 +23,11 @@ import os
 import secrets
 import sys
 import time
+import webbrowser
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Settings
@@ -98,6 +99,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     }
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
     sse_slots = BoundedSemaphore(MAX_SSE_CONNECTIONS)
+    sessions: dict[str, float] = {}
+    sessions_lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -129,7 +132,12 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 value = cookie[SESSION_COOKIE].value
             except (CookieError, KeyError):
                 return False
-            return bool(value) and secrets.compare_digest(value, token)
+            now = time.monotonic()
+            with sessions_lock:
+                expired = [session_id for session_id, deadline in sessions.items() if deadline <= now]
+                for session_id in expired:
+                    del sessions[session_id]
+                return bool(value) and sessions.get(value, 0) > now
 
         def _origin_ok(self) -> bool:
             origin = self.headers.get("Origin")
@@ -197,11 +205,14 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._reject(403, "bad origin")
             if not self._bearer_ok():
                 return self._reject(403, "bad token")
+            session_id = secrets.token_urlsafe(32)
+            with sessions_lock:
+                sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
             self.send_response(204)
             self._security_headers()
             self.send_header(
                 "Set-Cookie",
-                f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
+                f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/; "
                 f"Max-Age={SESSION_MAX_AGE_SECONDS}",
             )
             self.send_header("Content-Length", "0")
@@ -366,6 +377,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 sse_slots.release()
 
     Handler.sse_slots = sse_slots
+    Handler.sessions = sessions
+    Handler.sessions_lock = sessions_lock
     return Handler
 
 
@@ -706,7 +719,7 @@ document.getElementById("text").addEventListener("keydown", e => { if (e.key ===
 """
 
 
-def run(host: str = "127.0.0.1", port: int = 8765) -> int:
+def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False) -> int:
     settings = Settings.from_env()
     store = Store(settings=settings)
     token = load_or_create_token(settings)
@@ -715,10 +728,16 @@ def run(host: str = "127.0.0.1", port: int = 8765) -> int:
     server.daemon_threads = True
     url = f"http://{host}:{port}/"
     print(f"Live chat na {url}")
-    print(
-        "Přihlašovací URL sestav lokálně jako <URL>#token=<obsah webui.token>; "
-        "token se do výstupu procesu nevypisuje."
-    )
+    if open_browser:
+        login_url = f"{url}#token={token}"
+        if not webbrowser.open(login_url):
+            print(
+                "Prohlížeč se nepodařilo otevřít. VAROVÁNÍ: následující URL "
+                f"obsahuje plnou autoritu 'michal': {login_url}",
+                file=sys.stderr,
+            )
+    else:
+        print("Pro bezpečné přihlášení spusť znovu s --open.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -732,11 +751,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-lease-webui", description="Lokální live chat nad agent-lease")
     parser.add_argument("--host", default="127.0.0.1", help="jen loopback — nikdy 0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--open", action="store_true", dest="open_browser")
     args = parser.parse_args(argv)
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("Odmítnuto: live chat smí poslouchat jen na loopbacku.", file=sys.stderr)
         return 2
-    return run(args.host, args.port)
+    return run(args.host, args.port, open_browser=args.open_browser)
 
 
 if __name__ == "__main__":
