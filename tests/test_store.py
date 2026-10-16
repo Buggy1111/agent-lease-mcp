@@ -358,3 +358,27 @@ def test_retention_drops_old_messages_but_keeps_open_tasks(tmp_path):
     assert old_task in ids, "nedokončený úkol se nesmí smazat"
     assert fresh in ids
     assert Store(db).history() == []
+
+
+def test_foreign_jobs_hide_lease_tokens_and_unrelated_items(tmp_path):
+    """APP-003: cizí agent nevidí token ani úkoly, které se ho netýkají."""
+    store = Store(tmp_path / "room.db")
+    mine = store.send("boss", "worker", "úkol", kind="task")
+    store.send("other", "worker", "cizí úkol", kind="task")
+    store.lease_next("worker")
+
+    as_worker = store.jobs("worker", viewer="worker")
+    assert any(j["lease_token"] for j in as_worker), "adresát token vidí"
+
+    as_boss = store.jobs("worker", viewer="boss")
+    assert [j["id"] for j in as_boss] == [mine], "odesílatel vidí jen svoje"
+    assert all(j["lease_token"] is None for j in as_boss)
+
+    assert store.jobs("worker", viewer="stranger") == []
+
+
+def test_only_sender_or_recipient_may_cancel(tmp_path):
+    store = Store(tmp_path / "room.db")
+    task = store.send("boss", "worker", "úkol", kind="task")
+    assert not store.cancel(task, "worker", actor="stranger")
+    assert store.cancel(task, "worker", actor="boss")

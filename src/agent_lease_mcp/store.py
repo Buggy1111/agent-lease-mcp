@@ -462,18 +462,38 @@ class Store:
             ).fetchall()
         return [_row_to_message(row, now) for row in rows]
 
-    def jobs(self, recipient: str, *, limit: int = 50) -> list[dict]:
-        """Adresovaná doručení pro agenta, včetně historie stavů."""
+    def jobs(self, recipient: str, *, limit: int = 50, viewer: str | None = None) -> list[dict]:
+        """
+        Adresovaná doručení pro agenta, včetně historie stavů.
+
+        `viewer` = kdo se ptá (APP-003). Agent vidí jen to, co sám dostal nebo
+        sám poslal, a lease token jen u vlastních doručení — token je oprávnění
+        měnit stav úkolu, ne informace. `None` = autentizovaný člověk (web UI).
+        """
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, d.lease_token, d.lease_until, "
                 "d.last_error, d.updated_at FROM deliveries d "
                 "JOIN messages m ON m.id = d.message_id "
-                "WHERE d.recipient = ? ORDER BY m.id DESC LIMIT ?",
-                (recipient, limit),
+                "WHERE d.recipient = ? AND (? IS NULL OR d.recipient = ? OR m.agent = ?) "
+                "ORDER BY m.id DESC LIMIT ?",
+                (recipient, viewer, viewer, viewer, limit),
             ).fetchall()
-        return [_row_to_job(r, now) for r in rows]
+        jobs = [_row_to_job(r, now) for r in rows]
+        if viewer is not None and viewer != recipient:
+            for job in jobs:
+                job["lease_token"] = None
+        return jobs
+
+    @staticmethod
+    def _may_manage(con: sqlite3.Connection, message_id: int, recipient: str, actor: str | None) -> bool:
+        """Retry/cancel smí odesílatel úkolu nebo jeho adresát; `None` = člověk."""
+        if actor is None or actor == recipient:
+            return True
+        row = con.execute("SELECT agent FROM messages WHERE id=?", (message_id,)).fetchone()
+        return bool(row) and row["agent"] == actor
 
     def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
         """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
@@ -586,10 +606,14 @@ class Store:
             )
         return bool(cur.rowcount)
 
-    def retry(self, message_id: int, recipient: str, *, not_before: float = 0) -> bool:
+    def retry(
+        self, message_id: int, recipient: str, *, not_before: float = 0, actor: str | None = None
+    ) -> bool:
         """Vrátí neúspěšné doručení do fronty a zachová počet pokusů."""
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            if not self._may_manage(con, message_id, recipient, actor):
+                return False
             cur = con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
                 "last_error='', updated_at=? WHERE message_id=? AND recipient=? "
@@ -603,9 +627,12 @@ class Store:
                 )
         return bool(cur.rowcount)
 
-    def cancel(self, message_id: int, recipient: str) -> bool:
+    def cancel(self, message_id: int, recipient: str, *, actor: str | None = None) -> bool:
         """Zruší nedokončené doručení; výsledek zůstane v auditu fronty."""
         with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if not self._may_manage(con, message_id, recipient, actor):
+                return False
             cur = con.execute(
                 "UPDATE deliveries SET state='cancelled', lease_token=NULL, lease_until=NULL, "
                 "updated_at=? WHERE message_id=? AND recipient=? "

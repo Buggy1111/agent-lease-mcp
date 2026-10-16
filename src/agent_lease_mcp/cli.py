@@ -63,7 +63,6 @@ def main(argv: list[str] | None = None) -> int:
     p_ack = sub.add_parser("ack", help="potvrdit stav adresovaného doručení")
     p_ack.add_argument("message_id", type=int)
     p_ack.add_argument("state", choices=[s.value for s in DeliveryState])
-    p_ack.add_argument("--for", dest="recipient", default=None)
     p_ack.add_argument("--token", default=None)
     p_ack.add_argument("--error", default="")
 
@@ -135,16 +134,16 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "jobs":
         recipient = args.recipient or me
-        for job in store.jobs(recipient, limit=args.limit):
+        for job in store.jobs(recipient, limit=args.limit, viewer=me):
             print(
                 f"#{job['id']:<5} {job['state']:<12} {job['kind']:<9} "
                 f"{job['agent']} → {job['recipient']}: {job['text']}"
             )
 
     elif args.cmd == "ack":
-        recipient = args.recipient or me
+        # Potvrzovat jde jen vlastní doručení (APP-003) — dřív šlo `--for` cizí.
         if not store.ack(
-            args.message_id, recipient, args.state,
+            args.message_id, me, args.state,
             lease_token=args.token, error=args.error,
         ):
             print("Nepotvrzeno: doručení neexistuje nebo nesedí lease token.", file=sys.stderr)
@@ -168,13 +167,15 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(min(1.0, remaining))
 
     elif args.cmd == "retry":
-        if not store.retry(args.message_id, args.recipient, not_before=args.not_before):
+        if not store.retry(
+            args.message_id, args.recipient, not_before=args.not_before, actor=me
+        ):
             print("Retry odmítnut: task neexistuje nebo není v chybovém stavu.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → pending")
 
     elif args.cmd == "cancel":
-        if not store.cancel(args.message_id, args.recipient):
+        if not store.cancel(args.message_id, args.recipient, actor=me):
             print("Zrušení odmítnuto: task neexistuje nebo už skončil.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → cancelled")
