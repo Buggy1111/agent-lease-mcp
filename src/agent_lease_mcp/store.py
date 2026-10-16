@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .config import (
     MAX_PATHS_PER_CLAIM,
+    MAX_TASK_LEASE_SECONDS,
     MAX_TTL_SECONDS,
     STALE_PEER_SECONDS,
     Settings,
@@ -272,9 +273,10 @@ class Store:
             ]
             covering = [c for c in mine if covers(c.path, target)]
             if covering:
+                marks = ",".join("?" * len(covering))
                 con.execute(
-                    "UPDATE claims SET expires_at = MAX(expires_at, ?) WHERE agent = ? AND path IN (%s)"
-                    % ",".join("?" * len(covering)),
+                    f"UPDATE claims SET expires_at = MAX(expires_at, ?) "
+                    f"WHERE agent = ? AND path IN ({marks})",
                     (now + self.settings.default_ttl, agent, *[c.path for c in covering]),
                 )
             else:
@@ -746,7 +748,8 @@ class Store:
             cur = con.execute(
                 "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
                 "AND recipient=? AND lease_token=? AND state IN ('leased','started')",
-                (time.time() + max(1, lease_seconds), time.time(), message_id, recipient,
+                (time.time() + max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS)),
+                 time.time(), message_id, recipient,
                  lease_token),
             )
         return bool(cur.rowcount)
@@ -775,6 +778,7 @@ class Store:
 
     def inbox(self, since_id: int = 0, limit: int = 50) -> list[dict]:
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
@@ -789,6 +793,7 @@ class Store:
     def latest_messages(self, limit: int = 200) -> list[dict]:
         """Nejnovější historie v chronologickém pořadí pro první UI snapshot."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
@@ -833,6 +838,7 @@ class Store:
     def undelivered(self, agent: str, limit: int = 20) -> list[dict]:
         """Vzkazy od ostatních, které tenhle agent ještě neviděl."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -849,8 +855,8 @@ class Store:
         Adresovaná doručení pro agenta, včetně historie stavů.
 
         `viewer` = kdo se ptá (APP-003). Agent vidí jen to, co sám dostal nebo
-        sám poslal, a lease token jen u vlastních doručení — token je oprávnění
-        měnit stav úkolu, ne informace. `None` = autentizovaný člověk (web UI).
+        sám poslal. Lease token se ve výpisu nevrací nikdy (jen v `lease_next`).
+        `None` = autentizovaný člověk (web UI).
         """
         now = time.time()
         limit = max(1, min(int(limit), 500))
@@ -863,15 +869,12 @@ class Store:
                 "ORDER BY m.id DESC LIMIT ?",
                 (recipient, viewer, viewer, viewer, limit),
             ).fetchall()
-        jobs = [_row_to_job(r, now) for r in rows]
-        if viewer is not None and viewer != recipient:
-            for job in jobs:
-                job["lease_token"] = None
-        return jobs
+        return [_row_to_job(r, now) for r in rows]
 
     def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
         """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -883,6 +886,7 @@ class Store:
         return [_row_to_message(row, now) for row in rows]
 
     def lease_next(self, recipient: str, *, lease_seconds: int = 60) -> Delivery | None:
+        lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         """Atomicky převezme nejstarší připravený task pro jeden worker."""
         now = time.time()
         token = uuid.uuid4().hex
@@ -1064,7 +1068,7 @@ class Store:
             sql += " WHERE path = ?"
             args = (normalize_path(path),)
         sql += " ORDER BY id DESC LIMIT ?"
-        args += (limit,)
+        args += (_limit(limit),)
         with self._connect() as con:
             rows = con.execute(sql, args).fetchall()
         return [
@@ -1128,3 +1132,8 @@ def _presence_state(status: str, age: float, stale_after: int) -> str:
     if status and age <= stale_after * 2:
         return "stalled"
     return "offline"
+
+
+def _limit(value: int) -> int:
+    """LIMIT do rozumného rozsahu; záporné číslo by v SQLite znamenalo „vše" (APP-009)."""
+    return max(1, min(int(value), 500))

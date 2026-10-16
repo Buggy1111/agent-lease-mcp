@@ -33,6 +33,7 @@ MAX_SHORT_CHARS = 500
 MAX_PATH_CHARS = 4096
 MAX_PATHS_PER_CLAIM = 64
 RETENTION_DAYS = 30
+MAX_TASK_LEASE_SECONDS = 3600
 
 # Jména, která si agent nesmí vzít přes prostředí: lidská autorita a interní role.
 RESERVED_NAMES = frozenset({RESERVED_HUMAN_AGENT, "human", "michal", "user", "system", "broker"})
