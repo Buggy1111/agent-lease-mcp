@@ -190,8 +190,19 @@ def shell_write_targets(command: str, _depth: int = 0) -> list[str]:
             targets.extend(args[1:])  # první argument je skript sedu
         elif name == "truncate":
             targets.extend(args[1:] if "-s" in flags else args)
-        elif name in ("cp", "mv") and len(args) >= 2:
-            targets.append(args[-1])
+        elif name in ("cp", "mv", "install"):
+            # `-t DIR` / `--target-directory[=]DIR` určuje cíl dřív než zdroje.
+            rest = segment[1:]
+            target_dir = None
+            for j, t in enumerate(rest):
+                if t in ("-t", "--target-directory") and j + 1 < len(rest):
+                    target_dir = rest[j + 1]
+                elif t.startswith("--target-directory="):
+                    target_dir = t.split("=", 1)[1]
+            if target_dir:
+                targets.append(target_dir)
+            elif len(args) >= 2:
+                targets.append(args[-1])
         segment.clear()
 
     i = 0

@@ -114,3 +114,10 @@ def test_script_target_sees_through_wrappers(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert script_target("sudo bash x.sh") == "x.sh"
     assert script_target("env A=1 bash x.sh") == "x.sh"
+
+
+def test_cp_mv_target_directory_flag():
+    from agent_lease_mcp.policy import shell_write_targets
+
+    assert shell_write_targets("cp -t claimed-dir src.txt") == ["claimed-dir"]
+    assert shell_write_targets("mv --target-directory=out a b") == ["out"]

@@ -143,17 +143,25 @@ class Store:
         if days <= 0:
             return  # 0 = vypnuto
         cutoff = time.time() - days * 86400
-        open_states = "('pending','leased','started')"
+        # Mazat jde stará zpráva, pokud to není úkol (`task`) s nedokončeným
+        # doručením. Chat/control/result s doručením `pending` se nikdy „nedokončí"
+        # (nejde je převzít ani potvrdit), takže je ochrana držet nesmí.
+        con.execute("DROP TABLE IF EXISTS temp._retention")
         con.execute(
-            "DELETE FROM deliveries WHERE message_id IN (SELECT id FROM messages WHERE sent_at < ?) "
-            f"AND message_id NOT IN (SELECT message_id FROM deliveries WHERE state IN {open_states})",
+            "CREATE TEMP TABLE _retention AS SELECT id FROM messages m WHERE sent_at < ? "
+            "AND NOT (m.kind = 'task' AND EXISTS (SELECT 1 FROM deliveries d "
+            "WHERE d.message_id = m.id AND d.state IN ('pending','leased','started')))",
             (cutoff,),
         )
+        con.execute("DELETE FROM deliveries WHERE message_id IN (SELECT id FROM _retention)")
+        con.execute("DELETE FROM messages WHERE id IN (SELECT id FROM _retention)")
+        # Odpověď na smazanou zprávu zůstává, jen ztratí odkaz — žádný visící
+        # reply_to (foreign_keys v SQLite nejsou zapnuté, takže by to nikdo nechytil).
         con.execute(
-            "DELETE FROM messages WHERE sent_at < ? AND id NOT IN (SELECT message_id FROM deliveries) "
-            "AND id NOT IN (SELECT reply_to FROM messages WHERE reply_to IS NOT NULL AND sent_at >= ?)",
-            (cutoff, cutoff),
+            "UPDATE messages SET reply_to = NULL WHERE reply_to IS NOT NULL "
+            "AND reply_to NOT IN (SELECT id FROM messages)"
         )
+        con.execute("DROP TABLE temp._retention")
         con.execute("DELETE FROM audit WHERE at < ?", (cutoff,))
 
     @staticmethod

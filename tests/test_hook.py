@@ -169,3 +169,13 @@ def test_non_object_payload_does_not_crash(db: Path):
         input="[1, 2]", capture_output=True, text=True, check=False, env=_env("claude-code", db),
     )
     assert result.returncode == 0
+
+
+def test_own_lease_is_renewed_on_every_write(db: Path, tmp_path: Path):
+    """Nox review: vlastní nájem se při zápisu obnoví, ať nevyprší pod rukama."""
+    target = tmp_path / "mine.txt"
+    Store(db).claim([str(target)], agent="claude-code", ttl_seconds=5)
+    before = Store(db).holder_of(str(target)).expires_at
+
+    assert run_hook(edit(target), agent="claude-code", db=db).returncode == 0
+    assert Store(db).holder_of(str(target)).expires_at > before + 60

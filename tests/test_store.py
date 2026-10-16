@@ -382,3 +382,27 @@ def test_only_sender_or_recipient_may_cancel(tmp_path):
     task = store.send("boss", "worker", "úkol", kind="task")
     assert not store.cancel(task, "worker", actor="stranger")
     assert store.cancel(task, "worker", actor="boss")
+
+
+def test_retention_handles_addressed_chats_and_reply_chains(tmp_path):
+    """Nox review: adresovaný chat s pending doručením nesmí zůstat navždy a
+    řetěz odpovědí nesmí po retenci odkazovat na smazanou zprávu."""
+    import sqlite3
+    import time
+
+    db = tmp_path / "room.db"
+    store = Store(db)
+    chat = store.send("a", "b", "adresovaný chat", kind="chat")
+    root = store.say("a", "root")
+    middle = store.send("a", "*", "middle", kind="broadcast", reply_to=root)
+    long_ago = time.time() - 40 * 86400
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE messages SET sent_at=?", (long_ago,))
+    fresh = store.send("a", "*", "fresh", kind="broadcast", reply_to=middle)
+
+    Store(db)
+
+    msgs = {m["id"]: m for m in Store(db).inbox(limit=500)}
+    assert chat not in msgs, "netask s pending doručením se retenuje"
+    assert root not in msgs and middle not in msgs
+    assert msgs[fresh]["reply_to"] is None, "žádný visící odkaz"

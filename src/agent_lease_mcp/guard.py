@@ -75,6 +75,13 @@ def main() -> int:
         holder = store.holder_of(raw_path) if raw_path else None
         decision = decide(tool, raw_path, holder, settings.agent)
 
+        if decision.verdict is Verdict.ALLOW and holder and holder.agent == settings.agent:
+            # Vlastní nájem při každém zápisu atomicky obnovit. Jinak by mohl mezi
+            # kontrolou a editací vypršet a převzít ho druhý (Nox, review 16. 10.).
+            renewed = store.claim([holder.path], agent=settings.agent, purpose=holder.purpose)
+            if not renewed.ok:
+                decision = decide(tool, raw_path, renewed.conflicts[0], settings.agent)
+
         if decision.verdict is Verdict.AUTO_CLAIMED and decision.path:
             # Volný soubor si bereme sami — na explicitní `claim` se pak nedá
             # zapomenout a protokol nejde nechtěně obejít.
