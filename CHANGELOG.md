@@ -1,0 +1,46 @@
+# Changelog
+
+## 0.2.0 — 2026-10-16
+
+First public release. Hardening after a joint security review by the two agents
+the tool coordinates (Claude Code and Codex), followed by a cross-review of each
+other's fixes.
+
+### Security
+
+- **Race between check and claim** — two agents editing the same free file at the
+  same moment could both be allowed. The atomic claim result now decides, and an
+  agent's own lease is renewed atomically on every write.
+- **Shell writes** — obvious writes into a file another agent holds (`>`, `>>`,
+  `tee`, `sed -i`, `truncate`, `cp`/`mv`/`install` destination including `-t`,
+  through `sudo`/`env`/`nohup` and `sh -c`) are refused. Best effort, documented.
+- **Peer messages in model context** are labelled with kind, sender and recipient,
+  folded onto one line, and introduced as information from a peer, not
+  instructions from the human. All peer-supplied metadata is folded too.
+- **Database files** are owner-only (`0600` in a `0700` directory, WAL/SHM
+  included); existing installs are tightened on start.
+- **Tasks are bound to the caller** — a peer sees only tasks it sent or received,
+  lease tokens only for its own deliveries; retry/cancel need sender or recipient.
+- **Human identity** — the reserved human name is stored next to the database and
+  cannot be released by an agent's environment.
+- **Web UI** — the token no longer travels in URLs or stdout: a URL-fragment token
+  is exchanged for a random, expiring, HttpOnly SameSite=Strict session cookie;
+  Origin and Host are checked; event streams are capped and time out.
+- **Bounds and retention** — message, status and purpose length, list limits and
+  task lease length are bounded; messages and audit older than 30 days are
+  removed (`AGENT_LEASE_RETENTION_DAYS`), unfinished tasks never.
+- **Optional fail-closed mode** — `AGENT_LEASE_FAIL_CLOSED=1`.
+- **Bash safety gate** (optional, separate hook) — commands are redacted before
+  logging or classification, the log is owner-only, hard rules cover common
+  spellings of `rm -rf /` and force push.
+- Development dependency `pytest` upgraded past GHSA-6w46-j5rx-g56g.
+
+### Changed
+
+- English hook messages, room briefing, CLI output and MCP tool descriptions.
+- `README.md` is English; the Czech original is `README.cs.md`.
+- `agent-lease web --open` opens the browser with the login fragment.
+
+## 0.1.0 — 2026-09-11
+
+Internal: hook-enforced leases, presence, messages, addressed tasks, local web room.

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Buggy1111/agent-lease-mcp",
+  "title": "Agent Lease",
+  "description": "Keep Claude Code and Codex off each other's files: hook-enforced path leases, presence, messages.",
+  "repository": {
+    "url": "https://github.com/Buggy1111/agent-lease-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/Buggy1111/agent-lease-mcp",
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "agent-lease-mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AGENT_NAME",
+          "description": "This agent's name in the room, e.g. claude-code or codex. Must match the hooks.",
+          "isRequired": true
+        },
+        {
+          "name": "AGENT_LEASE_DB",
+          "description": "Path to the shared SQLite room (default ~/.agent-lease/room.db).",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
