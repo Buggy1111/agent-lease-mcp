@@ -12,9 +12,10 @@ from threading import Thread
 
 import pytest
 
+from agent_lease_mcp import webui
 from agent_lease_mcp.config import Settings
 from agent_lease_mcp.store import Store
-from agent_lease_mcp.webui import load_or_create_token, make_handler
+from agent_lease_mcp.webui import PAGE_HTML, SESSION_COOKIE, load_or_create_token, make_handler
 
 
 def call_handler(store: Store, settings: Settings, token: str, method: str, path: str, *,
@@ -44,9 +45,8 @@ def live_chat(tmp_path: Path):
     store = Store(settings=settings)
     token = "test-token"
     try:
-        server = ThreadingHTTPServer(
-            ("127.0.0.1", 0), make_handler(store, settings, token, 0)
-        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, settings, token, 0))
+        server.RequestHandlerClass = make_handler(store, settings, token, server.server_address[1])
     except PermissionError:
         pytest.skip("sandbox této relace zakazuje i loopback socket")
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -63,7 +63,7 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     headers = {}
     payload = None
     if token:
-        headers["X-Agent-Lease-Token"] = token
+        headers["Cookie"] = f"{SESSION_COOKIE}={token}"
     if body is not None:
         payload = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
@@ -76,13 +76,37 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     return response.status, data
 
 
-def test_index_and_snapshot_require_token(live_chat):
+def test_index_is_public_but_snapshot_requires_session_cookie(live_chat):
     port, token, _ = live_chat
 
-    assert request(port, "GET", "/")[0] == 403
-    assert request(port, "GET", f"/?token={token}")[0] == 200
+    assert request(port, "GET", "/")[0] == 200
     assert request(port, "GET", "/api/snapshot")[0] == 403
+    assert request(port, "GET", f"/api/snapshot?token={token}")[0] == 403
     assert request(port, "GET", "/api/snapshot", token=token)[0] == 200
+
+
+def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
+    port, token, _ = live_chat
+    connection = HTTPConnection("127.0.0.1", port, timeout=2)
+    connection.request(
+        "POST",
+        "/session",
+        headers={
+            "X-Agent-Lease-Token": token,
+            "Origin": f"http://127.0.0.1:{port}",
+            "Content-Length": "0",
+        },
+    )
+    response = connection.getresponse()
+    cookie = response.getheader("Set-Cookie")
+    response.read()
+    connection.close()
+
+    assert response.status == 204
+    assert cookie == f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/"
+    assert "location.hash" in PAGE_HTML
+    assert "history.replaceState" in PAGE_HTML
+    assert "/api/events?token=" not in PAGE_HTML
 
 
 def test_send_is_authenticated_and_sender_is_not_client_controlled(live_chat):
@@ -109,7 +133,7 @@ def test_post_rejects_foreign_origin(live_chat):
         headers={
             "Content-Type": "application/json",
             "Content-Length": str(len(payload)),
-            "X-Agent-Lease-Token": token,
+            "Cookie": f"{SESSION_COOKIE}={token}",
             "Origin": "https://evil.example",
         },
     )
@@ -138,6 +162,31 @@ def test_existing_token_permissions_are_repaired(tmp_path: Path):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_startup_output_never_contains_token(tmp_path: Path, monkeypatch, capsys):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    (tmp_path / "webui.token").write_text("stdout-secret")
+
+    class FakeServer:
+        daemon_threads = False
+
+        def __init__(self, *_args):
+            pass
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(webui.Settings, "from_env", lambda: settings)
+    monkeypatch.setattr(webui, "ThreadingHTTPServer", FakeServer)
+
+    assert webui.run(port=9876) == 0
+    output = capsys.readouterr().out
+    assert "stdout-secret" not in output
+    assert "http://127.0.0.1:9876/" in output
+
+
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
@@ -147,11 +196,16 @@ def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path:
     assert call_handler(store, settings, token, "POST", "/api/send", body=body)[0] == 403
     assert call_handler(
         store, settings, token, "POST", "/api/send",
-        headers={"X-Agent-Lease-Token": token, "Origin": "https://evil.example"}, body=body,
+        headers={"Cookie": f"{SESSION_COOKIE}={token}", "Origin": "https://evil.example"},
+        body=body,
     )[0] == 403
     status, raw = call_handler(
         store, settings, token, "POST", "/api/send",
-        headers={"X-Agent-Lease-Token": token, "Origin": "http://localhost:8765"}, body=body,
+        headers={
+            "Cookie": f"{SESSION_COOKIE}={token}",
+            "Origin": "http://localhost:8765",
+        },
+        body=body,
     )
 
     assert status == 200
@@ -169,7 +223,7 @@ def test_snapshot_handler_returns_structured_room_without_socket(tmp_path: Path)
 
     status, raw = call_handler(
         store, settings, "secret", "GET", "/api/snapshot",
-        headers={"X-Agent-Lease-Token": "secret"},
+        headers={"Cookie": f"{SESSION_COOKIE}=secret"},
     )
 
     assert status == 200
@@ -187,7 +241,7 @@ def test_initial_snapshot_returns_newest_200_messages(tmp_path: Path):
 
     status, raw = call_handler(
         store, settings, "secret", "GET", "/api/snapshot?since=0",
-        headers={"X-Agent-Lease-Token": "secret"},
+        headers={"Cookie": f"{SESSION_COOKIE}=secret"},
     )
 
     assert status == 200
@@ -201,7 +255,10 @@ def test_authenticated_human_can_cancel_and_retry_task(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
     message_id = store.send("michal", "codex", "práce", kind="task")
-    headers = {"X-Agent-Lease-Token": "secret", "Origin": "http://localhost:8765"}
+    headers = {
+        "Cookie": f"{SESSION_COOKIE}=secret",
+        "Origin": "http://localhost:8765",
+    }
 
     status, raw = call_handler(
         store, settings, "secret", "POST", "/api/cancel",

@@ -18,12 +18,12 @@ si nevybírá — je napevno `WEB_AGENT`.
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import os
 import secrets
 import sys
 import time
+from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -35,6 +35,7 @@ from .store import Store
 WEB_AGENT = "michal"
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
+SESSION_COOKIE = "agent_lease_session"
 
 
 def _token_path(settings: Settings) -> Path:
@@ -105,9 +106,13 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             header = self.headers.get("X-Agent-Lease-Token", "")
             return bool(header) and secrets.compare_digest(header, token)
 
-        def _query_token_ok(self, qs: dict[str, list[str]]) -> bool:
-            values = qs.get("token", [])
-            return bool(values) and secrets.compare_digest(values[0], token)
+        def _session_ok(self) -> bool:
+            try:
+                cookie = SimpleCookie(self.headers.get("Cookie", ""))
+                value = cookie[SESSION_COOKIE].value
+            except (CookieError, KeyError):
+                return False
+            return bool(value) and secrets.compare_digest(value, token)
 
         def _origin_ok(self) -> bool:
             origin = self.headers.get("Origin")
@@ -127,7 +132,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             parts = urlsplit(self.path)
             qs = parse_qs(parts.query)
             if parts.path == "/":
-                return self._handle_index(qs)
+                return self._handle_index()
             if parts.path == "/api/events":
                 return self._handle_events(qs)
             if parts.path == "/api/snapshot":
@@ -136,9 +141,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         def do_POST(self) -> None:
             parts = urlsplit(self.path)
+            if parts.path == "/session":
+                return self._handle_session()
             if not self._origin_ok():
                 return self._reject(403, "bad origin")
-            if not self._bearer_ok():
+            if not self._session_ok():
                 return self._reject(403, "bad token")
             if parts.path == "/api/send":
                 return self._handle_send()
@@ -149,10 +156,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
-        def _handle_index(self, qs: dict[str, list[str]]) -> None:
-            if not self._query_token_ok(qs):
-                return self._reject(403, "chybí nebo sedí špatný ?token=")
-            body = PAGE_HTML.replace("__TOKEN__", html.escape(qs["token"][0])).encode("utf-8")
+        def _handle_index(self) -> None:
+            body = PAGE_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self._security_headers()
@@ -165,8 +170,24 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.end_headers()
             self.wfile.write(body)
 
-        def _handle_snapshot(self, qs: dict[str, list[str]]) -> None:
+        def _handle_session(self) -> None:
+            # Browser načte token z URL fragmentu (ten se neposílá serveru),
+            # ihned jej odstraní a jednou vymění za skriptu nepřístupnou cookie.
+            if self.headers.get("Origin") not in allowed_origins:
+                return self._reject(403, "bad origin")
             if not self._bearer_ok():
+                return self._reject(403, "bad token")
+            self.send_response(204)
+            self._security_headers()
+            self.send_header(
+                "Set-Cookie",
+                f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/",
+            )
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _handle_snapshot(self, qs: dict[str, list[str]]) -> None:
+            if not self._session_ok():
                 return self._reject(403, "bad token")
             try:
                 since = max(0, int(qs.get("since", ["0"])[0]))
@@ -267,7 +288,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._json_response({"id": message_id, "state": "cancelled"})
 
         def _handle_events(self, qs: dict[str, list[str]]) -> None:
-            if not self._query_token_ok(qs):
+            if not self._session_ok():
                 return self._reject(403, "bad token")
             # Last-Event-ID má přednost před ?since= — to je to, co prohlížeč
             # pošle sám při reconnectu, a je to spolehlivější než náš JS.
@@ -499,7 +520,6 @@ PAGE_HTML = """<!doctype html>
   </div>
 </div>
 <script>
-const TOKEN = "__TOKEN__";
 const feed = document.getElementById("feed");
 const peersEl = document.getElementById("peers");
 const claimsEl = document.getElementById("claims");
@@ -598,7 +618,7 @@ function renderRoom(r) {
 }
 
 function connect(since) {
-  const es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN) + "&since=" + since);
+  const es = new EventSource("/api/events?since=" + since);
   es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
   es.addEventListener("room", e => renderRoom(JSON.parse(e.data)));
   es.onopen = () => updateStatus("live");
@@ -607,7 +627,18 @@ function connect(since) {
 
 // Nejdřív snapshot, ať karta nezačíná prázdná, pak SSE od jeho posledního ID —
 // `Last-Event-ID`/`since` na serveru zajistí navazující stream bez díry i bez duplicit.
-fetch("/api/snapshot?since=0", { headers: { "X-Agent-Lease-Token": TOKEN } })
+async function establishSession() {
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
+  history.replaceState(null, "", location.pathname + location.search);
+  if (!token) throw new Error("V URL fragmentu chybí token");
+  const response = await fetch("/session", {
+    method: "POST", headers: { "X-Agent-Lease-Token": token },
+  });
+  if (!response.ok) throw new Error("Přihlášení selhalo");
+}
+
+establishSession()
+  .then(() => fetch("/api/snapshot?since=0"))
   .then(r => r.json())
   .then(s => {
     s.messages.forEach(renderMessage);
@@ -622,14 +653,14 @@ function send() {
   if (!body.text.trim()) return;
   fetch("/api/send", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Agent-Lease-Token": TOKEN },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).then(r => { if (r.ok) text.value = ""; else r.text().then(t => alert(t)); });
 }
 function control(action, id, to) {
   fetch("/api/" + action, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Agent-Lease-Token": TOKEN },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, to }),
   }).then(r => { if (!r.ok) r.text().then(t => alert(t)); });
 }
@@ -649,9 +680,12 @@ def run(host: str = "127.0.0.1", port: int = 8765) -> int:
     handler = make_handler(store, settings, token, port)
     server = ThreadingHTTPServer((host, port), handler)
     server.daemon_threads = True
-    url = f"http://{host}:{port}/?token={token}"
+    url = f"http://{host}:{port}/"
     print(f"Live chat na {url}")
-    print("Token je uložený vedle DB (webui.token, 0600) — nesdílej ho, je to plná autorita 'michal'.")
+    print(
+        "Přihlašovací URL sestav lokálně jako <URL>#token=<obsah webui.token>; "
+        "token se do výstupu procesu nevypisuje."
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
