@@ -41,7 +41,7 @@ def run_doctor() -> int:
     print("agent-lease doctor\n")
 
     if is_trusted_agent(settings.agent):
-        _line(OK, f"identita agenta: {settings.agent}")
+        _line(OK, f"agent identity: {settings.agent}")
     else:
         problems += 1
         _line(FAIL, f"AGENT_NAME is not set (you are {settings.agent}) — hook and server will disagree")
@@ -80,7 +80,7 @@ def run_doctor() -> int:
         if found is None:
             _line(WARN, f"{label}: {path} not found / unreadable — guard hook not verified")
         elif found:
-            _line(OK, f"{label}: guard hook nastaven")
+            _line(OK, f"{label}: guard hook set")
         else:
             problems += 1
             _line(FAIL, f"{label}: agent-lease-guard missing in {path} (without it this is only a notice board)")
