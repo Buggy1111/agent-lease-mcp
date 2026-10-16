@@ -52,12 +52,14 @@ def main() -> int:
     # Spouštěný skript se chová jako zápis: po dobu běhu ho nikdo nesmí editovat.
     # Přesně tahle kombinace (jeden spouští, druhý edituje) 9.9.2026 rozbila balíček.
     write_targets: list[str] = []
+    purpose = "auto (edit)"
     if raw_path is None:
         raw_input = payload.get("tool_input") or payload.get("toolInput") or {}
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
         if isinstance(command, str):
             if found := script_target(command):
                 raw_path, tool = found, "Edit"  # posuzuj jako zápis
+                purpose = "auto (running script)"
             write_targets = _in_cwd(shell_write_targets(command), payload.get("cwd"))
 
     try:
@@ -85,7 +87,7 @@ def main() -> int:
         if decision.verdict is Verdict.AUTO_CLAIMED and decision.path:
             # Volný soubor si bereme sami — na explicitní `claim` se pak nedá
             # zapomenout a protokol nejde nechtěně obejít.
-            result = store.claim([decision.path], agent=settings.agent, purpose="auto (edit)")
+            result = store.claim([decision.path], agent=settings.agent, purpose=purpose)
             if not result.ok:
                 # Mezi `holder_of` a `claim` byl rychlejší někdo jiný. Rozhoduje
                 # atomický claim, ne dřívější čtení — jinak projdou oba (APP-007).
