@@ -37,6 +37,7 @@ WEB_AGENT = "michal"
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 SESSION_COOKIE = "agent_lease_session"
+SESSION_MAX_AGE_SECONDS = 3600
 MAX_SSE_CONNECTIONS = 16
 REQUEST_SOCKET_TIMEOUT = 10.0
 SSE_HEARTBEAT_SECONDS = 10.0
@@ -95,6 +96,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     allowed_origins = {
         f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"
     }
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
     sse_slots = BoundedSemaphore(MAX_SSE_CONNECTIONS)
 
     class Handler(BaseHTTPRequestHandler):
@@ -188,7 +190,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
         def _handle_session(self) -> None:
             # Browser načte token z URL fragmentu (ten se neposílá serveru),
             # ihned jej odstraní a jednou vymění za skriptu nepřístupnou cookie.
-            if self.headers.get("Origin") not in allowed_origins:
+            if (
+                self.headers.get("Origin") not in allowed_origins
+                or self.headers.get("Host") not in allowed_hosts
+            ):
                 return self._reject(403, "bad origin")
             if not self._bearer_ok():
                 return self._reject(403, "bad token")
@@ -196,7 +201,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._security_headers()
             self.send_header(
                 "Set-Cookie",
-                f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/",
+                f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
+                f"Max-Age={SESSION_MAX_AGE_SECONDS}",
             )
             self.send_header("Content-Length", "0")
             self.end_headers()

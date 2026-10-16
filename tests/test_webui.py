@@ -21,6 +21,7 @@ from agent_lease_mcp.webui import (
     PAGE_HTML,
     REQUEST_SOCKET_TIMEOUT,
     SESSION_COOKIE,
+    SESSION_MAX_AGE_SECONDS,
     _sse_heartbeat,
     load_or_create_token,
     make_handler,
@@ -112,10 +113,31 @@ def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
     connection.close()
 
     assert response.status == 204
-    assert cookie == f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/"
+    assert cookie == (
+        f"{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; "
+        f"Max-Age={SESSION_MAX_AGE_SECONDS}"
+    )
     assert "location.hash" in PAGE_HTML
     assert "history.replaceState" in PAGE_HTML
     assert "/api/events?token=" not in PAGE_HTML
+
+
+def test_session_exchange_rejects_mismatched_host(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    status, _ = call_handler(
+        store,
+        settings,
+        "secret",
+        "POST",
+        "/session",
+        headers={
+            "X-Agent-Lease-Token": "secret",
+            "Origin": "http://localhost:8765",
+            "Host": "evil.example",
+        },
+    )
+    assert status == 403
 
 
 def test_sse_connection_limit_returns_service_unavailable(tmp_path: Path):
