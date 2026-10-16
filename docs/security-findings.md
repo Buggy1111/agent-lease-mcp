@@ -1,15 +1,44 @@
 # Security discovery findings
 
+## Resolution in 0.2.0 (16 October 2026)
+
+All application candidates were addressed on branch `release/0.2-hardening`
+(fixes by Claude Code and Codex, each cross-reviewed by the other agent; every
+fix has a regression test). Remaining items are documented limits of the local
+trust model, not open bugs.
+
+| ID | Resolution |
+|---|---|
+| APP-001 | **Fixed** — DB pre-created `0600`, directory `0700`, WAL/SHM follow, existing installs tightened |
+| APP-002 | **Mitigated + documented** — names normalised to a safe ASCII label; reserved human name stored next to the DB; identity remains local-account trust (README → Security) |
+| APP-003 | **Fixed** — job listing and retry/cancel bound to the caller; lease tokens only to the recipient |
+| APP-004 | **Fixed** — kind/sender/recipient labels, untrusted-content note, all peer-supplied values folded to one line |
+| APP-005 | **Mitigated + documented** — tasks are pull-only; tool description states a task is a peer request, not a human instruction |
+| APP-006 | **Mitigated** — obvious shell writes into held files are refused (redirects, tee, sed -i, truncate, cp/mv/install incl. `-t`, wrappers, `sh -c`); best effort, documented |
+| APP-007 | **Fixed** — atomic claim result decides; own lease renewed atomically on every write |
+| APP-008 | **Mitigated** — optional `AGENT_LEASE_FAIL_CLOSED=1`; fail-open stays the documented default |
+| APP-009 | **Fixed** — bounds on text, short fields, list limits, task lease length |
+| APP-010 | **Fixed** — fragment token exchanged for random, expiring HttpOnly SameSite=Strict session cookie; no token in URLs or stdout |
+| APP-011 | **Fixed** — SSE connection cap, socket timeout, heartbeat |
+| APP-012 | **Fixed** — 30-day retention for messages and audit, never unfinished tasks; dangling replies unlinked |
+| APP-013 | **Documented limit** — a hook cannot bind the later file open to the checked inode |
+| DEP-001 | **Fixed** — pytest upgraded past GHSA-6w46-j5rx-g56g |
+| REPO-001/002/003 | Repository settings — to be applied at release (default branch, protection, Dependabot) |
+
 ## Status and handling notice
 
-This is the sanitized Phase 2 discovery register for `agent-lease-mcp`. It is suitable
-for a public repository: it contains no secret values, exploit payloads, private room
-content, sensitive local paths, or instructions for exploiting an unpatched issue.
+This document combines the sanitized Phase 2 discovery register with detailed Phase 3
+validation evidence. It was kept internal until the fixes shipped and is **disclosed
+together with release 0.2.0** by the project owner's decision (16 October 2026). It
+contains no secret values, private room content, or sensitive local paths.
 
-Every item below is a **candidate** with status `unverified`. Static evidence or a
-repository setting can be factual without proving exploitability or practical impact.
-No dynamic proof of concept, Docker validation, destructive test, GitHub issue,
-Security Advisory, patch, or application-code change was performed in this phase.
+The sections below describe the findings **as they were before 0.2.0**; the
+resolution of each one is in the table above.
+
+At the time of the review every item was a **candidate**. Phase 3 verified selected implementation
+behaviors and configuration facts without claiming exploitability or practical impact.
+No destructive test, GitHub issue, Security Advisory, patch, or application-code change
+was performed.
 
 ### Severity scale
 
@@ -31,31 +60,54 @@ repository security settings as of 2026-09-11. Review methods were:
 - a lockfile advisory scan and manual reachability classification;
 - read-only GitHub API inspection of branch and security settings.
 
-No runtime system, live database, live credential, browser history, external agent, or
-production service was exercised. Suggested validation steps below are proposals for a
-separately approved Phase 3 and must use synthetic data and isolated scratch state.
+Discovery did not exercise a runtime system, live database, live credential, browser
+history, external agent, or production service.
+
+### Phase 3 validation method
+
+Phase 3 Docker validation proceeded under explicit approval granted after the original
+Phase 2 boundary. Disposable containers used `--rm`, `--network none`, a non-root user,
+a read-only repository and runner mount, dropped Linux capabilities, no-new-privileges,
+and explicit CPU, memory, and process limits. Tests used synthetic data and isolated
+scratch paths only. The base was `python:3.12-slim` pinned at digest
+`sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203`.
+Runner SHA-256 checksums were checked before use: Lane A v2
+`e50856bd8b0aab6306bf00f40595af026fa6d1625d97be9546eddc88109f7588`, Lane B
+`649c36032e1cd92adfd7e596cff09c5c35895f01108650e6f26cc328e22368f1`, and Lane C v2
+`d4f1f5a3c99ea24577d66bf01335176523c7d9c1cd48658f901978563e99515d`.
+No sensitive or state-bearing host path entered validation; only the read-only repository
+and runner were mounted. No live room database, credential, browser profile, external
+API, model, or agent tool execution entered validation. The initial Lane A stopped at a
+runner assertion, and the initial Lane C did not start because its image was missing;
+reported conclusions use Lane A v2 and Lane C v2. All started containers used `--rm`.
+Post-run `docker ps -a` found no validation containers; no named Docker volumes were used.
 
 ## Summary
 
 | ID | Candidate | Severity | Confidence | Status |
 |---|---|---:|---:|---|
-| APP-001 | SQLite files may inherit permissive creation modes | High | High | `unverified` |
-| APP-002 | Machine identity is forgeable through the environment | High | High | `unverified` |
-| APP-003 | Cross-recipient task access may disclose or misuse capabilities | High | High | `unverified` |
-| APP-004 | Peer content crosses into model context without trust labeling | High | High | `unverified` |
-| APP-005 | Machine peers can create tasks without sender authority policy | High | High | `unverified` |
-| APP-006 | Guard coverage permits unsupported write-capable tool shapes | High | High | `unverified` |
-| APP-007 | Guard auto-claim check and acquisition are not one decision | High | High | `unverified` |
-| APP-008 | Guard fails open on malformed input and internal errors | Medium | High | `unverified` |
-| APP-009 | Several non-web inputs lack explicit resource bounds | Medium | High | `unverified` |
-| APP-010 | Persistent human-authority token is carried in URLs and stdout | Medium | High | `unverified` |
-| APP-011 | Unbounded SSE connections may exhaust local server resources | Medium | Medium | `unverified` |
-| APP-012 | Shared message data has no redaction or retention policy | Medium | High | `unverified` |
-| APP-013 | Path checks may be subject to a symlink/rename race | Medium | Medium-low | `unverified` |
-| DEP-001 | Development pytest version matches a published advisory range | Moderate | High version match; unverified reachability | `unverified` |
-| REPO-001 | Effective default branch conflicts with repository documentation | Low | High | `unverified` |
-| REPO-002 | Effective default branch has no branch protection | High | High configuration fact | `unverified` |
-| REPO-003 | Dependabot alerts and security updates are disabled | Medium | High configuration fact | `unverified` |
+| APP-001 | SQLite files may inherit permissive creation modes | High | High | `verified-behavior / impact-unverified` |
+| APP-002 | Machine identity derives from an unauthenticated environment value | High | High | `verified-behavior / impact-unverified` |
+| APP-003 | Cross-recipient task access may disclose or misuse capabilities | High | High | `partially-verified / impact-unverified` |
+| APP-004 | Peer content crosses into model context without trust labeling | High | High | `verified-behavior / impact-unverified` |
+| APP-005 | Machine peers can create tasks without sender authority policy | High | High | `verified-behavior / impact-unverified` |
+| APP-006 | Guard coverage permits unsupported write-capable tool shapes | High | High | `verified-behavior / impact-unverified` |
+| APP-007 | Guard auto-claim check and acquisition are not one decision | High | High | `verified-behavior / impact-unverified` |
+| APP-008 | Guard fails open on malformed input and internal errors | Medium | High | `verified-behavior / impact-unverified` |
+| APP-009 | Several non-web inputs lack explicit resource bounds | Medium | High | `partially-verified / impact-unverified` |
+| APP-010 | Persistent human-authority token is carried in URLs and stdout | Medium | High | `verified-behavior / impact-unverified` |
+| APP-011 | Unbounded SSE connections may exhaust local server resources | Medium | Medium | `verified-behavior / impact-unverified` |
+| APP-012 | Shared message data has no redaction or retention policy | Medium | High | `verified-behavior / impact-unverified` |
+| APP-013 | Path checks may be subject to a symlink/rename race | Medium | Medium-low | `verified-behavior / impact-unverified` |
+| DEP-001 | Development pytest version matches a published advisory range | Moderate | High version match; unverified reachability | `affected-version-confirmed / exploitability-unverified` |
+| REPO-001 | Effective default branch conflicts with repository documentation | Low | High | `configuration-confirmed / security impact context-dependent` |
+| REPO-002 | Effective default branch has no branch protection | High | High configuration fact | `configuration-confirmed / security impact context-dependent` |
+| REPO-003 | Dependabot alerts and security updates are disabled | Medium | High configuration fact | `configuration-confirmed / security impact context-dependent` |
+
+Status counts: 11 `verified-behavior / impact-unverified`, 2
+`partially-verified / impact-unverified`, 1
+`affected-version-confirmed / exploitability-unverified`, and 3
+`configuration-confirmed / security impact context-dependent`.
 
 ## Application candidates
 
@@ -78,12 +130,12 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Existing mitigations:** The current inspected host appeared single-user; the
   documented deployment is WSL/local Unix-account scoped. Restrictive home-directory
   permissions reduce exposure where configured.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Under an isolated temporary home/database path and a
-  deliberately permissive umask, start each entrypoint and inspect file modes only.
-  Never use the real room database.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** With isolated synthetic state and a permissive umask, the
+  database was created as `0o644` and its parent as `0o777`; group-or-other permission
+  bits were therefore present. No second OS account access or data disclosure was tested.
 
-### APP-002 — Machine identity is forgeable through the environment
+### APP-002 — Machine identity derives from an unauthenticated environment value
 
 - **Location:** [`config.py`](../src/agent_lease_mcp/config.py#L38),
   [`server.py`](../src/agent_lease_mcp/server.py#L24), and
@@ -101,9 +153,11 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   server and CLI operations; no per-agent credential is verified.
 - **Existing mitigations:** Local-account boundary; explicit protection of the reserved
   human identity `michal`; web mutations require the separate human-authority token.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Use a scratch database and two subprocesses with synthetic
-  agent names to build an operation/identity matrix. Do not target live peers or claims.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** A synthetic peer identity was accepted from the environment and
+  a process using the same name released an existing scratch claim. The reserved human
+  identity remained blocked. This did not reproduce impersonation of a distinct live peer
+  or privilege outside the local-account trust model.
 
 ### APP-003 — Cross-recipient task access may disclose or misuse capabilities
 
@@ -119,14 +173,19 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Potential impact:** Cross-recipient visibility, unauthorized state transitions, or
   use of another worker's task capability.
 - **Severity/rationale:** **High** because a disclosed lease token may authorize durable
-  task-state changes. Exact reachability and state checks remain to be tested.
+  task-state changes. Store-level mechanics were reproduced; end-to-end caller-principal
+  enforcement, MCP transport behavior, and practical impact remain unverified.
 - **Static evidence:** Public tool/CLI parameters flow into recipient-scoped store reads
   and mutations; the discovery review found no authenticated caller-to-recipient binding.
 - **Existing mitigations:** Some state transitions require a matching lease token and
   valid delivery state; access is currently local-account scoped.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Populate a scratch database with agents A and B, then
-  assert an explicit authorization matrix for A attempting B's reads and transitions.
+- **Status:** `partially-verified / impact-unverified`.
+- **Validation result:** Scratch-state job scope exposed the presence of foreign
+  capability material without printing its value, and caller-selected recipient
+  acknowledgement, cancel, and retry operations succeeded in eligible states. These are
+  reproduced store-level mechanics. The runner had no independent caller principal or
+  MCP transport, so end-to-end caller-principal enforcement and practical impact remain
+  unverified.
 
 ### APP-004 — Peer content crosses into model context without trust labeling
 
@@ -134,8 +193,9 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   387–399 → [`lifecycle.py`](../src/agent_lease_mcp/lifecycle.py#L43) lines 43–61 →
   [`briefing.py`](../src/agent_lease_mcp/briefing.py#L20) lines 20–66.
 - **Description/data flow:** Persisted peer text is rendered into lifecycle
-  `additionalContext`. The briefing does not preserve enough message type/recipient
-  context to make chat, control, result, broadcast, and task authority visibly distinct.
+  `additionalContext`. Sender and recipient are present, but explicit untrusted-content
+  and message-kind labels are absent, leaving chat, control, result, broadcast, and task
+  authority insufficiently distinct.
 - **Preconditions:** A peer can persist text that will be delivered to another agent's
   lifecycle context.
 - **Potential impact:** Agent-to-agent prompt or memory poisoning, misleading authority,
@@ -143,13 +203,14 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Severity/rationale:** **High** because this crosses an explicit untrusted-content to
   model-context boundary. Model behavior and tool-policy consequences are unverified.
 - **Static evidence:** Raw stored text flows through the briefing renderer into hook
-  context; type and authority metadata are not consistently presented alongside it.
+  context. Sender/header recipient data is present; message kind and an explicit trust
+  label are not.
 - **Existing mitigations:** Deterministic tool guard, local-peer trust boundary, and
   human approval requirements limit some downstream actions.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Render a pure briefing/lifecycle fixture containing an
-  inert marker and assert clear provenance, message kind, recipient, and delimiters.
-  Do not invoke a model or any tools.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** An inert marker entered `additionalContext`;
+  `recipient_labeled=true`, `explicit_untrusted_label=false`, and `kind_labeled=false`.
+  No model or tool was invoked, so behavioral influence remains unverified.
 
 ### APP-005 — Machine peers can create tasks without sender authority policy
 
@@ -169,9 +230,9 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   allowlist binding sender authority to recipient/action.
 - **Existing mitigations:** No autonomous adapters today; normal interactive work still
   has human and agent-runtime controls.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** In a scratch store, evaluate a documented sender/recipient
-  authority matrix. Never start an agent or execute task content.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** A task from an ordinary synthetic peer entered the intended
+  worker queue. It was not executed, and no autonomous adapter or tool was started.
 
 ### APP-006 — Guard coverage permits unsupported write-capable tool shapes
 
@@ -191,9 +252,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   document part of that behavior. No destructive command was run.
 - **Existing mitigations:** Runtime sandbox permissions, explicit claim discipline, and
   coverage for recognized editor/write tools.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Feed synthetic hook JSON for representative write tools
-  and commands targeting harmless temporary files; inspect decisions only.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** A direct Edit-shaped request was blocked while a shell-shaped
+  equivalent was allowed. The shell payload was analyzed only, never executed, and the
+  synthetic target remained unchanged; real tool/runtime exploitability is unverified.
 
 ### APP-007 — Guard auto-claim check and acquisition are not one decision
 
@@ -207,14 +269,18 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Potential impact:** Both tool calls may be permitted even though only one claim was
   acquired, allowing conflicting edits.
 - **Severity/rationale:** **High** because it affects the core concurrency guarantee;
-  the timing window and observed behavior remain unverified.
+  a forced deterministic race was reproduced, while natural frequency, file corruption,
+  and practical impact remain unverified.
 - **Static evidence:** Ownership read and claim are separate guard steps; store claim is
   atomic, but the losing result is not enforced by the caller.
 - **Existing mitigations:** Atomic database claim prevents dual recorded ownership;
   cooperative agents and short operation windows lower likelihood.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Use deterministic monkeypatching or barriers against a
-  scratch database to force the race and assert hook decisions. Do not edit shared files.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** A deterministic race produced `allowed_count=2`,
+  `recorded_claim_count=1`, and `refused_claim_count=1`; both workers finished and the
+  target remained unchanged. This reproduced a forced deterministic race, not its natural
+  frequency. No concurrent file writes or corruption occurred, and practical impact is
+  unverified.
 
 ### APP-008 — Guard fails open on malformed input and internal errors
 
@@ -232,9 +298,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   explicitly expect malformed-input fail-open behavior.
 - **Existing mitigations:** Host sandbox/tool permissions and agent cooperation remain;
   malformed input does not itself grant new OS permission.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Run the hook subprocess with synthetic malformed inputs
-  and an injected store failure, then evaluate whether fail-open is an accepted contract.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** Malformed synthetic input was allowed with empty stderr. A
+  synthetic store failure was also allowed and reported; the target remained unchanged.
+  No write payload was executed.
 
 ### APP-009 — Several non-web inputs lack explicit resource bounds
 
@@ -255,9 +322,11 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   length/range policy. The web request body separately has an 8 KiB cap.
 - **Existing mitigations:** Loopback/stdio/local-account scope; bounded web body; SQLite
   remains local.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Add bounded unit cases around maximum, zero, and negative
-  values using a scratch database. Avoid actual exhaustion or large allocations.
+- **Status:** `partially-verified / impact-unverified`.
+- **Validation result:** The isolated store accepted 16,384-byte text, 12,000-byte status
+  and purpose values, a `1,000,000,000`-second lease (about 31.7 years), and 20 bounded
+  rapid writes. A negative limit returned all 6 prepared records. This was deliberately
+  bounded: no exhaustion, sustained load, memory-pressure, or denial-of-service test ran.
 
 ### APP-010 — Persistent human-authority token is carried in URLs and stdout
 
@@ -276,9 +345,11 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Existing mitigations:** 256-bit randomness, constant-time comparison, token file mode
   `0600`, parent `0700`, loopback binding, no-referrer/no-store headers, and POST Origin
   checks.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Inject a synthetic token into handler/startup fixtures and
-  capture generated URLs/stdout. Never inspect or copy a real token/browser history.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** With a fake token only, the generated URL and captured stdout
+  contained the fake query token, and EventSource query transport was present. The
+  listener remained loopback-only. Browser history, proxy logs, and real-token leakage
+  were not tested.
 
 ### APP-011 — Unbounded SSE connections may exhaust local server resources
 
@@ -297,10 +368,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   is present in the implementation.
 - **Existing mitigations:** Loopback-only listener, token authentication, and no claimed
   remote deployment.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Prefer a bounded socket-free concurrency model. If network
-  validation is later approved, use a capped isolated container and a strict small limit,
-  never the live server.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** Exactly 3 bounded clients produced a thread delta of 3. Source
+  and runtime introspection found no application connection cap or socket timeout. The
+  isolated server stopped normally; no exhaustion or denial of service was attempted.
 
 ### APP-012 — Shared message data has no redaction or retention policy
 
@@ -320,9 +391,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   redaction layer appears on these paths.
 - **Existing mitigations:** Local database boundary and web authentication; users are
   instructed not to share secrets.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Store an obvious inert fake-secret marker in a scratch
-  database and document only which output surfaces reproduce it.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** Synthetic message text and error text persisted and were read
+  back without redaction. Static review found no retention/delete API. Retention duration
+  and every possible distribution path were not tested.
 
 ### APP-013 — Path checks may be subject to a symlink/rename race
 
@@ -337,14 +409,18 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
 - **Potential impact:** Modification outside the intended claim or collision with another
   agent's work.
 - **Severity/rationale:** **Medium**, confidence **medium-low**: this is a generic TOCTOU
-  concern and actual tool/open behavior has not been demonstrated.
+  concern. A checked-object/modified-object mismatch was reproduced in isolation;
+  production agent-tool timing and exploitability remain unverified.
 - **Static evidence:** `Path.resolve` canonicalizes aliases at check time, but the guard
   cannot bind a later external tool open to the same inode.
 - **Existing mitigations:** Resolution handles existing aliases at check time; local
   sandbox and cooperative-user assumptions reduce attackability.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Use harmless files in an isolated temporary tree and
-  deterministic barriers; never target repository or user data.
+- **Status:** `verified-behavior / impact-unverified`.
+- **Validation result:** In an isolated temporary tree, the first object was claimed and
+  remained unchanged; the hook allowed the operation, then after a symlink swap the
+  second object changed while remaining unclaimed. The mismatch was reproduced, but
+  production agent-tool timing and practical exploitability remain unverified. No
+  repository or user file was used.
 
 ## Dependency candidate
 
@@ -359,17 +435,18 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   repository's tests, plugins, or CI inputs. That reachability was not established.
 - **Potential impact:** Impact is limited to environments that execute the affected test
   path; pytest is not an application runtime dependency.
-- **Severity/rationale:** **Moderate** advisory severity, treated here as dev-only and
-  `unverified` until exact affected-range and reachability validation is completed.
+- **Severity/rationale:** **Moderate** advisory severity, treated here as dev-only with
+  exploitability unverified.
 - **Static/config evidence:** The locked version is a verified fact and the advisory match
   was reported by the dependency scan. A version match is not proof that this project's
   usage is exploitable.
 - **Existing mitigations:** Development dependency only; no repository CI currently runs
   untrusted pull-request tests; production entrypoints do not import pytest.
-- **Status:** `unverified`.
-- **Safe Phase 3 validation:** Confirm the advisory's canonical affected/fixed ranges,
-  inspect whether the relevant pytest feature is used, then test an upgrade in an
-  isolated environment without running untrusted test content.
+- **Status:** `affected-version-confirmed / exploitability-unverified`.
+- **Validation result:** The lock and isolated environment both reported pytest `8.4.2`,
+  below the advisory's fixed `9.0.3`. This confirms the affected version range only; no
+  exploit or repository-specific reachability was attempted. A later patch proposal may
+  test an isolated upgrade without executing untrusted test content.
 
 ## Repository configuration candidates
 
@@ -391,10 +468,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   read-only verified. This does not establish that `master` is currently release-ready.
 - **Existing mitigations:** The active feature branch contains the latest pushed work and
   Git history is intact.
-- **Status:** `unverified` pending maintainer confirmation of intended branch policy.
-- **Safe Phase 3 validation:** Ask the maintainer to designate the canonical branch, then
-  compare repository links, clone behavior, open work, and planned protection without
-  changing settings.
+- **Status:** `configuration-confirmed / security impact context-dependent`.
+- **Validation result:** A read-only GitHub GET confirmed
+  `auto/presence-a-sandbox` as the default branch. Intended long-term branch policy still
+  requires maintainer confirmation; no setting was changed.
 
 ### REPO-002 — Effective default branch has no branch protection
 
@@ -412,10 +489,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   setting. No unauthorized push was attempted.
 - **Existing mitigations:** Current repository ownership is narrow; secret scanning and
   push protection are enabled; human process currently requires Michal's approval.
-- **Status:** `unverified` as a vulnerability until the intended canonical branch and
-  required protection policy are confirmed.
-- **Safe Phase 3 validation:** Read-only enumerate collaborators, rulesets, and available
-  status checks; propose least-privilege rules for the maintainer to approve separately.
+- **Status:** `configuration-confirmed / security impact context-dependent`.
+- **Validation result:** A read-only GitHub GET returned `404` for protection on the
+  effective default branch, confirming no branch-protection rule there. Collaborator
+  exposure and the appropriate ruleset remain unassessed; no setting was changed.
 
 ### REPO-003 — Dependabot alerts and security updates are disabled
 
@@ -433,9 +510,10 @@ separately approved Phase 3 and must use synthetic data and isolated scratch sta
   2026-09-11. The repository has no tracked CI security scanner that compensates for them.
 - **Existing mitigations:** Lockfile review in this Phase 2; GitHub secret scanning and
   push protection are enabled; dependencies are version locked.
-- **Status:** `unverified` pending maintainer choice of the continuous dependency policy.
-- **Safe Phase 3 validation:** Confirm notification routing and expected update workflow,
-  then prepare a settings-only proposal. Enabling settings requires separate approval.
+- **Status:** `configuration-confirmed / security impact context-dependent`.
+- **Validation result:** Read-only GitHub GETs confirmed vulnerability alerts and
+  Dependabot security updates disabled. Notification routing and the desired update
+  policy remain governance decisions; no setting was changed.
 
 ## Posture observations (not vulnerabilities)
 
@@ -480,14 +558,14 @@ CI, new dependencies, deployment services, or new endpoints are added.
 ## Disclosure and issue index
 
 No GitHub issue or Security Advisory has been created for any item in this document.
-No candidate has been publicly disclosed beyond this sanitized register, dynamically
-validated, patched, or approved for exploitation testing.
+No candidate has been publicly disclosed beyond the sanitized Phase 2 register, patched,
+or approved for testing outside the bounded Phase 3 validation described above.
 
 | Finding | Public issue | Private advisory | Patch | Disclosure state |
 |---|---|---|---|---|
-| APP-001–APP-013 | none | none | none | discovery candidate only |
-| DEP-001 | none | none | none | public upstream advisory; local reachability unverified |
-| REPO-001–REPO-003 | none | none | none | repository posture candidate only |
+| APP-001–APP-013 | none | none | none | behavior partially/fully reproduced; impact unverified |
+| DEP-001 | none | none | none | affected version confirmed; exploitability unverified |
+| REPO-001–REPO-003 | none | none | none | configuration confirmed; impact context-dependent |
 
 High-severity candidates must use a draft GitHub Security Advisory if Phase 3 validates
 practical impact. Lower-severity public issues still require a disclosure decision and
@@ -495,7 +573,7 @@ maintainer approval. Secret values must never be placed in an issue or advisory.
 
 ## Phase boundary
 
-This file records discovery only. Phase 3 may validate candidates using isolated scratch
-state and synthetic data after explicit approval. It does not authorize Docker execution,
-live-system testing, GitHub setting changes, advisories/issues, branches, patches, CI,
-merges, or disclosure.
+The approved bounded Docker Phase 3 validation is complete. This file does not authorize
+further dynamic testing, live-system testing, GitHub setting changes, advisories/issues,
+branches, patches, CI, merges, or disclosure. Each next action requires the applicable
+human approval point defined by the security cycle.
