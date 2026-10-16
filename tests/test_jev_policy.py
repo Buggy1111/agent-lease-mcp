@@ -120,3 +120,15 @@ def test_redact_masks_secrets_and_keeps_shape():
     out = redact('curl -H "Authorization: Bearer abc123" https://u:pw@x.io API_KEY=sk-abcdefghijklmnopqrstu')
     assert "abc123" not in out and "pw@" not in out and "sk-abc" not in out
     assert out.startswith("curl -H")
+
+
+@pytest.mark.parametrize("command", ["KEY=$(rm -rf ~) ls", "TOKEN=abc;rm -rf ~", "PASSWORD=`reboot`"])
+def test_redact_never_hides_shell_syntax(command):
+    """Maskuje se jen hodnota klíče, nikdy kus příkazu — klasifikátor musí vidět,
+    co se doopravdy spustí."""
+    from agent_lease_mcp.jev_policy import redact
+
+    out = redact(command)
+    for keep in ("rm -rf ~", "reboot"):
+        if keep in command:
+            assert keep in out
