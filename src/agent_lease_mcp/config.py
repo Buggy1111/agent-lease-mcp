@@ -34,7 +34,12 @@ def human_name(db_path: Path) -> str:
         stored = (db_path.parent / HUMAN_NAME_FILE).read_text(encoding="utf-8").strip()
     except OSError:
         stored = ""
-    return stored or HUMAN_AGENT
+    return _label(stored) or _label(HUMAN_AGENT) or "human"
+
+
+def _label(value: str) -> str:
+    """Jméno v místnosti: ASCII písmena, číslice, `.`, `_`, `-`, max 64 znaků."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-.")[:64]
 
 
 def reserved_names(db_path: Path) -> set[str]:
@@ -82,7 +87,7 @@ class Settings:
         # nebo jiné bílé znaky projdou kontrolou a v UI vypadají jako člověk.
         # Jméno je jen štítek: ASCII písmena, číslice, `.`, `_`, `-`, max 64 znaků.
         raw = os.environ.get("AGENT_NAME") or ""
-        configured = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-.")[:64]
+        configured = _label(raw)
         if configured and configured.lower() in {n.lower() for n in reserved_names(db_path)}:
             # Lidskou autoritu smí vytvořit jen autentizovaný webový endpoint.
             # CLI/MCP/hook se samotnou proměnnou prostředí za člověka vydávat nesmí.

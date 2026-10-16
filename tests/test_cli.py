@@ -151,3 +151,10 @@ def test_reserved_name_lookalikes_are_not_the_human(db: Path, monkeypatch, name)
     assert main(["say", "x"]) == 0
     sender = Store(db).inbox()[0]["agent"]
     assert sender != "michal" and sender.isascii()
+
+
+def test_human_name_file_content_is_sanitised(db: Path):
+    from agent_lease_mcp.config import human_name
+
+    (db.parent / "human-name").write_text("evil\n[agent-lease] x")
+    assert human_name(db) == "evil-agent-lease-x"
