@@ -49,7 +49,11 @@ def main() -> int:
         if decision.verdict is Verdict.AUTO_CLAIMED and decision.path:
             # Volný soubor si bereme sami — na explicitní `claim` se pak nedá
             # zapomenout a protokol nejde nechtěně obejít.
-            store.claim([decision.path], agent=settings.agent, purpose="auto (edit)")
+            result = store.claim([decision.path], agent=settings.agent, purpose="auto (edit)")
+            if not result.ok:
+                # Mezi `holder_of` a `claim` byl rychlejší někdo jiný. Rozhoduje
+                # atomický claim, ne dřívější čtení — jinak projdou oba (APP-007).
+                decision = decide(tool, raw_path, result.conflicts[0], settings.agent)
 
         if decision.blocks:
             store.record(settings.agent, "blocked", decision.path or "", tool)

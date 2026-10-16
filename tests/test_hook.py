@@ -100,3 +100,24 @@ def test_broken_input_does_not_block(db: Path):
     )
 
     assert result.returncode == 0
+
+
+def test_race_loser_is_blocked_when_claim_fails(db: Path, tmp_path: Path, monkeypatch, capsys):
+    """APP-007: čtení „volno" a claim nejsou jedno rozhodnutí. Když mezi nimi
+    vyhraje druhý agent, musí rozhodnout výsledek atomického claimu, ne čtení."""
+    import io
+
+    from agent_lease_mcp import guard
+
+    target = tmp_path / "shared.sh"
+    Store(db).claim([str(target)], agent="codex", purpose="vyhrál závod")
+    # Simulace okna: guard ještě viděl volno, ale codex mezitím claim zapsal.
+    monkeypatch.setattr(Store, "holder_of", lambda self, path: None)
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("AGENT_LEASE_DB", str(db))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(edit(target))))
+
+    assert guard.main() == 2, "poražený v závodu nesmí projít"
+    assert "codex" in capsys.readouterr().err
+    held = Store(db).claims()
+    assert [c.agent for c in held] == ["codex"], "nájem zůstává vítězi"
