@@ -14,11 +14,12 @@ zapisuje důsledek a vrací exit kód.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 from .config import Settings
 from .models import Verdict
-from .policy import decide, extract_target, script_target
+from .policy import decide, extract_target, script_target, shell_write_targets
 from .store import Store
 
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
@@ -35,14 +36,27 @@ def main() -> int:
 
     # Spouštěný skript se chová jako zápis: po dobu běhu ho nikdo nesmí editovat.
     # Přesně tahle kombinace (jeden spouští, druhý edituje) 9.9.2026 rozbila balíček.
+    write_targets: list[str] = []
     if raw_path is None:
         raw_input = payload.get("tool_input") or payload.get("toolInput") or {}
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
-        if isinstance(command, str) and (found := script_target(command)):
-            raw_path, tool = found, "Edit"  # posuzuj jako zápis
+        if isinstance(command, str):
+            if found := script_target(command):
+                raw_path, tool = found, "Edit"  # posuzuj jako zápis
+            write_targets = _in_cwd(shell_write_targets(command), payload.get("cwd"))
 
     try:
         store = Store(settings=settings)
+        # Zápis z příkazové řádky do cizího rozpracovaného souboru (APP-006).
+        # Jen kolize se blokuje, volné cíle se do nájmu neberou.
+        for target in write_targets:
+            holder = store.holder_of(target)
+            if holder and holder.agent != settings.agent:
+                denied = decide("Edit", target, holder, settings.agent)
+                store.record(settings.agent, "blocked", denied.path or "", "shell write")
+                print(denied.reason, file=sys.stderr)
+                return EXIT_BLOCK
+
         holder = store.holder_of(raw_path) if raw_path else None
         decision = decide(tool, raw_path, holder, settings.agent)
 
@@ -66,6 +80,13 @@ def main() -> int:
         print(f"[agent-lease] hook selhal, pouštím dál: {exc}", file=sys.stderr)
 
     return 0
+
+
+def _in_cwd(paths: list[str], cwd: object) -> list[str]:
+    """Relativní cesty z příkazu patří ke cwd agenta, ne ke cwd hooku."""
+    if not isinstance(cwd, str) or not cwd:
+        return paths
+    return [p if p.startswith(("/", "~")) else os.path.join(cwd, p) for p in paths]
 
 
 if __name__ == "__main__":

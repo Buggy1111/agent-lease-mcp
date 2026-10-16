@@ -121,3 +121,32 @@ def test_race_loser_is_blocked_when_claim_fails(db: Path, tmp_path: Path, monkey
     assert "codex" in capsys.readouterr().err
     held = Store(db).claims()
     assert [c.agent for c in held] == ["codex"], "nájem zůstává vítězi"
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["echo x > {t}", "echo x >> {t}", "cat a | tee {t}", "sed -i 's/a/b/' {t}", "cp other.txt {t}"],
+)
+def test_shell_write_into_foreign_claim_is_blocked(db: Path, tmp_path: Path, command: str):
+    """APP-006: zjevný zápis z příkazové řádky do cizího souboru se zablokuje."""
+    target = tmp_path / "shared.txt"
+    Store(db).claim([str(target)], agent="codex", purpose="rozpracováno")
+    payload = {"tool_name": "Bash", "tool_input": {"command": command.format(t=target)}}
+
+    assert run_hook(payload, agent="claude-code", db=db).returncode == 2
+
+
+def test_shell_write_to_free_file_passes_without_claim(db: Path, tmp_path: Path):
+    target = tmp_path / "out.log"
+    payload = {"tool_name": "Bash", "tool_input": {"command": f"echo x > {target}"}}
+
+    assert run_hook(payload, agent="claude-code", db=db).returncode == 0
+    assert Store(db).holder_of(str(target)) is None, "volný cíl se do nájmu nebere"
+
+
+def test_shell_relative_target_uses_agent_cwd(db: Path, tmp_path: Path):
+    target = tmp_path / "rel.txt"
+    Store(db).claim([str(target)], agent="codex")
+    payload = {"tool_name": "Bash", "cwd": str(tmp_path), "tool_input": {"command": "echo x > rel.txt"}}
+
+    assert run_hook(payload, agent="claude-code", db=db).returncode == 2

@@ -127,3 +127,58 @@ def script_target(command: str) -> str | None:
     if not candidate or not candidate.endswith(_SCRIPT_SUFFIXES):
         return None
     return candidate if Path(candidate).expanduser().is_file() else None
+
+
+# ── zápisy z příkazové řádky (APP-006) ───────────────────────────────────────
+# Obecný Bash pořád neparsujeme. Jen několik tvarů, kde je cíl zápisu přímo
+# vidět: přesměrování `>`/`>>`, `tee`, `sed -i`, `truncate`, cíl `cp`/`mv`.
+# Tyhle cesty se NEberou do nájmu (to by zamykalo každý log v /tmp) — jen se
+# zablokuje zápis do souboru, který drží někdo jiný. Falešný blok tím nevznikne:
+# blokuje se výhradně skutečná kolize.
+_SEPARATORS = frozenset({";", "&&", "||", "|", "&", "(", ")"})
+_REDIRECTS = frozenset({">", ">>", ">|", "&>", "&>>"})
+
+
+def shell_write_targets(command: str) -> list[str]:
+    """Cesty, do kterých příkaz zjevně zapíše. Prázdný seznam, když nevím."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return []
+
+    targets: list[str] = []
+    segment: list[str] = []
+
+    def flush() -> None:
+        if not segment:
+            return
+        name = Path(segment[0]).name
+        args = [t for t in segment[1:] if not t.startswith("-")]
+        flags = [t for t in segment[1:] if t.startswith("-")]
+        if name == "tee":
+            targets.extend(args)
+        elif name == "sed" and any(f.startswith("-i") or f == "--in-place" for f in flags):
+            targets.extend(args[1:])  # první argument je skript sedu
+        elif name == "truncate":
+            targets.extend(args[1:] if "-s" in flags else args)
+        elif name in ("cp", "mv") and len(args) >= 2:
+            targets.append(args[-1])
+        segment.clear()
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in _REDIRECTS:
+            if i + 1 < len(tokens):
+                targets.append(tokens[i + 1])
+            i += 2
+            continue
+        if tok in _SEPARATORS:
+            flush()
+        elif not (tok.isdigit() and i + 1 < len(tokens) and tokens[i + 1] in _REDIRECTS):
+            segment.append(tok)
+        i += 1
+    flush()
+    return [t for t in targets if t and not t.startswith(("/dev/", "&", "$"))]

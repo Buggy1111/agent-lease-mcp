@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from agent_lease_mcp.models import Claim, Verdict
 from agent_lease_mcp.policy import covers, decide, extract_target, normalize_path
 
@@ -79,3 +81,23 @@ class TestDecide:
         monkeypatch.chdir(tmp_path)
         d = decide("Edit", "a.sh", None, me="claude-code")
         assert d.path == normalize_path(str(tmp_path / "a.sh"))
+
+
+class TestShellWriteTargets:
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("echo x > a.txt", ["a.txt"]),
+            ("echo x>>b.log 2>&1", ["b.log"]),
+            ("cat a | tee -a c.txt d.txt", ["c.txt", "d.txt"]),
+            ("sed -i 's/a/b/' e.py f.py", ["e.py", "f.py"]),
+            ("cp src.txt dst.txt", ["dst.txt"]),
+            ("ls > /dev/null", []),
+            ("git commit -m 'a > b'", []),
+            ("python x.py", []),
+        ],
+    )
+    def test_recognised_shapes(self, command, expected):
+        from agent_lease_mcp.policy import shell_write_targets
+
+        assert shell_write_targets(command) == expected
