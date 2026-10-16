@@ -178,6 +178,53 @@ Codex i Claude Code je podporují shodně, včetně formátu
 `AGENT_NAME` musí sedět mezi serverem a hookem, jinak si agent zablokuje vlastní
 soubory. Když se v `room` objeví agent `unconfigured-*`, chybí právě tohle.
 
+### Volitelně: Jev Bash safety-gate
+
+Samostatný `PreToolUse` hook, zapojený vedle lease guardu, ne uvnitř něj —
+proč, je v [ADR 0003](docs/adr/0003-jev-samostatny-guard.md). Řeší jiný
+problém než nájmy: ne „kdo drží soubor", ale „je tenhle Bash příkaz
+nebezpečný".
+
+```json
+// ~/.claude/settings.json — přidat vedle stávajícího PreToolUse bloku
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{
+        "type": "command",
+        "command": "~/dev/projects/agent-lease-mcp/.venv/bin/agent-lease-jev-guard"
+      }]
+    }]
+  }
+}
+```
+
+Dvě vrstvy:
+
+1. **Natvrdo napsané vzory** (`rm -rf /`, force push, `git reset --hard`,
+   `curl | bash`, …) — platí **vždy**, jakmile je hook zapojený, bez API
+   klíče a bez sítě.
+2. **Jev** (TypeSafe AI, `noul` klasifikátor) na šedou zónu — vypnutý ve
+   výchozím stavu.
+
+| proměnná | výchozí | k čemu |
+|---|---|---|
+| `TYPESAFE_API_KEY` | — | API klíč; bez něj Jev jen zaloguje chybu a pustí dál |
+| `JEV_GUARD_ENABLED` | `false` | `true` zapne volání Jevu (natvrdo napsané vzory jedou i tak) |
+| `JEV_GUARD_MODE` | `shadow` | `shadow` jen loguje do `~/.agent-lease/jev-guard.log`, nikdy neblokuje; `enforce` blokuje nad prahem |
+| `JEV_GUARD_THRESHOLD` | `0.5` | práh `p_destructive`, od kterého `enforce` blokuje |
+
+Doporučený postup: zapojit hook, nechat `shadow` běžet týden, podívat se do
+logu, jestli prahy dávají smysl, pak přepnout na `enforce`. Bez toho je
+riziko falešných bloků, které naučí agenta hook obcházet — přesně to, co
+`ADR 0001` u Bash obsahu záměrně odmítá riskovat bez zdrojově doloženého
+provozu.
+
+Známé mezery: Codex-side `matcher` zatím není zapojený, protože jméno jeho
+shell nástroje v hook payloadu není ověřené (viz ADR 0003). Přímé TypeSafe
+API, ne OpenRouter — OpenRouterový tvar requestu pro Jev nebyl ověřený.
+
 ⚠️ **Codex potřebuje do sandboxu pustit adresář se stavem.** Píše se do
 `~/.agent-lease/room.db`, což je mimo pracovní adresář, takže výchozí
 `workspace-write` tam zápis zakáže — `claim` i `say` pak selžou a agent se do
@@ -203,17 +250,20 @@ podporovaný a nekoliduje s ničím, dokud v konfiguraci není `default_permissi
 
 ## Struktura
 
-Osm malých modulů, každý s jedním důvodem ke změně:
+Malé moduly, každý s jedním důvodem ke změně:
 
 ```
 config.py     nastavení z prostředí, jedno místo pravdy o identitě agenta
 models.py     slovník domény (Claim, Decision) — bez IO
-policy.py     pravidla: co je zápis, co pokrývá jakou cestu, jak se rozhoduje
+policy.py     pravidla nájmů: co je zápis, co pokrývá jakou cestu, jak se rozhoduje
 briefing.py   text vstřikovaný do kontextu — čisté funkce, testovatelné bez DB
 store.py      SQLite a nic jiného
-guard.py      PreToolUse hook: stdin → policy → exit kód (tenká slupka)
+guard.py      PreToolUse hook nájmů: stdin → policy → exit kód (tenká slupka)
 lifecycle.py  SessionStart / UserPromptSubmit / Stop hooky (tenká slupka)
 server.py     MCP nástroje (tenká slupka)
+jev_policy.py pravidla Bash safety-gate: natvrdo napsané vzory + práh pro Jev (ADR 0003)
+jev_client.py síťový klient pro Jev (TypeSafe AI) — izolovaný, mockovatelný
+jev_guard.py  samostatný PreToolUse hook na Bash obsah (tenká slupka)
 ```
 
 Seam je mezi **pravidly** a **úložištěm**, protože měnit se budou pravidla
@@ -222,11 +272,15 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ## Známá omezení
 
-- **Bash se hlídá jen částečně.** Zjistit z příkazové řádky, co všechno skript
-  zapíše, nejde spolehlivě, a falešné blokování by bylo horší než žádné — agent
-  by se naučil hook obcházet. Hlídá se proto jen jeden vzor, zato ten, který
-  škodu způsobil: **spouštění skriptu** (`bash x.sh`, `./x.sh`, `python x.py`)
-  si ten soubor vezme do nájmu. Na skripty, které zapisují jinam, je `claim`.
+- **Lease guard obsah Bash nehlídá.** Zjistit z příkazové řádky, co všechno
+  skript zapíše, nejde spolehlivě, a falešné blokování by bylo horší než
+  žádné — agent by se naučil hook obcházet. Hlídá se proto jen jeden vzor,
+  zato ten, který škodu způsobil: **spouštění skriptu** (`bash x.sh`,
+  `./x.sh`, `python x.py`) si ten soubor vezme do nájmu. Na skripty, které
+  zapisují jinam, je `claim`. Je-li potřeba i obsahová bezpečnost Bash
+  příkazů (destruktivní/nevratné operace), je to samostatný volitelný
+  guard — [Jev Bash safety-gate](#volitelně-jev-bash-safety-gate),
+  [ADR 0003](docs/adr/0003-jev-samostatny-guard.md).
 - **Jeden stroj.** Stav je soubor na disku.
 - **Vzkazy nikoho nevyruší.**
 
@@ -234,7 +288,7 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 59 testů
+.venv/bin/python -m pytest tests -q     # 124 testů
 .venv/bin/python -m ruff check src tests
 ```
 

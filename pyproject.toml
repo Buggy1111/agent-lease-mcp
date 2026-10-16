@@ -34,6 +34,9 @@ agent-lease = "agent_lease_mcp.cli:main"
 # Hook je součást balíčku, ne skript vedle repa — po instalaci má stabilní cestu
 # a nepotřebuje sys.path hacky ani vědět, kde projekt leží.
 agent-lease-guard = "agent_lease_mcp.guard:main"
+# Samostatný, volitelný Bash safety-gate (Jev/TypeSafe AI) — viz ADR 0003.
+# Vypnutý ve výchozím stavu, přes JEV_GUARD_ENABLED.
+agent-lease-jev-guard = "agent_lease_mcp.jev_guard:main"
 # Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
 agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
 agent-lease-release = "agent_lease_mcp.lifecycle:release_main"

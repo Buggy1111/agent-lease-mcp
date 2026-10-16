@@ -94,3 +94,23 @@ Proti mluví, že celé je to zatím ověřené na jednom stroji a dvou klientec
 1. **Zapsat `writable_roots` do `~/.codex/config.toml`** (blok je v README).
    Bez toho bude Codex po každém startu bez `--add-dir` mimo místnost.
 2. **Zmergovat větev `auto/presence-a-sandbox`** do `master`.
+
+## ✅ 22. 9. 2026 — Jev Bash safety-gate (samostatný, volitelný)
+
+Nový modul (`jev_policy.py`/`jev_client.py`/`jev_guard.py`), vlastní entry
+point `agent-lease-jev-guard`, zapojený vedle lease guardu, ne uvnitř něj —
+proč, je v [ADR 0003](docs/adr/0003-jev-samostatny-guard.md). 124 testů a
+lint zelené, ruční E2E na skutečné binárce ověřený.
+
+Zbývá na Michalovi, než z toho bude reálná ochrana:
+1. **Přidat `PreToolUse` blok pro `agent-lease-jev-guard` do
+   `~/.claude/settings.json`** (přesný JSON v README) — bez tohohle běží jen
+   testy, v Auto Mode nechrání nic.
+2. Natvrdo napsané vzory (`rm -rf /`, force push, …) budou aktivní hned po
+   zapojení, bez API klíče. Jev samotný ne — je vypnutý (`JEV_GUARD_ENABLED`).
+3. **Rozhodnout, jestli/kdy pořídit `TYPESAFE_API_KEY`** a zapnout
+   `JEV_GUARD_ENABLED=true` — napřed jen v `shadow` režimu (výchozí),
+   nechat běžet týden, podívat se do `~/.agent-lease/jev-guard.log`, teprve
+   pak `JEV_GUARD_MODE=enforce`.
+4. Codex-side zapojení zatím schválně chybí — jméno jeho shell nástroje
+   v hook payloadu není ověřené, hádat by bylo horší než nezapojit.
