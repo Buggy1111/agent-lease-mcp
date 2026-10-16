@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import stat
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -15,13 +16,21 @@ import pytest
 from agent_lease_mcp import webui
 from agent_lease_mcp.config import Settings
 from agent_lease_mcp.store import Store
-from agent_lease_mcp.webui import PAGE_HTML, SESSION_COOKIE, load_or_create_token, make_handler
+from agent_lease_mcp.webui import (
+    MAX_SSE_CONNECTIONS,
+    PAGE_HTML,
+    REQUEST_SOCKET_TIMEOUT,
+    SESSION_COOKIE,
+    _sse_heartbeat,
+    load_or_create_token,
+    make_handler,
+)
 
 
 def call_handler(store: Store, settings: Settings, token: str, method: str, path: str, *,
-                 headers: dict | None = None, body: dict | None = None):
+                 headers: dict | None = None, body: dict | None = None, handler_type=None):
     """Prožene request skutečným handlerem bez socketu (Codex sandbox ho zakazuje)."""
-    handler_type = make_handler(store, settings, token, 8765)
+    handler_type = handler_type or make_handler(store, settings, token, 8765)
     handler = object.__new__(handler_type)
     raw = json.dumps(body).encode() if body is not None else b""
     handler.path = path
@@ -107,6 +116,49 @@ def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
     assert "location.hash" in PAGE_HTML
     assert "history.replaceState" in PAGE_HTML
     assert "/api/events?token=" not in PAGE_HTML
+
+
+def test_sse_connection_limit_returns_service_unavailable(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler_type = make_handler(store, settings, "secret", 8765)
+    slots = handler_type.sse_slots
+    acquired = 0
+    try:
+        for _ in range(MAX_SSE_CONNECTIONS):
+            assert slots.acquire(blocking=False)
+            acquired += 1
+        status, body = call_handler(
+            store,
+            settings,
+            "secret",
+            "GET",
+            "/api/events?since=0",
+            headers={"Cookie": f"{SESSION_COOKIE}=secret"},
+            handler_type=handler_type,
+        )
+        assert status == 503
+        assert body == b"too many event streams"
+    finally:
+        for _ in range(acquired):
+            slots.release()
+
+
+def test_handler_sets_socket_timeout_and_sse_heartbeat(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler = object.__new__(make_handler(store, settings, "secret", 8765))
+    server_socket, client_socket = socket.socketpair()
+    handler.request = server_socket
+    try:
+        handler.setup()
+        assert server_socket.gettimeout() == REQUEST_SOCKET_TIMEOUT
+        assert _sse_heartbeat() == b": heartbeat\n\n"
+    finally:
+        handler.rfile.close()
+        handler.wfile.close()
+        server_socket.close()
+        client_socket.close()
 
 
 def test_send_is_authenticated_and_sender_is_not_client_controlled(live_chat):

@@ -26,6 +26,7 @@ import time
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import BoundedSemaphore
 from urllib.parse import parse_qs, urlsplit
 
 from .config import Settings
@@ -36,6 +37,9 @@ WEB_AGENT = "michal"
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 SESSION_COOKIE = "agent_lease_session"
+MAX_SSE_CONNECTIONS = 16
+REQUEST_SOCKET_TIMEOUT = 10.0
+SSE_HEARTBEAT_SECONDS = 10.0
 
 
 def _token_path(settings: Settings) -> Path:
@@ -83,14 +87,25 @@ def _sse(event: str, event_id: int | None, payload: dict) -> bytes:
     return ("\n".join(lines) + "\n\n").encode("utf-8")
 
 
+def _sse_heartbeat() -> bytes:
+    return b": heartbeat\n\n"
+
+
 def make_handler(store: Store, settings: Settings, token: str, port: int):
     allowed_origins = {
         f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"
     }
+    sse_slots = BoundedSemaphore(MAX_SSE_CONNECTIONS)
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "agent-lease-webui/0.1"
+
+        def setup(self) -> None:
+            super().setup()
+            # Platí už při parsování requestu, takže pomalý lokální klient
+            # nemůže držet vlákno navždy ještě před vstupem do handleru.
+            self.connection.settimeout(REQUEST_SOCKET_TIMEOUT)
 
         def log_message(self, fmt: str, *args) -> None:
             pass  # ticho; kdo chce logy, spustí to z terminálu a uvidí je jinde
@@ -300,16 +315,20 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             except ValueError:
                 return self._reject(400, "since/Last-Event-ID musí být celé číslo")
 
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self._security_headers()
-            self.send_header("Cache-Control", "no-cache, no-store")
-            self.send_header("Connection", "keep-alive")
-            self.send_header("X-Accel-Buffering", "no")
-            self.end_headers()
+            if not sse_slots.acquire(blocking=False):
+                return self._reject(503, "too many event streams")
 
-            next_room_at = 0.0
             try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self._security_headers()
+                self.send_header("Cache-Control", "no-cache, no-store")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+
+                next_room_at = 0.0
+                next_heartbeat_at = 0.0
                 while True:
                     messages = store.inbox(since_id=since, limit=200)
                     for message in messages:
@@ -329,10 +348,18 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         self.wfile.flush()
                         next_room_at = now + ROOM_SECONDS
 
-                    time.sleep(POLL_SECONDS)
-            except (BrokenPipeError, ConnectionResetError):
-                return  # klient zavřel kartu nebo se prohlížeč odpojil
+                    if now >= next_heartbeat_at:
+                        self.wfile.write(_sse_heartbeat())
+                        self.wfile.flush()
+                        next_heartbeat_at = now + SSE_HEARTBEAT_SECONDS
 
+                    time.sleep(POLL_SECONDS)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+                return  # klient zavřel kartu nebo se prohlížeč odpojil
+            finally:
+                sse_slots.release()
+
+    Handler.sse_slots = sse_slots
     return Handler
 
 
