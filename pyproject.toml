@@ -66,3 +66,8 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
+
+[tool.hatch.build.targets.sdist]
+# Interní pracovní dokumenty do balíčku nepatří. security-findings.md je
+# pod embargem, dokud nerozhodne vlastník — nesmí uniknout ani lokálním buildem.
+exclude = ["docs/security-findings.md", "TODO.md"]
