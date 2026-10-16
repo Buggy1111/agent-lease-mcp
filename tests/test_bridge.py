@@ -92,7 +92,7 @@ def test_doctor_runs(tmp_path: Path, monkeypatch, capsys):
     from agent_lease_mcp.doctor import run_doctor
     code = run_doctor()
     out = capsys.readouterr().out
-    assert "identita agenta: codex" in out and code in (0, 1)
+    assert "agent identity: codex" in out and code in (0, 1)
     assert os.path.isdir(tmp_path / "d")
 
 
