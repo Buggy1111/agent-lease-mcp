@@ -58,7 +58,7 @@ def merge(existing: dict, ours: dict) -> dict:
 
 def run_init(agent: str, *, write: bool, rewake: bool, home: Path | None = None) -> int:
     if agent not in CLIENTS:
-        print(f"Neznámý klient {agent!r}; podporováno: {', '.join(CLIENTS)}", file=sys.stderr)
+        print(f"Unknown client {agent!r}; supported: {', '.join(CLIENTS)}", file=sys.stderr)
         return 2
     path = (home or Path.home()) / CLIENTS[agent]["file"]
     existing: dict = {}
@@ -66,17 +66,17 @@ def run_init(agent: str, *, write: bool, rewake: bool, home: Path | None = None)
         try:
             existing = json.loads(path.read_text())
         except ValueError:
-            print(f"{path} není platný JSON — neupravuji. Oprav ho ručně.", file=sys.stderr)
+            print(f"{path} is not valid JSON — not touching it. Fix it by hand.", file=sys.stderr)
             return 1
     merged = merge(existing, build_hooks(agent, rewake=rewake))
     text = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
     if not write:
-        print(f"# {path}  (nic nezapsáno; přidej --write)\n{text}")
+        print(f"# {path}  (nothing written; add --write)\n{text}")
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         shutil.copy2(path, path.with_suffix(path.suffix + ".bak"))
     path.write_text(text)
-    print(f"Zapsáno {path}" + (" (záloha .bak)" if path.with_suffix(path.suffix + ".bak").exists() else ""))
-    print("Ověř: agent-lease doctor")
+    print(f"Wrote {path}" + (" (backup .bak)" if path.with_suffix(path.suffix + ".bak").exists() else ""))
+    print("Check: agent-lease doctor")
     return 0

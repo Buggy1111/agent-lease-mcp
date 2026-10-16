@@ -79,7 +79,7 @@ class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         for raw in self.rfile:
             if len(raw) > _MAX_LINE:
-                self._reply({"ok": False, "error": "ValueError", "message": "příliš velký požadavek"})
+                self._reply({"ok": False, "error": "ValueError", "message": "request too large"})
                 return
             try:
                 req = json.loads(raw)
@@ -88,7 +88,7 @@ class _Handler(socketserver.StreamRequestHandler):
                     self._reply({"ok": True, "result": "pong"})
                     continue
                 if method not in METHODS:
-                    raise PermissionError(f"metoda {method!r} není povolená")
+                    raise PermissionError(f"method {method!r} is not allowed")
                 result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
                 self._reply({"ok": True, "result": encode(result)})
             except (PermissionError, ValueError, TypeError, KeyError) as exc:
@@ -111,7 +111,7 @@ def serve(settings: Settings, path: Path | None = None) -> _Server:
     if path.exists():
         # živý broker → odmítnout, mrtvý soubor → uklidit
         if ping(path):
-            raise RuntimeError(f"broker už běží na {path}")
+            raise RuntimeError(f"broker already running on {path}")
         path.unlink()
     handler = type("Handler", (_Handler,), {"store": Store(settings=settings)})
     old = os.umask(0o177)  # socket vznikne rovnou 0600
@@ -193,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"failover_sweep: {exc}", file=sys.stderr)
 
     threading.Thread(target=sweeper, daemon=True).start()
-    print(f"broker poslouchá na {path or default_socket_path(settings)} (0600)", flush=True)
+    print(f"broker listening on {path or default_socket_path(settings)} (0600)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

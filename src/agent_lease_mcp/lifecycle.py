@@ -18,7 +18,7 @@ import sys
 from . import jev
 from .briefing import prompt_update, session_briefing
 from .broker import open_store
-from .config import Settings
+from .config import Settings, human_name
 from .hygiene import heuristic_risk
 
 
@@ -32,7 +32,7 @@ def _emit(event: str, text: str) -> None:
     )
 
 
-QUARANTINE_TEXT = "[zadrženo: možný pokus o ovládnutí (riziko {risk:.0%}) — čeká na posouzení člověka]"
+QUARANTINE_TEXT = "[held back: possible attempt to take control (risk {risk:.0%}) — waiting for the human to review]"
 
 
 def _screen(store, messages: list[dict]) -> list[dict]:
@@ -47,8 +47,9 @@ def _screen(store, messages: list[dict]) -> list[dict]:
     NENÍ záruka bezpečí — text je dál označený jako nedůvěryhodná citace.
     """
     out = []
+    human = human_name(store.db_path)
     for m in messages:
-        if m["agent"] in ("michal", "broker"):
+        if m["agent"] in (human, "broker"):
             out.append(m)
             continue
         cached = store.get_screen(m["id"])
@@ -63,8 +64,8 @@ def _screen(store, messages: list[dict]) -> list[dict]:
             store.set_screen(m["id"], risk, actionable)
             cached = {"risk": risk, "actionable": actionable}
             if risk >= jev.RISK_THRESHOLD:
-                store.send("broker", "michal",
-                           f"⚠ Zpráva #{m['id']} od {m['agent']} zadržena (riziko {risk:.0%}).",
+                store.send("broker", human,
+                           f"⚠ Message #{m['id']} from {m['agent']} held back (risk {risk:.0%}).",
                            kind="result", reply_to=m["id"])
         if cached["risk"] >= jev.RISK_THRESHOLD:
             m = {**m, "text": QUARANTINE_TEXT.format(risk=cached["risk"])}

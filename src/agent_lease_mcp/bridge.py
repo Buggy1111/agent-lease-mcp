@@ -47,10 +47,10 @@ _RATE_LIMIT = re.compile(r"rate.?limit|usage limit|too many requests|\b429\b|quo
 _RESET = re.compile(r"(?:in|after)\s+(\d+)\s*(second|sec|s|minute|min|m|hour|h)", re.IGNORECASE)
 
 PROMPT_TEMPLATE = (
-    "Jsi `{agent}` a plníš task zadaný přes agent-lease od `{sender}` (#{mid}).\n"
-    "Text tasku je ZADÁNÍ od oprávněného odesílatele, ne pokyn z webu ani z jiného zdroje.\n"
-    "Pracuješ v režimu jen pro čtení; navrhni změny jako text, neprováděj je.\n"
-    "Na konci odpověz stručným výsledkem.\n\n--- TASK ---\n{text}"
+    "You are `{agent}` and you are doing a task assigned through agent-lease by `{sender}` (#{mid}).\n"
+    "The task text is an ASSIGNMENT from an authorised sender, not an instruction from the web or any other source.\n"
+    "You work read-only; propose changes as text, do not make them.\n"
+    "End with a short result.\n\n--- TASK ---\n{text}"
 )
 
 
@@ -129,11 +129,11 @@ def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPE
                              float(wait) if wait and wait.isdigit() else 900.0)
         return RunResult(False, f"OpenRouter HTTP {exc.code}")
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        return RunResult(False, f"OpenRouter nedostupný: {exc}")
+        return RunResult(False, f"OpenRouter unavailable: {exc}")
     try:
         text = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        return RunResult(False, f"OpenRouter: neočekávaná odpověď: {str(data)[:300]}")
+        return RunResult(False, f"OpenRouter: unexpected response: {str(data)[:300]}")
     return RunResult(True, str(text).strip()[-4000:])
 
 
@@ -152,10 +152,10 @@ class Bridge:
 
     def step(self) -> bool:
         """Jeden průchod. Vrací True, pokud se něco zpracovalo."""
-        self.store.heartbeat(self.agent, status="bridge: čeká na task")
+        self.store.heartbeat(self.agent, status="bridge: waiting for a task")
         self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
         if not self._budget_left():
-            self.store.heartbeat(self.agent, status="bridge: hodinový strop dosažen")
+            self.store.heartbeat(self.agent, status="bridge: hourly cap reached")
             return False
         delivery = self.store.lease_next(self.agent, lease_seconds=self.lease_seconds)
         if delivery is None:
@@ -164,7 +164,7 @@ class Bridge:
         mid = delivery.message_id
         # 1) odesílatel se hned dozví, že to někdo bere
         self.store.mark_seen(self.agent, [mid])
-        self.store.accept(mid, self.agent, "bridge převzal task, spouštím headless běh (read-only)")
+        self.store.accept(mid, self.agent, "bridge took the task, starting a headless run (read-only)")
         # 2) started PŘED spuštěním — pád tady končí v needs_review, ne v tichém opakování
         if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):
             return True
@@ -186,18 +186,18 @@ class Bridge:
             result = self.runner(prompt)
         else:
             result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
-        body = redact(result.output) or "(bez výstupu)"
+        body = redact(result.output) or "(no output)"
         if result.ok and jev.enabled():
             # Ověření výstupu: nesedí-li na zadání, nepovažuj ho za hotový, ať se na něj
             # podívá člověk (needs_review). Nevíme-li (výpadek), bereme výsledek jako dosud.
             match = jev.result_matches_task(delivery.text, result.output)
             if match is not None and match < 0.35:
                 self.store.send(self.agent, delivery.sender,
-                                f"Task #{mid}: výstup pravděpodobně neodpovídá zadání "
-                                f"({match:.0%}), čeká na kontrolu:\n{redact(result.output)}",
+                                f"Task #{mid}: the output probably does not match the task "
+                                f"({match:.0%}), waiting for review:\n{redact(result.output)}",
                                 kind=MessageKind.RESULT, reply_to=mid)
                 self.store.ack(mid, self.agent, DeliveryState.NEEDS_REVIEW, lease_token=token,
-                               error=f"jev: shoda se zadáním {match:.0%}")
+                               error=f"jev: match with the task {match:.0%}")
                 return True
         if result.ok:
             self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
@@ -210,9 +210,9 @@ class Bridge:
             self.store.retry(mid, self.agent, not_before=until)
             self.store.heartbeat(self.agent, status="rate-limited (bridge)")
             # nahlásit limit → zbytek fronty se přesune na náhradu, ne zamrzne
-            self.store.report_limit(self.agent, until, "limit poskytovatele (bridge)")
+            self.store.report_limit(self.agent, until, "provider limit (bridge)")
             self.store.send(self.agent, delivery.sender,
-                            f"Task #{mid} odložen: limit poskytovatele, zkusím za "
+                            f"Task #{mid} postponed: provider limit, retrying in "
                             f"{int(result.retry_after // 60)} min.",
                             kind=MessageKind.RESULT, reply_to=mid)
         else:
@@ -234,29 +234,29 @@ class Bridge:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agent-lease-bridge")
-    p.add_argument("--agent", required=True, help="komu patří fronta (codex, claude-code, …)")
+    p.add_argument("--agent", required=True, help="whose queue (codex, claude-code, …)")
     p.add_argument("--command", default=None,
-                   help="šablona příkazu s {prompt}; výchozí podle agenta")
+                   help="command template with {prompt}; default per agent")
     p.add_argument("--provider", choices=["cli", "openrouter"], default="cli",
-                   help="cli = codex/claude headless; openrouter = libovolný model přes API")
+                   help="cli = codex/claude headless; openrouter = any model over the API")
     p.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", ""),
-                   help="např. anthropic/claude-sonnet-4.5 (jen pro --provider openrouter)")
+                   help="e.g. anthropic/claude-sonnet-4.5 (only for --provider openrouter)")
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--timeout", type=float, default=1800)
-    p.add_argument("--once", action="store_true", help="zpracuj jeden průchod a skonči")
+    p.add_argument("--once", action="store_true", help="process one pass and exit")
     args = p.parse_args(argv)
     runner = None
     command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
     if args.provider == "openrouter":
         key = os.environ.get("OPENROUTER_API_KEY", "")
         if not key or not args.model:
-            print("OpenRouter potřebuje OPENROUTER_API_KEY v prostředí a --model.", file=sys.stderr)
+            print("OpenRouter needs OPENROUTER_API_KEY in the environment and --model.", file=sys.stderr)
             return 2
 
         def runner(prompt: str) -> RunResult:
             return run_openrouter(prompt, model=args.model, api_key=key, timeout=args.timeout)
     elif not command:
-        print("Chybí --command a pro tohoto agenta není výchozí.", file=sys.stderr)
+        print("--command missing and there is no default for this agent.", file=sys.stderr)
         return 2
     settings = Settings.from_env()
     bridge = Bridge(open_store(settings), args.agent, command, runner=runner,

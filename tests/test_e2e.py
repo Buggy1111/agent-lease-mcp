@@ -59,7 +59,7 @@ def test_whole_evening(room):
     assert "WAITING FOR YOUR ACKNOWLEDGEMENT" in ctx and "written by another agent" in ctx
 
     # 2) „Viděl" se zapsalo samo, Michal ho vidí v místnosti, i když agent nic neudělal.
-    assert any("codex viděl" in m["text"] for m in store.inbox() if m["recipient"] == "michal")
+    assert any("codex saw" in m["text"] for m in store.inbox() if m["recipient"] == "michal")
     # a výzva se opakuje, dokud agent nepotvrdí
     assert "WAITING FOR YOUR ACKNOWLEDGEMENT" in hook(run, "codex").stdout
 
@@ -67,7 +67,7 @@ def test_whole_evening(room):
     acc = run("agent_lease_mcp.cli", "codex", "accept", str(mid), "--note", "opravím test")
     assert acc.returncode == 0, acc.stderr
     assert "WAITING FOR YOUR ACKNOWLEDGEMENT" not in hook(run, "codex").stdout
-    assert any("beru" in m["text"] and "opravím test" in m["text"]
+    assert any("taking" in m["text"] and "opravím test" in m["text"]
                for m in store.inbox() if m["recipient"] == "michal")
 
     # 4) Codex edituje soubor → nájem; Claude Code na něj nesmí (exit 2), uvolnění pomůže.
@@ -91,7 +91,7 @@ def test_whole_evening(room):
     assert lim.returncode == 0, lim.stderr
     assert any(j["id"] == mid2 for j in store.jobs("claude-code"))
     ctx2 = json.loads(hook(run, "claude-code").stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "Napiš dokumentaci" in ctx2 and "Převzal jsi úkol" in ctx2
+    assert "Napiš dokumentaci" in ctx2 and "You took over task" in ctx2
 
     # 6) overdue/limits fungují
     assert "týdenní limit" in run("agent_lease_mcp.cli", "claude-code", "limits").stdout

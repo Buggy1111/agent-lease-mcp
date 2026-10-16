@@ -30,7 +30,7 @@ def test_limit_moves_pending_task_to_first_available_fallback(store: Store):
     store.report_limit("codex", time.time() + 3600, "weekly limit")
     job = next(j for j in store.jobs("claude-code") if j["id"] == mid)
     assert job["state"] == "pending" and job["recipient"] == "claude-code"
-    notes = [m["text"] for m in store.inbox() if m["agent"] == "broker" and "přesunut" in m["text"]]
+    notes = [m["text"] for m in store.inbox() if m["agent"] == "broker" and "moved" in m["text"]]
     assert len(notes) == 1 and "codex → claude-code" in notes[0]  # odesílatel je člověk → jedna zpráva
     assert store.lease_next("codex") is None
     assert store.lease_next("claude-code").message_id == mid

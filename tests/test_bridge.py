@@ -31,8 +31,8 @@ def test_success_accepts_first_then_returns_result(store: Store, tmp_path: Path)
     states = {j["id"]: j["state"] for j in store.jobs("codex")}
     assert states[mid] == "succeeded"
     texts = [m["text"] for m in store.inbox() if m["recipient"] == "michal"]
-    assert any("codex viděl" in t for t in texts)           # automatický příjem
-    assert any(t.startswith("✔ beru") for t in texts)        # vědomé potvrzení dřív než výsledek
+    assert any("codex saw" in t for t in texts)           # automatický příjem
+    assert any(t.startswith("✔ taking") for t in texts)        # vědomé potvrzení dřív než výsledek
     assert any("výsledek: 4" in t for t in texts)
 
 
@@ -78,9 +78,9 @@ def test_unauthorized_sender_cannot_enqueue(store: Store):
 
 def test_overdue_lists_unaccepted(store: Store):
     mid = store.send("michal", "codex", "ahoj", kind="chat")
-    assert store.overdue(0)[0]["problem"] == "nedoručeno"
+    assert store.overdue(0)[0]["problem"] == "not delivered"
     store.mark_seen("codex", [mid])
-    assert store.overdue(0)[0]["problem"] == "viděno, nepotvrzeno"
+    assert store.overdue(0)[0]["problem"] == "seen, not acknowledged"
     store.accept(mid, "codex")
     assert store.overdue(0) == []
 

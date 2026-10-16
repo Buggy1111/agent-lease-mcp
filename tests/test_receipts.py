@@ -27,7 +27,7 @@ def test_seen_is_recorded_once_and_sender_is_told(store: Store):
     assert store.mark_seen("codex", [mid]) == []  # opakované vložení nepíše další příjem
     receipts = [m for m in store.inbox() if m["agent"] == "broker"]
     assert len(receipts) == 1
-    assert receipts[0]["recipient"] == "michal" and "codex viděl" in receipts[0]["text"]
+    assert receipts[0]["recipient"] == "michal" and "codex saw" in receipts[0]["text"]
     assert receipts[0]["reply_to"] == mid
 
 

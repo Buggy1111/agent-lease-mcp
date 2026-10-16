@@ -25,6 +25,7 @@ from .config import (
     MAX_TTL_SECONDS,
     STALE_PEER_SECONDS,
     Settings,
+    human_name,
     valid_agent_name,
 )
 from .hygiene import check_name, check_path, check_short, check_text, redact
@@ -233,7 +234,7 @@ class Store:
             conflicts = self._conflicts(con, wanted, agent)
             if conflicts:
                 for c in conflicts:
-                    self._record(con, agent, "claim-refused", c.path, f"drží {c.agent}")
+                    self._record(con, agent, "claim-refused", c.path, f"held by {c.agent}")
                 return ClaimResult(granted=[], conflicts=conflicts)
 
             for path in wanted:
@@ -419,9 +420,9 @@ class Store:
         _check_agent(agent)
         recipient = check_name("recipient", recipient.strip())
         if not recipient:
-            raise ValueError("recipient nesmí být prázdný")
+            raise ValueError("recipient must not be empty")
         if not text.strip():
-            raise ValueError("text nesmí být prázdný")
+            raise ValueError("text must not be empty")
         text = redact(check_text(text))
         check_short("project", project)
         if dedupe_key:
@@ -430,7 +431,7 @@ class Store:
             not self.settings.may_send_task(agent)
         ):
             # APP-005: z textu zprávy jiného agenta nesmí vzniknout spustitelná práce.
-            raise PermissionError(f"{agent} nesmí zadávat {kind_value}")
+            raise PermissionError(f"{agent} may not create a {kind_value}")
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -509,7 +510,7 @@ class Store:
                         con.execute(
                             "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
                             "VALUES('broker',?,?,?,?,?)",
-                            (f"✓ {recipient} viděl #{mid} („{snippet}“)", now,
+                            (f"✓ {recipient} saw #{mid} (“{snippet}”)", now,
                              msg["agent"], MessageKind.RESULT.value, mid),
                         )
         for sender in senders:
@@ -543,7 +544,7 @@ class Store:
             con.execute(
                 "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
                 "VALUES(?,?,?,?,?,?)",
-                (recipient, f"✔ beru #{message_id}" + (f": {note}" if note else ""), now,
+                (recipient, f"✔ taking #{message_id}" + (f": {note}" if note else ""), now,
                  msg["agent"], MessageKind.RESULT.value, message_id),
             )
             self._record(con, recipient, "accept", "", f"#{message_id}")
@@ -626,16 +627,16 @@ class Store:
                     con.execute("UPDATE messages SET recipient=? WHERE id=?", (target, r["id"]))
                     con.execute("DELETE FROM receipts WHERE message_id=? AND recipient=?",
                                 (r["id"], src))
-                    why = (f"limit do {time.strftime('%H:%M', time.localtime(limited[src]['until']))}"
-                           if src in limited else "není dostupný")
-                    note = f"↪ úkol #{r['id']} přesunut {src} → {target} ({src}: {why})"
-                    for to in {r["agent"], "michal"}:
+                    why = (f"limited until {time.strftime('%H:%M', time.localtime(limited[src]['until']))}"
+                           if src in limited else "unavailable")
+                    note = f"↪ task #{r['id']} moved {src} → {target} ({src}: {why})"
+                    for to in {r["agent"], human_name(self.db_path)}:
                         con.execute(
                             "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
                             "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
                     snippet = " ".join(r["text"].split())[:400]
-                    handover = (f"↪ Převzal jsi úkol #{r['id']} od {src} ({why}), "
-                                f"zadal {r['agent']}: {snippet}")
+                    handover = (f"↪ You took over task #{r['id']} from {src} ({why}), "
+                                f"assigned by {r['agent']}: {snippet}")
                     # Nový příjemce dostane ZPRÁVU S NOVÝM ID: původní úkol má staré id,
                     # které může být za kurzorem cíle, a do jeho kontextu by se nikdy nevložilo.
                     con.execute(
@@ -736,7 +737,7 @@ class Store:
         return [
             {"id": r["id"], "from": r["agent"], "to": r["recipient"], "kind": r["kind"],
              "text": r["text"], "waiting_seconds": int(now - r["sent_at"]),
-             "problem": "viděno, nepotvrzeno" if r["seen_at"] else "nedoručeno"}
+             "problem": "seen, not acknowledged" if r["seen_at"] else "not delivered"}
             for r in rows
         ]
 
@@ -1085,7 +1086,7 @@ class Store:
 
 def _check_agent(agent: str) -> None:
     if not valid_agent_name(agent) and not agent.startswith(("untrusted-", "unconfigured-")):
-        raise ValueError(f"neplatné jméno agenta: {agent!r}")
+        raise ValueError(f"invalid agent name: {agent!r}")
     check_name("agent", agent)
 
 

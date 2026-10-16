@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 
 from .broker import open_store
-from .config import Settings
+from .config import Settings, human_name
 from .hygiene import redact
 
 
@@ -32,18 +32,19 @@ def collect(store, *, overdue_seconds: int = 300) -> list[tuple[str, str]]:
     """(klíč, text) čekajících upozornění. Čistě čtení + dedupe tabulka."""
     out: list[tuple[str, str]] = []
     for m in store.overdue(overdue_seconds):
-        text = (f"⏳ {m['to']} už {m['waiting_seconds'] // 60} min nepotvrdil #{m['id']} "
-                f"od {m['from']} ({m['problem']}): {m['text'][:80]}")
+        text = (f"⏳ {m['to']} has not acknowledged #{m['id']} for {m['waiting_seconds'] // 60} min "
+                f"from {m['from']} ({m['problem']}): {m['text'][:80]}")
         out.append((f"overdue:{m['id']}", text))
     for a in store.recent_audit(("failover", "limit")):
         icon = "↪" if a["action"] == "failover" else "⏸"
         out.append((f"audit:{a['id']}", f"{icon} {a['agent']}: {a['action']} {a['detail']}"))
+    human = human_name(store.db_path)
     for m in store.latest_messages(limit=200):
-        if m["agent"] == "broker" and m["recipient"] == "michal" and "zadržena" in m["text"]:
+        if m["agent"] == "broker" and m["recipient"] == human and "held back" in m["text"]:
             out.append((f"quarantine:{m['id']}", m["text"]))
     for r in store.needs_review_list():
         out.append((f"review:{r['id']}:{int(r['updated_at'])}",
-                    f"🔎 #{r['id']} pro {r['to']} ke kontrole: {r['error'] or r['text'][:80]}"))
+                    f"🔎 #{r['id']} for {r['to']} needs review: {r['error'] or r['text'][:80]}"))
     return out
 
 
@@ -66,7 +67,7 @@ def run_once(store, *, overdue_seconds: int, dry: bool, sender=send_telegram) ->
             print(f"[dry] {key}: {text}")
             continue
         if not (token and chat):
-            print("Chybí TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID (zkus --dry).", file=sys.stderr)
+            print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set (try --dry).", file=sys.stderr)
             return 2
         if not store.mark_notified(key):
             continue  # už odesláno
@@ -81,8 +82,8 @@ def run_once(store, *, overdue_seconds: int, dry: bool, sender=send_telegram) ->
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agent-lease-notify")
     p.add_argument("--dry", action="store_true")
-    p.add_argument("--loop", action="store_true", help="běžet pořád (každých 60 s)")
-    p.add_argument("--overdue", type=int, default=300, help="po kolika s nepotvrzení upozornit")
+    p.add_argument("--loop", action="store_true", help="keep running (every 60 s)")
+    p.add_argument("--overdue", type=int, default=300, help="alert after this many seconds without acknowledgement")
     args = p.parse_args(argv)
     store = open_store(Settings.from_env())
     if not args.loop:

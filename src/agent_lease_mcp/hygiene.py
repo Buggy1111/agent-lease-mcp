@@ -32,7 +32,7 @@ def redact(text: str) -> str:
 
 def check_len(label: str, value: str, limit: int) -> str:
     if len(value) > limit:
-        raise ValueError(f"{label} je delší než {limit} znaků")
+        raise ValueError(f"{label} is longer than {limit} characters")
     return value
 
 
@@ -49,7 +49,7 @@ def check_short(label: str, value: str) -> str:
 
 
 def check_path(value: str) -> str:
-    return check_len("cesta", value, MAX_PATH_CHARS)
+    return check_len("path", value, MAX_PATH_CHARS)
 
 
 def untrusted(text: str, limit: int = 600) -> str:
