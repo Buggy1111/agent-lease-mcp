@@ -89,7 +89,7 @@ def test_whole_evening(room):
     mid2 = store.send("michal", "codex", "Napiš dokumentaci", kind="task")
     lim = run("agent_lease_mcp.cli", "codex", "limit", "--until", "+2h", "--reason", "týdenní limit")
     assert lim.returncode == 0, lim.stderr
-    assert any(j["id"] == mid2 for j in store.jobs("claude-code"))
+    assert any(j["id"] == mid2 for j in store.jobs("claude-code", viewer="claude-code"))
     ctx2 = json.loads(hook(run, "claude-code").stdout)["hookSpecificOutput"]["additionalContext"]
     assert "Napiš dokumentaci" in ctx2 and "You took over task" in ctx2
 

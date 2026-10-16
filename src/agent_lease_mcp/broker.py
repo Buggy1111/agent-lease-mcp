@@ -18,6 +18,7 @@ import json
 import os
 import socket
 import socketserver
+import struct
 import sys
 import threading
 from enum import Enum
@@ -34,6 +35,8 @@ METHODS = frozenset({
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
 })
+_NEEDS_ACTOR = frozenset({"retry", "cancel"})
+_NEEDS_VIEWER = frozenset({"jobs"})
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
 
@@ -73,10 +76,25 @@ def decode(obj):
     return obj
 
 
+def _same_user(sock) -> bool:
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    except (AttributeError, OSError):
+        return True  # platforma bez SO_PEERCRED: spoléháme na 0600 socketu
+    _pid, uid, _gid = struct.unpack("3i", creds)
+    return uid == os.getuid()
+
+
 class _Handler(socketserver.StreamRequestHandler):
     store: Store
 
     def handle(self) -> None:
+        # Socket je 0600, ale kdyby někdo práva povolil, ať se broker nebaví s
+        # procesem jiného uživatele (SO_PEERCRED, Linux). Identitu AGENTA tím
+        # neověříme — to je lokální model důvěry (README → Security).
+        if not _same_user(self.request):
+            self._reply({"ok": False, "error": "PermissionError", "message": "foreign user"})
+            return
         for raw in self.rfile:
             if len(raw) > _MAX_LINE:
                 self._reply({"ok": False, "error": "ValueError", "message": "request too large"})
@@ -89,6 +107,13 @@ class _Handler(socketserver.StreamRequestHandler):
                     continue
                 if method not in METHODS:
                     raise PermissionError(f"method {method!r} is not allowed")
+                kwargs = req.get("kwargs", {}) or {}
+                # `actor`/`viewer` = None znamená práva člověka (web UI). Ten jde
+                # přímo do SQLite, přes broker chodí jen agenti → None odmítnout.
+                if method in _NEEDS_ACTOR and kwargs.get("actor") is None:
+                    raise PermissionError(f"{method} over the broker needs an actor")
+                if method in _NEEDS_VIEWER and kwargs.get("viewer") is None:
+                    raise PermissionError(f"{method} over the broker needs a viewer")
                 result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
                 self._reply({"ok": True, "result": encode(result)})
             except (PermissionError, ValueError, TypeError, KeyError) as exc:

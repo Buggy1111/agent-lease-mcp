@@ -28,7 +28,15 @@ from .config import (
     human_name,
     valid_agent_name,
 )
-from .hygiene import check_name, check_path, check_short, check_text, redact
+from .hygiene import (
+    check_name,
+    check_path,
+    check_short,
+    check_text,
+    heuristic_risk,
+    redact,
+    untrusted,
+)
 from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
 from .policy import covers, normalize_path
 
@@ -134,6 +142,10 @@ CREATE TABLE IF NOT EXISTS cursors (
     last_msg   INTEGER NOT NULL DEFAULT 0
 );
 """
+
+
+# Jak dlouho se nepotvrzená zpráva připomíná (pak už jen v `overdue`).
+ACCEPT_WINDOW_SECONDS = 3 * 86400
 
 
 class Store:
@@ -635,6 +647,14 @@ class Store:
                             "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
                             "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
                     snippet = " ".join(r["text"].split())[:400]
+                    # Zprávy od brokeru se nescreenují (věří se jim), takže cizí text
+                    # do nich nesmí jít bez kontroly — jinak by přesun úkolu obešel
+                    # screening prompt injection (security review 16. 10.).
+                    if heuristic_risk(snippet) >= 0.5:
+                        snippet = (f"[held back: possible injection — read #{r['id']} via "
+                                   "`inbox` and judge it yourself]")
+                    else:
+                        snippet = untrusted(snippet, 400)
                     handover = (f"↪ You took over task #{r['id']} from {src} ({why}), "
                                 f"assigned by {r['agent']}: {snippet}")
                     # Nový příjemce dostane ZPRÁVU S NOVÝM ID: původní úkol má staré id,
@@ -766,9 +786,12 @@ class Store:
                 "LEFT JOIN screens sc ON sc.message_id=m.id "
                 "WHERE m.recipient=? AND m.agent<>? AND m.kind IN ('chat','task','control') "
                 "AND d.state IN ('pending','leased') AND (r.accepted_at IS NULL) "
+                # jen čerstvé: týdny staré úkoly z doby před potvrzováním nepřipomínat
+                "AND m.sent_at >= ? "
                 # informativní chat (Jev: akce < 30 %) se nepřipomíná; „viděl" stačí
                 "AND NOT (m.kind='chat' AND sc.actionable IS NOT NULL AND sc.actionable < 0.3) "
-                "ORDER BY m.id LIMIT ?", (recipient, recipient, limit),
+                "ORDER BY m.id LIMIT ?",
+                (recipient, recipient, now - ACCEPT_WINDOW_SECONDS, limit),
             ).fetchall()
         return [
             {"id": r["id"], "agent": r["agent"], "kind": r["kind"], "text": r["text"],

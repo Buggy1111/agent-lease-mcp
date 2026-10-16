@@ -193,3 +193,17 @@ def test_prune_keeps_open_work(store: Store):
     assert removed["messages"] == 1
     ids = {m["id"] for m in store.inbox()}
     assert open_ in ids and old not in ids
+
+
+def test_old_unacknowledged_messages_are_not_nagged_forever(tmp_path):
+    import sqlite3
+    import time
+
+    from agent_lease_mcp.store import Store
+
+    db = tmp_path / "room.db"
+    st = Store(db)
+    mid = st.send("michal", "codex", "starý úkol", kind="task")
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE messages SET sent_at=? WHERE id=?", (time.time() - 10 * 86400, mid))
+    assert st.awaiting_accept("codex") == []

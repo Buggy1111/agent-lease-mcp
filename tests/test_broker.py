@@ -77,3 +77,11 @@ def test_second_broker_refuses_and_stale_socket_is_cleaned(tmp_path: Path):
     first.server_close()
     again = serve(settings, sock)  # soubor zůstal, nikdo neposlouchá → uklidit
     again.server_close()
+
+
+def test_broker_refuses_human_privileges_from_socket_clients(tmp_path):
+    """Security review: přes broker chodí jen agenti — actor/viewer=None (práva
+    člověka) se odmítne."""
+    from agent_lease_mcp.broker import _NEEDS_ACTOR, _NEEDS_VIEWER
+
+    assert {"retry", "cancel"} <= _NEEDS_ACTOR and "jobs" in _NEEDS_VIEWER

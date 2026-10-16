@@ -207,7 +207,7 @@ class Bridge:
             until = time.time() + result.retry_after
             self.store.ack(mid, self.agent, DeliveryState.FAILED, lease_token=token,
                            error=f"rate limit, znovu po {int(result.retry_after)} s")
-            self.store.retry(mid, self.agent, not_before=until)
+            self.store.retry(mid, self.agent, not_before=until, actor=self.agent)
             self.store.heartbeat(self.agent, status="rate-limited (bridge)")
             # nahlásit limit → zbytek fronty se přesune na náhradu, ne zamrzne
             self.store.report_limit(self.agent, until, "provider limit (bridge)")

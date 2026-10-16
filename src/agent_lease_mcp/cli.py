@@ -315,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "limit":
         who = args.agent or me
+        if who != me:  # limit jde hlásit jen za sebe (security review 16. 10.)
+            print("You can only report your own limit.", file=sys.stderr)
+            return 1
         if args.clear:
             print("Limit cleared." if store.clear_limit(who) else "There was no limit.")
         else:
