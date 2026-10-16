@@ -1,5 +1,7 @@
 # agent-lease-mcp
 
+> ℹ️ Aktuální dokumentace k verzi 0.2.0 (instalace přes PyPI, bezpečnostní model) je anglicky v [README.md](README.md). Tahle česká verze popisuje původní návrh a důvody; cesty a příkazy v ní odpovídají vývojové instalaci.
+
 Dva coding agenti (Claude Code a Codex) ve stejném repu si nemají šlapat po
 souborech. Tenhle MCP server jim dá **nájmy na cesty, přehled o sobě navzájem
 a společnou nástěnku** — a nájem se **vynucuje hookem**, ne dobrou vůlí.
