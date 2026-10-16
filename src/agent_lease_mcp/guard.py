@@ -25,11 +25,26 @@ from .store import Store
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
 
 
+def _fail_closed() -> bool:
+    """
+    `AGENT_LEASE_FAIL_CLOSED=1` (APP-008): při chybě hooku blokovat místo
+    pouštění. Výchozí zůstává fail-open — pro běžnou práci je rozbitá
+    koordinace menší zlo než zastavená práce. Kdo pouští agenty bez dozoru
+    na sdílené věci, ať si zapne tohle.
+    """
+    return os.environ.get("AGENT_LEASE_FAIL_CLOSED", "").lower() in ("1", "true", "yes")
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
+        if _fail_closed():
+            print("[agent-lease] nerozumím vstupu hooku, blokuji (fail-closed)", file=sys.stderr)
+            return EXIT_BLOCK
         return 0  # nerozumím vstupu → pustit dál, ne blokovat naslepo
+    if not isinstance(payload, dict):
+        payload = {}
 
     settings = Settings.from_env()
     tool, raw_path = extract_target(payload)
@@ -77,6 +92,9 @@ def main() -> int:
         # ⚠️ Fail-open schválně. Rozbitá koordinace nesmí zastavit práci — z
         # pomocníka by se stala překážka a první, co by kdokoli udělal, je vypnout
         # hook. Selhání je vidět na stderr.
+        if _fail_closed():
+            print(f"[agent-lease] hook selhal, blokuji (fail-closed): {exc}", file=sys.stderr)
+            return EXIT_BLOCK
         print(f"[agent-lease] hook selhal, pouštím dál: {exc}", file=sys.stderr)
 
     return 0

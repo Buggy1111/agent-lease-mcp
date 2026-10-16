@@ -150,3 +150,22 @@ def test_shell_relative_target_uses_agent_cwd(db: Path, tmp_path: Path):
     payload = {"tool_name": "Bash", "cwd": str(tmp_path), "tool_input": {"command": "echo x > rel.txt"}}
 
     assert run_hook(payload, agent="claude-code", db=db).returncode == 2
+
+
+def test_fail_closed_mode_blocks_broken_input(db: Path):
+    """APP-008: kdo chce, může chybu hooku brát jako zákaz."""
+    env = _env("claude-code", db) | {"AGENT_LEASE_FAIL_CLOSED": "1"}
+    result = subprocess.run(
+        [sys.executable, "-m", "agent_lease_mcp.guard"],
+        input="tohle není JSON", capture_output=True, text=True, check=False, env=env,
+    )
+    assert result.returncode == 2
+    assert "fail-closed" in result.stderr
+
+
+def test_non_object_payload_does_not_crash(db: Path):
+    result = subprocess.run(
+        [sys.executable, "-m", "agent_lease_mcp.guard"],
+        input="[1, 2]", capture_output=True, text=True, check=False, env=_env("claude-code", db),
+    )
+    assert result.returncode == 0
