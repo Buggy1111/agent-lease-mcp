@@ -1,0 +1,11 @@
+[Unit]
+Description=agent-lease broker (jediný writer SQLite, Unix socket 0600)
+
+[Service]
+ExecStart=%h/.local/bin/agent-lease-broker
+Restart=on-failure
+RestartSec=2
+UMask=0077
+
+[Install]
+WantedBy=default.target

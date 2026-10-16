@@ -7,8 +7,12 @@ obejde; AgentRoom si to sám dokumentuje. Claude Code i Codex ale mají PreToolU
 hooky se stejnou sémantikou (exit 2 = zablokovat, důvod na stderr), takže se to
 dá vynutit deterministicky na úrovni volání nástroje. Jeden skript obslouží oba.
 
-Slupka je schválně tenká: rozhoduje `policy.decide()`, tady se jen čte stdin,
-zapisuje důsledek a vrací exit kód.
+Slupka je schválně tenká: kontrola i převzetí nájmu je jedna transakce
+(`Store.edit_gate`, APP-007), tady se jen čte stdin a vrací exit kód.
+
+Selhání: výchozí je fail-open (rozbitá koordinace nesmí zastavit práci a z hooku
+by se stala věc, kterou první vypnou). Kdo chce opak, nastaví
+`AGENT_LEASE_FAIL_CLOSED=1` — pak neplatný vstup i interní chyba volání zablokují.
 """
 
 from __future__ import annotations
@@ -17,91 +21,62 @@ import json
 import os
 import sys
 
+from .broker import open_store
 from .config import Settings
-from .models import Verdict
-from .policy import decide, extract_target, script_target, shell_write_targets
-from .store import Store
+from .policy import decide, extract_targets, is_write_tool, script_target, shell_write_targets
 
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
 
 
-def _fail_closed() -> bool:
-    """
-    `AGENT_LEASE_FAIL_CLOSED=1` (APP-008): při chybě hooku blokovat místo
-    pouštění. Výchozí zůstává fail-open — pro běžnou práci je rozbitá
-    koordinace menší zlo než zastavená práce. Kdo pouští agenty bez dozoru
-    na sdílené věci, ať si zapne tohle.
-    """
-    return os.environ.get("AGENT_LEASE_FAIL_CLOSED", "").lower() in ("1", "true", "yes")
-
-
 def main() -> int:
+    settings = Settings.from_env()
+    closed = settings.fail_closed
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
-        if _fail_closed():
-            print("[agent-lease] unreadable hook input, blocking (fail-closed)", file=sys.stderr)
+        if not isinstance(payload, dict):
+            raise ValueError("payload is not an object")  # noqa: TRY004
+    except (json.JSONDecodeError, ValueError) as exc:
+        if closed:
+            print(f"[agent-lease] unreadable hook input, blocking (fail-closed): {exc}",
+                  file=sys.stderr)
             return EXIT_BLOCK
         return 0  # nerozumím vstupu → pustit dál, ne blokovat naslepo
-    if not isinstance(payload, dict):
-        payload = {}
 
-    settings = Settings.from_env()
-    tool, raw_path = extract_target(payload)
+    tool, paths = extract_targets(payload)
+    purpose = "auto (edit)"
+    write_targets: list[str] = []
 
     # Spouštěný skript se chová jako zápis: po dobu běhu ho nikdo nesmí editovat.
     # Přesně tahle kombinace (jeden spouští, druhý edituje) 9.9.2026 rozbila balíček.
-    write_targets: list[str] = []
-    purpose = "auto (edit)"
-    if raw_path is None:
+    if not paths:
         raw_input = payload.get("tool_input") or payload.get("toolInput") or {}
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
         if isinstance(command, str):
             if found := script_target(command):
-                raw_path, tool = found, "Edit"  # posuzuj jako zápis
-                purpose = "auto (running script)"
+                paths, tool, purpose = [found], "Edit", "auto (running script)"
             write_targets = _in_cwd(shell_write_targets(command), payload.get("cwd"))
 
+    if not write_targets and (not paths or not is_write_tool(tool)):
+        return 0
+
     try:
-        store = Store(settings=settings)
-        # Zápis z příkazové řádky do cizího rozpracovaného souboru (APP-006).
-        # Jen kolize se blokuje, volné cíle se do nájmu neberou.
+        store = open_store(settings)
+        # Zjevný zápis z příkazové řádky do cizího rozpracovaného souboru (APP-006).
+        # Jen kolize se blokuje, volné cíle se do nájmu neberou (logy v /tmp apod.).
         for target in write_targets:
             holder = store.holder_of(target)
-            if holder and holder.agent != settings.agent:
-                denied = decide("Edit", target, holder, settings.agent)
-                store.record(settings.agent, "blocked", denied.path or "", "shell write")
-                print(denied.reason, file=sys.stderr)
+            if holder is not None and holder.agent != settings.agent:
+                print(decide("Edit", target, holder, settings.agent).reason, file=sys.stderr)
+                store.record(settings.agent, "blocked", target, "shell write")
                 return EXIT_BLOCK
-
-        holder = store.holder_of(raw_path) if raw_path else None
-        decision = decide(tool, raw_path, holder, settings.agent)
-
-        if decision.verdict is Verdict.ALLOW and holder and holder.agent == settings.agent:
-            # Vlastní nájem při každém zápisu atomicky obnovit. Jinak by mohl mezi
-            # kontrolou a editací vypršet a převzít ho druhý (Nox, review 16. 10.).
-            renewed = store.claim([holder.path], agent=settings.agent, purpose=holder.purpose)
-            if not renewed.ok:
-                decision = decide(tool, raw_path, renewed.conflicts[0], settings.agent)
-
-        if decision.verdict is Verdict.AUTO_CLAIMED and decision.path:
-            # Volný soubor si bereme sami — na explicitní `claim` se pak nedá
-            # zapomenout a protokol nejde nechtěně obejít.
-            result = store.claim([decision.path], agent=settings.agent, purpose=purpose)
-            if not result.ok:
-                # Mezi `holder_of` a `claim` byl rychlejší někdo jiný. Rozhoduje
-                # atomický claim, ne dřívější čtení — jinak projdou oba (APP-007).
-                decision = decide(tool, raw_path, result.conflicts[0], settings.agent)
-
-        if decision.blocks:
-            store.record(settings.agent, "blocked", decision.path or "", tool)
-            print(decision.reason, file=sys.stderr)
-            return EXIT_BLOCK
+        if paths and is_write_tool(tool):
+            for raw_path in paths:
+                blocker = store.edit_gate(raw_path, settings.agent, purpose=purpose)
+                if blocker is not None:
+                    print(decide(tool, raw_path, blocker, settings.agent).reason, file=sys.stderr)
+                    return EXIT_BLOCK
     except Exception as exc:  # noqa: BLE001
-        # ⚠️ Fail-open schválně. Rozbitá koordinace nesmí zastavit práci — z
-        # pomocníka by se stala překážka a první, co by kdokoli udělal, je vypnout
-        # hook. Selhání je vidět na stderr.
-        if _fail_closed():
+        if closed:
             print(f"[agent-lease] hook failed, blocking (fail-closed): {exc}", file=sys.stderr)
             return EXIT_BLOCK
         print(f"[agent-lease] hook failed, letting the call through: {exc}", file=sys.stderr)

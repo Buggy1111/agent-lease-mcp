@@ -1,0 +1,17 @@
+# Instance = jméno agenta: systemctl --user enable --now agent-lease-bridge@codex
+[Unit]
+Description=agent-lease bridge pro %i
+After=agent-lease-broker.service
+Wants=agent-lease-broker.service
+
+[Service]
+Environment=AGENT_NAME=%i-bridge
+# Pro OpenRouter: EnvironmentFile=%h/.config/agent-lease/openrouter.env (OPENROUTER_API_KEY=…, chmod 600)
+ExecStart=%h/.local/bin/agent-lease-bridge --agent %i
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

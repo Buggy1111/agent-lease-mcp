@@ -1,0 +1,14 @@
+[Unit]
+Description=agent-lease Telegram upozornění
+After=agent-lease-broker.service
+
+[Service]
+# EnvironmentFile (chmod 600): TELEGRAM_BOT_TOKEN=…  TELEGRAM_CHAT_ID=…
+EnvironmentFile=%h/.config/agent-lease/telegram.env
+ExecStart=%h/.local/bin/agent-lease notify --loop
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

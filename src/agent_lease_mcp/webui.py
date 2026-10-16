@@ -251,6 +251,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 ),
                 "peers": store.peers(),
                 "claims": [c.as_dict() for c in store.claims()],
+                "board": store.board(),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -377,6 +378,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         room = {
                             "peers": store.peers(),
                             "claims": [c.as_dict() for c in store.claims()],
+                            "board": store.board(),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -563,6 +565,7 @@ PAGE_HTML = """<!doctype html>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
   <div class="section"><h3>Presence</h3><div id="peers"></div></div>
+  <div class="section"><h3>Overview</h3><div id="board"></div></div>
   <div class="section"><h3>Leases</h3><div id="claims"></div></div>
 </div>
 <div id="main">
@@ -633,12 +636,17 @@ function renderMessage(m) {
   div.className = "msg";
   const to = m.recipient && m.recipient !== "*" ? `<span class="arrow">→</span> ${esc(m.recipient)}` : "";
   const state = m.state ? `<span class="state ${esc(m.state)}">${esc(m.state)}</span>` : "";
+  // Receipt: ⏳ not in context yet · 👁 seen · ✔ taking (and what they will do)
+  const rcpt = (m.recipient && m.recipient !== "*" && m.kind !== "result" && m.agent !== "broker")
+    ? (m.accepted ? `<span class="state succeeded">✔ taking${m.accept_note ? ": " + esc(m.accept_note) : ""}</span>`
+       : m.seen ? `<span class="state started">👁 seen, awaiting acknowledgement</span>`
+       : `<span class="state pending">⏳ not delivered yet</span>`) : "";
   div.innerHTML =
     `<div class="meta">` +
       `<span class="pill kind-${esc(m.kind || "chat")}">${esc(m.kind || "chat")}</span>` +
       `<span class="who">${esc(m.agent)}</span> ${to}` +
       `<span>· ${ago(m.seconds_ago)}</span>` +
-      state +
+      state + rcpt +
     `</div>` +
     `<div class="text">${esc(m.text)}</div>`;
   if (m.kind === "task" && m.recipient && m.state) {
@@ -652,7 +660,7 @@ function renderMessage(m) {
     }
     if (["failed", "needs_review", "dead_letter"].includes(m.state)) {
       const retry = document.createElement("button");
-      retry.className = "btn-ghost"; retry.textContent = "Opakovat";
+      retry.className = "btn-ghost"; retry.textContent = "Retry";
       retry.onclick = () => control("retry", m.id, m.recipient);
       actions.appendChild(retry);
     }
@@ -661,8 +669,24 @@ function renderMessage(m) {
   if (fresh) { feed.appendChild(div); feed.scrollTop = feed.scrollHeight; }
 }
 
+function limitTime(t) {
+  return new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+}
+
+function renderBoard(rows) {
+  const el = document.getElementById("board");
+  el.innerHTML = (rows || []).map(b => {
+    const lim = b.limited_until ? `<span class="state failed">⏸ limited until ${limitTime(b.limited_until)}</span>` : "";
+    const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "free")}</div>`;
+    const q = b.queued ? `<span class="state pending">queue ${b.queued}${b.unaccepted ? " · unacknowledged " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · waiting " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
+    const rv = b.needs_review ? `<span class="state failed">needs review ${b.needs_review}</span>` : "";
+    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}<div class="row">${lim}${q}${rv}</div></div>`;
+  }).join("") || "<div class='empty'>nobody here</div>";
+}
+
 function renderRoom(r) {
   (r.messages || []).forEach(renderMessage);
+  renderBoard(r.board);
   peersEl.innerHTML = (r.peers || []).map(p => `
     <div class="peer">
       <div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}
@@ -670,7 +694,7 @@ function renderRoom(r) {
       </div>
       <div class="who">
         <div class="agent">${esc(p.agent)}</div>
-        <div class="task">${esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
+        <div class="task">${p.limited_until ? "⏸ limited until " + limitTime(p.limited_until) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
       </div>
     </div>`).join("") || "<div class='empty'>nobody here</div>";
   claimsEl.innerHTML = (r.claims || []).map(c => `

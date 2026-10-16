@@ -20,14 +20,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .config import (
-    MAX_LIST_LIMIT,
-    MAX_SHORT_CHARS,
-    MAX_TASK_LEASE_SECONDS,
-    MAX_TEXT_CHARS,
+    MAX_PATHS_PER_CLAIM,
     MAX_TTL_SECONDS,
     STALE_PEER_SECONDS,
     Settings,
+    valid_agent_name,
 )
+from .hygiene import check_name, check_path, check_short, check_text, redact
 from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
 from .policy import covers, normalize_path
 
@@ -76,6 +75,42 @@ CREATE TABLE IF NOT EXISTS deliveries (
 CREATE INDEX IF NOT EXISTS idx_deliveries_queue
 ON deliveries(recipient, state, message_id);
 
+-- Potvrzení příjmu. `seen_at` píše automaticky hook ve chvíli, kdy zprávu vloží
+-- do kontextu agenta (nelze zapomenout); `accepted_at` je vědomé „beru, dělám X"
+-- od agenta samotného. Odesílatel tak vždy ví, jestli zpráva dorazila a jestli ji
+-- někdo převzal — nemusí se ptát.
+CREATE TABLE IF NOT EXISTS receipts (
+    message_id  INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    recipient   TEXT NOT NULL,
+    seen_at     REAL,
+    accepted_at REAL,
+    note        TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(message_id, recipient)
+);
+
+-- Výsledky screeningu vzkazů (Jev): cache, ať se jedna zpráva neposuzuje dvakrát.
+CREATE TABLE IF NOT EXISTS screens (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    risk       REAL NOT NULL,
+    actionable REAL,
+    at         REAL NOT NULL
+);
+
+-- Vyčerpané limity agentů (kvóta poskytovatele). Dokud `until` neuplyne, agent
+-- se nepočítá jako dostupný a jeho nepřevzaté úkoly se přesouvají na náhradu.
+CREATE TABLE IF NOT EXISTS limits (
+    agent  TEXT PRIMARY KEY,
+    until  REAL NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    at     REAL NOT NULL
+);
+
+-- Co už šlo na Telegram/notifikace, ať se nic neposílá dvakrát.
+CREATE TABLE IF NOT EXISTS notified (
+    key TEXT PRIMARY KEY,
+    at  REAL NOT NULL
+);
+
 -- Audit: kdo, kdy, na co sáhl a jak to dopadlo.
 -- Celý projekt vznikl proto, že po kolizi nešlo zpětně zjistit, kdo co kdy
 -- editoval. Koordinace bez záznamu rozhodnutí by tu otázku nezodpověděla ani teď.
@@ -108,61 +143,25 @@ class Store:
         """
         self.settings = settings or Settings.from_env()
         self.db_path = db_path or self.settings.db_path
-        self._secure_files()
-        with self._connect() as con:
-            con.executescript(SCHEMA)
-            self._migrate_messages(con)
-            self._apply_retention(con)
-
-    def _secure_files(self) -> None:
-        """
-        Databáze jen pro vlastníka (APP-001): `0700` adresář, `0600` soubory.
-
-        Soubor se zakládá dřív, než ho otevře SQLite — ten jinak použije umask
-        procesu (typicky `0644`). `-wal`/`-shm` SQLite vytváří se stejnými
-        právy jako hlavní soubor; existující instalace se tady dorovnají.
-        """
+        # APP-001: DB, WAL i SHM dědí režim hlavního souboru, takže ho vytvoříme
+        # jako 0600 dřív, než ho SQLite otevře s výchozím umaskem. Adresář
+        # zakládáme 0700; existujícímu cizímu adresáři práva neměníme.
         parent = self.db_path.parent
         created = not parent.exists()
-        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if created or parent == Path.home() / ".agent-lease":
-            os.chmod(parent, 0o700)
+            os.chmod(parent, 0o700)  # mkdir mode neplatí pro existující adresář
         if not self.db_path.exists():
             os.close(os.open(self.db_path, os.O_WRONLY | os.O_CREAT, 0o600))
-        for suffix in ("", "-wal", "-shm"):
+        for suffix in ("", "-wal", "-shm"):  # dorovnat i starší instalace
             candidate = Path(f"{self.db_path}{suffix}")
             if candidate.exists() and candidate.stat().st_mode & 0o077:
                 os.chmod(candidate, 0o600)
-
-    def _apply_retention(self, con: sqlite3.Connection) -> None:
-        """
-        Staré vzkazy a audit pryč (APP-012). Zprávy s nedokončeným doručením
-        zůstávají vždy — retence nesmí potichu zahodit čekající úkol.
-        """
-        days = self.settings.retention_days
-        if days <= 0:
-            return  # 0 = vypnuto
-        cutoff = time.time() - days * 86400
-        # Mazat jde stará zpráva, pokud to není úkol (`task`) s nedokončeným
-        # doručením. Chat/control/result s doručením `pending` se nikdy „nedokončí"
-        # (nejde je převzít ani potvrdit), takže je ochrana držet nesmí.
-        con.execute("DROP TABLE IF EXISTS temp._retention")
-        con.execute(
-            "CREATE TEMP TABLE _retention AS SELECT id FROM messages m WHERE sent_at < ? "
-            "AND NOT (m.kind = 'task' AND EXISTS (SELECT 1 FROM deliveries d "
-            "WHERE d.message_id = m.id AND d.state IN ('pending','leased','started')))",
-            (cutoff,),
-        )
-        con.execute("DELETE FROM deliveries WHERE message_id IN (SELECT id FROM _retention)")
-        con.execute("DELETE FROM messages WHERE id IN (SELECT id FROM _retention)")
-        # Odpověď na smazanou zprávu zůstává, jen ztratí odkaz — žádný visící
-        # reply_to (foreign_keys v SQLite nejsou zapnuté, takže by to nikdo nechytil).
-        con.execute(
-            "UPDATE messages SET reply_to = NULL WHERE reply_to IS NOT NULL "
-            "AND reply_to NOT IN (SELECT id FROM messages)"
-        )
-        con.execute("DROP TABLE temp._retention")
-        con.execute("DELETE FROM audit WHERE at < ?", (cutoff,))
+        with self._connect() as con:
+            con.executescript(SCHEMA)
+            self._migrate_messages(con)
+        if self.settings.retention_days > 0:
+            self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
 
     @staticmethod
     def _migrate_messages(con: sqlite3.Connection) -> None:
@@ -217,11 +216,12 @@ class Store:
         horší než čistý neúspěch.
         """
         ttl = max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
-        purpose = _short(purpose)
-        if not paths or len(paths) > MAX_LIST_LIMIT:
-            raise ValueError(f"claim needs 1–{MAX_LIST_LIMIT} paths")
         now = time.time()
-        wanted = [normalize_path(p) for p in paths]
+        _check_agent(agent)
+        if not paths or len(paths) > MAX_PATHS_PER_CLAIM:
+            raise ValueError(f"claim chce 1–{MAX_PATHS_PER_CLAIM} cest")
+        check_short("purpose", purpose)
+        wanted = [normalize_path(check_path(p)) for p in paths]
 
         with self._connect() as con:
             # IMMEDIATE = zámek na zápis hned na začátku transakce. Bez toho by
@@ -232,7 +232,7 @@ class Store:
             conflicts = self._conflicts(con, wanted, agent)
             if conflicts:
                 for c in conflicts:
-                    self._record(con, agent, "claim-refused", c.path, f"held by {c.agent}")
+                    self._record(con, agent, "claim-refused", c.path, f"drží {c.agent}")
                 return ClaimResult(granted=[], conflicts=conflicts)
 
             for path in wanted:
@@ -246,6 +246,46 @@ class Store:
                 )
                 self._record(con, agent, "claim", path, purpose)
             return ClaimResult(granted=wanted, conflicts=[])
+
+    def edit_gate(self, path: str, agent: str, purpose: str = "auto (edit)") -> Claim | None:
+        """
+        Jedno atomické rozhodnutí pro hook (APP-007): smí `agent` editovat `path`?
+
+        Vrací cizí nájem, který brání, nebo None. Pokud je cesta volná, nájem se
+        vezme TADY, ve stejné transakci jako kontrola — mezi „zjistil jsem, že je
+        volno" a „zapsal jsem nájem" se tak nemá kam vecpat druhý agent. Vlastní
+        nájem se při každém zápisu obnoví, ať nevyprší mezi kontrolou a editací.
+        """
+        _check_agent(agent)
+        target = normalize_path(check_path(path))
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            self._prune(con, now)
+            foreign = self._conflicts(con, [target], agent)
+            if foreign:
+                self._record(con, agent, "blocked", target, foreign[0].agent)
+                return foreign[0]
+            mine = [
+                _row_to_claim(r)
+                for r in con.execute("SELECT * FROM claims WHERE agent = ?", (agent,))
+            ]
+            covering = [c for c in mine if covers(c.path, target)]
+            if covering:
+                con.execute(
+                    "UPDATE claims SET expires_at = MAX(expires_at, ?) WHERE agent = ? AND path IN (%s)"
+                    % ",".join("?" * len(covering)),
+                    (now + self.settings.default_ttl, agent, *[c.path for c in covering]),
+                )
+            else:
+                con.execute(
+                    "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
+                    "VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+                    "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at",
+                    (target, agent, purpose[:500], now, now + self.settings.default_ttl),
+                )
+                self._record(con, agent, "claim", target, purpose[:500])
+        return None
 
     def _conflicts(self, con: sqlite3.Connection, wanted: list[str], agent: str) -> list[Claim]:
         """
@@ -317,6 +357,11 @@ class Store:
         prázdnem a `say` slovem „say", takže v místnosti svítilo jméno
         posledního volání místo toho, na čem druhý agent dělá.
         """
+        _check_agent(agent)
+        if status:
+            check_short("status", status)
+        if cwd:
+            check_path(cwd)
         with self._connect() as con:
             con.execute(
                 "INSERT INTO agents(agent, status, cwd, seen_at) VALUES(?,?,?,?) "
@@ -324,15 +369,15 @@ class Store:
                 "  status=COALESCE(?, agents.status), "
                 "  cwd=COALESCE(?, agents.cwd), "
                 "  seen_at=excluded.seen_at",
-                (agent, _short(status or ""), _short(cwd or "", 4096), time.time(),
-                 None if status is None else _short(status),
-                 None if cwd is None else _short(cwd, 4096)),
+                (agent, status or "", cwd or "", time.time(), status, cwd),
             )
 
     def peers(self, stale_after: int = STALE_PEER_SECONDS) -> list[dict]:
         now = time.time()
         with self._connect() as con:
             rows = con.execute("SELECT * FROM agents ORDER BY seen_at DESC").fetchall()
+            limited = {r["agent"]: r["until"] for r in
+                       con.execute("SELECT agent, until FROM limits WHERE until > ?", (now,))}
         return [
             {
                 "agent": r["agent"],
@@ -340,9 +385,10 @@ class Store:
                 "cwd": r["cwd"],
                 "seen_seconds_ago": int(now - r["seen_at"]),
                 "active": r["seen_at"] >= now - stale_after,
-                "presence": _presence_state(
+                "presence": "rate-limited" if r["agent"] in limited else _presence_state(
                     r["status"], now - r["seen_at"], stale_after
                 ),
+                "limited_until": limited.get(r["agent"]),
             }
             for r in rows
         ]
@@ -368,15 +414,21 @@ class Store:
     ) -> int:
         """Atomicky uloží adresovanou zprávu a její doručení."""
         kind_value = MessageKind(kind).value
-        recipient = recipient.strip()
+        _check_agent(agent)
+        recipient = check_name("recipient", recipient.strip())
         if not recipient:
-            raise ValueError("recipient must not be empty")
+            raise ValueError("recipient nesmí být prázdný")
         if not text.strip():
-            raise ValueError("text must not be empty")
-        if len(text) > MAX_TEXT_CHARS:
-            raise ValueError(f"text is longer than {MAX_TEXT_CHARS} characters")
-        if len(recipient) > 200 or (dedupe_key and len(dedupe_key) > 200):
-            raise ValueError("recipient/dedupe_key is too long")
+            raise ValueError("text nesmí být prázdný")
+        text = redact(check_text(text))
+        check_short("project", project)
+        if dedupe_key:
+            check_name("dedupe_key", dedupe_key)
+        if kind_value in (MessageKind.TASK.value, MessageKind.CONTROL.value) and (
+            not self.settings.may_send_task(agent)
+        ):
+            # APP-005: z textu zprávy jiného agenta nesmí vzniknout spustitelná práce.
+            raise PermissionError(f"{agent} nesmí zadávat {kind_value}")
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -394,21 +446,342 @@ class Store:
                  expires_at, dedupe_key, reply_to),
             )
             message_id = int(cur.lastrowid)
-            if recipient != "*":
+            if recipient != "*" and kind_value != MessageKind.RESULT.value:
                 con.execute(
                     "INSERT INTO deliveries(message_id, recipient, updated_at) VALUES(?,?,?)",
                     (message_id, recipient, now),
                 )
+        self._signal(recipient)
         return message_id
+
+    # ── probuzení a potvrzení příjmu ─────────────────────────────────────────
+
+    def _signal_path(self, recipient: str) -> Path:
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in recipient) or "_"
+        return self.db_path.parent / "signals" / safe
+
+    def _signal(self, recipient: str) -> None:
+        """Zvedne „signální" soubor adresáta; `wait` na něj reaguje do desetin sekundy."""
+        targets = [recipient] if recipient != "*" else [p["agent"] for p in self.peers(10**9)]
+        for name in targets:
+            path = self._signal_path(name)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                path.touch(mode=0o600)
+                os.utime(path, None)
+            except OSError:
+                pass  # signál je optimalizace; pravda je v DB a `wait` ji stejně dotazuje
+
+    def signal_mtime(self, recipient: str) -> float:
+        try:
+            return self._signal_path(recipient).stat().st_mtime
+        except OSError:
+            return 0.0
+
+    def mark_seen(self, recipient: str, message_ids: list[int]) -> list[int]:
+        """
+        Zaznamená, že zprávy dorazily do kontextu `recipient`, a dá o tom vědět
+        odesílateli (krátký automatický příjem). Vrací jen NOVĚ spatřené id,
+        takže opakované vložení nepíše další příjmy.
+        """
+        fresh: list[int] = []
+        senders: set[str] = set()
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            for mid in message_ids:
+                msg = con.execute(
+                    "SELECT agent, kind, recipient, text FROM messages WHERE id=?", (mid,)
+                ).fetchone()
+                if (not msg or msg["recipient"] != recipient or msg["agent"] == recipient
+                        or msg["kind"] == MessageKind.RESULT.value):
+                    continue  # příjemky na příjemky se nepíšou (nekonečná smyčka)
+                senders.add(msg["agent"])
+                if con.execute(
+                    "INSERT OR IGNORE INTO receipts(message_id, recipient, seen_at) VALUES(?,?,?)",
+                    (mid, recipient, now),
+                ).rowcount:
+                    fresh.append(mid)
+                    if msg["agent"] != "broker":
+                        snippet = " ".join(msg["text"].split())[:60]
+                        con.execute(
+                            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                            "VALUES('broker',?,?,?,?,?)",
+                            (f"✓ {recipient} viděl #{mid} („{snippet}“)", now,
+                             msg["agent"], MessageKind.RESULT.value, mid),
+                        )
+        for sender in senders:
+            self._signal(sender)
+        return fresh
+
+    def accept(self, message_id: int, recipient: str, note: str = "") -> bool:
+        """Vědomé „beru to" od adresáta; odesílatel dostane zprávu s tím, co se bude dít."""
+        note = redact(check_short("note", note))
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            msg = con.execute(
+                "SELECT agent, recipient FROM messages WHERE id=?", (message_id,)
+            ).fetchone()
+            if not msg or msg["recipient"] != recipient:
+                return False
+            row = con.execute(
+                "SELECT accepted_at FROM receipts WHERE message_id=? AND recipient=?",
+                (message_id, recipient),
+            ).fetchone()
+            if row and row["accepted_at"]:
+                return True  # idempotentní
+            con.execute(
+                "INSERT INTO receipts(message_id, recipient, seen_at, accepted_at, note) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(message_id, recipient) DO UPDATE SET "
+                "accepted_at=excluded.accepted_at, note=excluded.note, "
+                "seen_at=COALESCE(receipts.seen_at, excluded.seen_at)",
+                (message_id, recipient, now, now, note),
+            )
+            con.execute(
+                "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                "VALUES(?,?,?,?,?,?)",
+                (recipient, f"✔ beru #{message_id}" + (f": {note}" if note else ""), now,
+                 msg["agent"], MessageKind.RESULT.value, message_id),
+            )
+            self._record(con, recipient, "accept", "", f"#{message_id}")
+        self._signal(msg["agent"])
+        return True
+
+    # ── limity a failover ────────────────────────────────────────────────────
+
+    def report_limit(self, agent: str, until: float, reason: str = "") -> None:
+        """Agent (nebo bridge) hlásí vyčerpaný limit do času `until` (epoch)."""
+        _check_agent(agent)
+        reason = redact(check_short("reason", reason))
+        until = min(until, time.time() + 7 * 86400)  # strop: týden
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO limits(agent, until, reason, at) VALUES(?,?,?,?)",
+                        (agent, until, reason, time.time()))
+            self._record(con, agent, "limit", "", f"do {int(until)}: {reason}")
+        self.failover_sweep(grace=0)  # bez čekání: kdo hlásí limit, nic nepřevezme
+
+    def clear_limit(self, agent: str) -> bool:
+        with self._connect() as con:
+            return bool(con.execute("DELETE FROM limits WHERE agent=?", (agent,)).rowcount)
+
+    def limits(self) -> list[dict]:
+        now = time.time()
+        with self._connect() as con:
+            con.execute("DELETE FROM limits WHERE until <= ?", (now,))
+            rows = con.execute("SELECT * FROM limits ORDER BY until").fetchall()
+        return [{"agent": r["agent"], "until": r["until"], "reason": r["reason"],
+                 "seconds_left": int(r["until"] - now)} for r in rows]
+
+    def is_available(self, agent: str) -> bool:
+        """Agent žije (nedávný heartbeat) a nemá vyčerpaný limit."""
+        if any(l["agent"] == agent for l in self.limits()):
+            return False
+        return any(p["agent"] == agent and p["presence"] in ("idle", "busy")
+                   for p in self.peers())
+
+    def failover_sweep(self, *, grace: int | None = None) -> list[dict]:
+        """
+        Přesune NEZAHÁJENÉ úkoly od nedostupného agenta na první dostupnou náhradu
+        z jeho řetězce (`AGENT_LEASE_FALLBACKS`). Nic nespouští ani nemaže:
+        - jen `pending` tasky (cokoli rozdělaného zůstává u svého agenta),
+        - jen po `grace` sekundách čekání (krátký výpadek nevyvolá přeskakování),
+        - odesílatel i člověk dostanou zprávu, kam úkol putuje.
+        Idempotentní; volá ho broker (každých ~15 s), bridge a hooky.
+        """
+        grace = self.settings.failover_grace if grace is None else grace
+        chains = self.settings.fallbacks
+        if not chains:
+            return []
+        now = time.time()
+        limited = {l["agent"]: l for l in self.limits()}
+        alive = {p["agent"] for p in self.peers() if p["presence"] in ("idle", "busy")}
+        moves: list[dict] = []
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            for src, chain in chains.items():
+                if src in alive and src not in limited:
+                    continue  # zdroj je v pořádku
+                target = next((c for c in chain if c in alive and c not in limited), None)
+                if not target:
+                    continue
+                rows = con.execute(
+                    "SELECT m.id, m.agent, m.text, m.sent_at FROM deliveries d "
+                    "JOIN messages m ON m.id=d.message_id "
+                    "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
+                    "AND m.sent_at <= ? AND m.agent<>?",
+                    # Explicitní limit = krátká lhůta. Pouhé „nedává znamení" = dlouhá:
+                    # agent může spát v `wait` a úkol si vzít, jakmile ho probudíme.
+                    (src, now - (grace if src in limited
+                                 else max(grace, self.settings.offline_grace)), target),
+                ).fetchall()
+                for r in rows:
+                    if con.execute("SELECT 1 FROM deliveries WHERE message_id=? AND recipient=?",
+                                   (r["id"], target)).fetchone():
+                        continue
+                    con.execute("UPDATE deliveries SET recipient=?, updated_at=? "
+                                "WHERE message_id=? AND recipient=?", (target, now, r["id"], src))
+                    con.execute("UPDATE messages SET recipient=? WHERE id=?", (target, r["id"]))
+                    con.execute("DELETE FROM receipts WHERE message_id=? AND recipient=?",
+                                (r["id"], src))
+                    why = (f"limit do {time.strftime('%H:%M', time.localtime(limited[src]['until']))}"
+                           if src in limited else "není dostupný")
+                    note = f"↪ úkol #{r['id']} přesunut {src} → {target} ({src}: {why})"
+                    for to in {r["agent"], "michal"}:
+                        con.execute(
+                            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                            "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
+                    snippet = " ".join(r["text"].split())[:400]
+                    handover = (f"↪ Převzal jsi úkol #{r['id']} od {src} ({why}), "
+                                f"zadal {r['agent']}: {snippet}")
+                    # Nový příjemce dostane ZPRÁVU S NOVÝM ID: původní úkol má staré id,
+                    # které může být za kurzorem cíle, a do jeho kontextu by se nikdy nevložilo.
+                    con.execute(
+                        "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                        "VALUES('broker',?,?,?,'result',?)",
+                        (handover, now, target, r["id"]))
+                    self._record(con, "broker", "failover", "", f"#{r['id']} {src}->{target}")
+                    moves.append({"id": r["id"], "from": src, "to": target})
+        for m in moves:
+            self._signal(m["to"])
+        return moves
+
+    def mark_notified(self, key: str) -> bool:
+        """True, pokud je to poprvé (a tedy se má poslat)."""
+        with self._connect() as con:
+            return bool(con.execute("INSERT OR IGNORE INTO notified(key, at) VALUES(?,?)",
+                                    (key, time.time())).rowcount)
+
+    def unmark_notified(self, key: str) -> None:
+        with self._connect() as con:
+            con.execute("DELETE FROM notified WHERE key=?", (key,))
+
+    def needs_review_list(self, limit: int = 20) -> list[dict]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.id, m.recipient, m.text, d.last_error, d.updated_at FROM deliveries d "
+                "JOIN messages m ON m.id=d.message_id WHERE d.state IN "
+                "('needs_review','dead_letter','failed') ORDER BY m.id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        return [{"id": r["id"], "to": r["recipient"], "text": r["text"],
+                 "error": r["last_error"], "updated_at": r["updated_at"]} for r in rows]
+
+    def recent_audit(self, actions: tuple[str, ...], since_id: int = 0, limit: int = 50) -> list[dict]:
+        marks = ",".join("?" * len(actions))
+        with self._connect() as con:
+            rows = con.execute(
+                f"SELECT id, at, agent, action, path, detail FROM audit WHERE id>? "
+                f"AND action IN ({marks}) ORDER BY id LIMIT ?", (since_id, *actions, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def board(self) -> list[dict]:
+        """Přehled „kdo co dělá": agent → přítomnost, limit, aktivní úkol, fronta, nepotvrzené."""
+        now = time.time()
+        peers = {p["agent"]: p for p in self.peers()}
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT d.recipient, d.state, d.message_id, m.text, m.agent AS sender, "
+                "m.sent_at, r.accepted_at FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "LEFT JOIN receipts r ON r.message_id=d.message_id AND r.recipient=d.recipient "
+                "WHERE d.state IN ('pending','leased','started','needs_review') "
+                "AND m.kind IN ('task','chat','control') ORDER BY d.message_id"
+            ).fetchall()
+            names = set(peers) | {r["recipient"] for r in rows}
+        board = []
+        for name in sorted(names):
+            mine = [r for r in rows if r["recipient"] == name]
+            active = next((r for r in mine if r["state"] in ("started", "leased")), None)
+            board.append({
+                "agent": name,
+                "presence": peers.get(name, {}).get("presence", "offline"),
+                "status": peers.get(name, {}).get("status", ""),
+                "limited_until": peers.get(name, {}).get("limited_until"),
+                "active": ({"id": active["message_id"], "text": active["text"][:120],
+                            "from": active["sender"]} if active else None),
+                "queued": sum(r["state"] == "pending" for r in mine),
+                "unaccepted": sum(r["state"] == "pending" and not r["accepted_at"] for r in mine),
+                "needs_review": sum(r["state"] == "needs_review" for r in mine),
+                "oldest_wait_s": int(now - min((r["sent_at"] for r in mine
+                                                if r["state"] == "pending"), default=now)),
+            })
+        return board
+
+    def get_screen(self, message_id: int) -> dict | None:
+        with self._connect() as con:
+            row = con.execute("SELECT risk, actionable FROM screens WHERE message_id=?",
+                              (message_id,)).fetchone()
+        return {"risk": float(row["risk"]), "actionable": row["actionable"]} if row else None
+
+    def set_screen(self, message_id: int, risk: float, actionable: float | None = None) -> None:
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO screens(message_id, risk, actionable, at) "
+                        "VALUES(?,?,?,?)", (message_id, risk, actionable, time.time()))
+
+    def overdue(self, seconds: int = 120) -> list[dict]:
+        """Adresované zprávy, které déle než `seconds` nikdo nepotvrdil (nebo ani neviděl)."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.id, m.agent, m.recipient, m.kind, m.text, m.sent_at, "
+                "r.seen_at, r.accepted_at FROM messages m "
+                "JOIN deliveries d ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "WHERE m.kind IN ('chat','task','control') AND d.state IN ('pending','leased') "
+                "AND r.accepted_at IS NULL AND m.sent_at <= ? ORDER BY m.id",
+                (now - seconds,),
+            ).fetchall()
+        return [
+            {"id": r["id"], "from": r["agent"], "to": r["recipient"], "kind": r["kind"],
+             "text": r["text"], "waiting_seconds": int(now - r["sent_at"]),
+             "problem": "viděno, nepotvrzeno" if r["seen_at"] else "nedoručeno"}
+            for r in rows
+        ]
+
+    def extend_lease(self, message_id: int, recipient: str, lease_token: str,
+                     lease_seconds: int = 60) -> bool:
+        """Heartbeat dlouhé práce: bez něj by běžící task po vypršení lease skončil v needs_review."""
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            cur = con.execute(
+                "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
+                "AND recipient=? AND lease_token=? AND state IN ('leased','started')",
+                (time.time() + max(1, lease_seconds), time.time(), message_id, recipient,
+                 lease_token),
+            )
+        return bool(cur.rowcount)
+
+    def awaiting_accept(self, recipient: str, *, limit: int = 10) -> list[dict]:
+        """Adresované zprávy, které `recipient` viděl, ale ještě je nepotvrdil."""
+        now = time.time()
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT m.*, r.seen_at FROM messages m "
+                "JOIN deliveries d ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "LEFT JOIN screens sc ON sc.message_id=m.id "
+                "WHERE m.recipient=? AND m.agent<>? AND m.kind IN ('chat','task','control') "
+                "AND d.state IN ('pending','leased') AND (r.accepted_at IS NULL) "
+                # informativní chat (Jev: akce < 30 %) se nepřipomíná; „viděl" stačí
+                "AND NOT (m.kind='chat' AND sc.actionable IS NOT NULL AND sc.actionable < 0.3) "
+                "ORDER BY m.id LIMIT ?", (recipient, recipient, limit),
+            ).fetchall()
+        return [
+            {"id": r["id"], "agent": r["agent"], "kind": r["kind"], "text": r["text"],
+             "seconds_ago": int(now - r["sent_at"]),
+             "seen": r["seen_at"] is not None}
+            for r in rows
+        ]
 
     def inbox(self, since_id: int = 0, limit: int = 50) -> list[dict]:
         now = time.time()
-        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
+                "r.seen_at, r.accepted_at, r.note AS accept_note "
                 "FROM messages m LEFT JOIN deliveries d "
                 "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
                 "WHERE m.id > ? ORDER BY m.id LIMIT ?", (since_id, limit)
             ).fetchall()
         return [_row_to_message(row, now) for row in rows]
@@ -416,12 +789,14 @@ class Store:
     def latest_messages(self, limit: int = 200) -> list[dict]:
         """Nejnovější historie v chronologickém pořadí pro první UI snapshot."""
         now = time.time()
-        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
+                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
+                "r.seen_at, r.accepted_at, r.note AS accept_note "
                 "FROM messages m LEFT JOIN deliveries d "
-                "ON d.message_id=m.id AND d.recipient=m.recipient WHERE m.id IN "
+                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "WHERE m.id IN "
                 "(SELECT id FROM messages ORDER BY id DESC LIMIT ?) ORDER BY m.id",
                 (limit,),
             ).fetchall()
@@ -458,7 +833,6 @@ class Store:
     def undelivered(self, agent: str, limit: int = 20) -> list[dict]:
         """Vzkazy od ostatních, které tenhle agent ještě neviděl."""
         now = time.time()
-        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -479,7 +853,7 @@ class Store:
         měnit stav úkolu, ne informace. `None` = autentizovaný člověk (web UI).
         """
         now = time.time()
-        limit = _limit(limit)
+        limit = max(1, min(int(limit), 500))
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, d.lease_token, d.lease_until, "
@@ -495,18 +869,9 @@ class Store:
                 job["lease_token"] = None
         return jobs
 
-    @staticmethod
-    def _may_manage(con: sqlite3.Connection, message_id: int, recipient: str, actor: str | None) -> bool:
-        """Retry/cancel smí odesílatel úkolu nebo jeho adresát; `None` = člověk."""
-        if actor is None or actor == recipient:
-            return True
-        row = con.execute("SELECT agent FROM messages WHERE id=?", (message_id,)).fetchone()
-        return bool(row) and row["agent"] == actor
-
     def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
         """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
         now = time.time()
-        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -521,7 +886,6 @@ class Store:
         """Atomicky převezme nejstarší připravený task pro jeden worker."""
         now = time.time()
         token = uuid.uuid4().hex
-        lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             con.execute(
@@ -576,7 +940,6 @@ class Store:
     ) -> bool:
         """Potvrdí pouze platný přechod vlastněného pracovního lease."""
         state_value = DeliveryState(state).value
-        error = _short(error)
         terminal = {
             DeliveryState.SUCCEEDED.value, DeliveryState.FAILED.value,
             DeliveryState.NEEDS_REVIEW.value, DeliveryState.CANCELLED.value,
@@ -614,9 +977,16 @@ class Store:
             )
         return bool(cur.rowcount)
 
-    def retry(
-        self, message_id: int, recipient: str, *, not_before: float = 0, actor: str | None = None
-    ) -> bool:
+    def _may_manage(self, con: sqlite3.Connection, message_id: int, recipient: str,
+                    actor: str | None) -> bool:
+        """`actor=None` = ověřený člověk (web). Agent smí spravovat jen svoje nebo jím zadané."""
+        if actor is None:
+            return True
+        row = con.execute("SELECT agent FROM messages WHERE id=?", (message_id,)).fetchone()
+        return bool(row) and actor in (recipient, row["agent"])
+
+    def retry(self, message_id: int, recipient: str, *, not_before: float = 0,
+              actor: str | None = None) -> bool:
         """Vrátí neúspěšné doručení do fronty a zachová počet pokusů."""
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -649,6 +1019,42 @@ class Store:
             )
         return bool(cur.rowcount)
 
+    def prune(self, older_than_days: int | None = None) -> dict[str, int]:
+        """
+        Retence (APP-012): smaže zprávy a audit starší než N dní.
+
+        Chráněný je jen *úkol* (`task`) s nedokončeným doručením
+        (pending/leased/started/needs_review). Chat/control/result s doručením
+        `pending` se nikdy „nedokončí" (nejde je převzít ani potvrdit), takže by
+        jinak zůstaly navždy (Nox, review 16. 10.). Odpověď na smazanou zprávu
+        zůstává, jen ztratí odkaz — foreign_keys v SQLite nejsou zapnuté, takže by
+        visící reply_to nikdo nechytil.
+        """
+        days = self.settings.retention_days if older_than_days is None else older_than_days
+        cutoff = time.time() - max(0, days) * 86400
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            doomed = [
+                r["id"] for r in con.execute(
+                    "SELECT id FROM messages m WHERE sent_at < ? AND NOT (m.kind = 'task' "
+                    "AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id AND "
+                    "d.state IN ('pending','leased','started','needs_review')))",
+                    (cutoff,),
+                )
+            ]
+            for i in range(0, len(doomed), 500):
+                chunk = doomed[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                con.execute(f"DELETE FROM deliveries WHERE message_id IN ({marks})", chunk)
+                con.execute(f"DELETE FROM messages WHERE id IN ({marks})", chunk)
+            if doomed:
+                con.execute(
+                    "UPDATE messages SET reply_to = NULL WHERE reply_to IS NOT NULL "
+                    "AND reply_to NOT IN (SELECT id FROM messages)"
+                )
+            audit = con.execute("DELETE FROM audit WHERE at < ?", (cutoff,)).rowcount
+        return {"messages": len(doomed), "audit": audit}
+
     def history(self, limit: int = 50, path: str | None = None) -> list[dict]:
         """Kdo na co sáhl a jak to dopadlo — odpověď na 'proč mě to zablokovalo'."""
         now = time.time()
@@ -658,7 +1064,7 @@ class Store:
             sql += " WHERE path = ?"
             args = (normalize_path(path),)
         sql += " ORDER BY id DESC LIMIT ?"
-        args += (_limit(limit),)
+        args += (limit,)
         with self._connect() as con:
             rows = con.execute(sql, args).fetchall()
         return [
@@ -671,6 +1077,12 @@ class Store:
             }
             for r in rows
         ]
+
+
+def _check_agent(agent: str) -> None:
+    if not valid_agent_name(agent) and not agent.startswith(("untrusted-", "unconfigured-")):
+        raise ValueError(f"neplatné jméno agenta: {agent!r}")
+    check_name("agent", agent)
 
 
 def _row_to_claim(row: sqlite3.Row) -> Claim:
@@ -687,18 +1099,23 @@ def _row_to_job(row: sqlite3.Row, now: float) -> dict:
     return {
         "id": row["id"], "agent": row["agent"], "recipient": row["recipient"],
         "kind": row["kind"], "text": row["text"], "state": row["state"],
-        "attempts": row["attempts"], "lease_token": row["lease_token"],
+        "attempts": row["attempts"],
+        # APP-003: lease token se vrací jen vlastníkovi v `lease_next`, nikdy ve výpisu.
         "lease_until": row["lease_until"], "last_error": row["last_error"],
         "reply_to": row["reply_to"], "seconds_ago": int(now - row["sent_at"]),
     }
 
 
 def _row_to_message(row: sqlite3.Row, now: float) -> dict:
+    keys = row.keys()
     return {
         "id": row["id"], "agent": row["agent"], "recipient": row["recipient"],
         "kind": row["kind"], "text": row["text"], "reply_to": row["reply_to"],
         "state": row["delivery_state"], "attempts": row["attempts"],
         "last_error": row["last_error"], "seconds_ago": int(now - row["sent_at"]),
+        "seen": bool(row["seen_at"]) if "seen_at" in keys else None,
+        "accepted": bool(row["accepted_at"]) if "accepted_at" in keys else None,
+        "accept_note": row["accept_note"] if "accept_note" in keys else "",
     }
 
 
@@ -711,13 +1128,3 @@ def _presence_state(status: str, age: float, stale_after: int) -> str:
     if status and age <= stale_after * 2:
         return "stalled"
     return "offline"
-
-
-def _limit(value: int) -> int:
-    """LIMIT do rozumného rozsahu; záporné číslo by v SQLite znamenalo „vše"."""
-    return max(1, min(int(value), MAX_LIST_LIMIT))
-
-
-def _short(value: str, max_chars: int = MAX_SHORT_CHARS) -> str:
-    """Krátká pole (status, purpose, chyba) se ořezávají, nezahazují."""
-    return value if len(value) <= max_chars else value[: max_chars - 1] + "…"

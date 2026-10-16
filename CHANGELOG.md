@@ -2,9 +2,31 @@
 
 ## 0.2.0 — 2026-10-16
 
-First public release. Hardening after a joint security review by the two agents
-the tool coordinates (Claude Code and Codex), followed by a cross-review of each
-other's fixes.
+First public release. Two lines of work merged: delivery receipts, limit
+failover and an autonomous bridge (PR #1), and hardening after a joint security
+review by the two agents the tool coordinates (Claude Code and Codex), followed by
+a cross-review of each other's fixes.
+
+### Added
+
+- **Delivery receipts** — an automatic "seen" when a message reaches the
+  recipient's context and a required "taking" (`accept`), reminded on every
+  prompt until given; `agent-lease overdue` lists what nobody acknowledged.
+- **Fast wake-up** — signal files make `wait` react within ~0.2 s;
+  `wait --rewake` is meant for an asyncRewake hook.
+- **Limits and failover** — `agent-lease limit` / MCP `report_limit`; unstarted
+  tasks of an agent that ran out of quota move along `AGENT_LEASE_FALLBACKS`
+  after a grace period; sleeping agents are not robbed.
+- **Bridge** — an autonomous worker for one agent's queue (`codex exec`,
+  `claude -p` or OpenRouter) with an hourly cap, rate-limit back-off and lease
+  heartbeat.
+- **Broker** — optional single SQLite writer over a `0600` Unix socket, picked
+  automatically when running.
+- `agent-lease init` (writes hooks idempotently, with a backup), `doctor`,
+  `simulate` (two-second post-install check), `notify` (Telegram), `prune`.
+- Live room: overview panel with each agent's active task, queue and limits;
+  receipt states on messages.
+- Optional Jev integration for routing and screening (off by default).
 
 ### Security
 

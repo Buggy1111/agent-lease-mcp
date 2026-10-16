@@ -20,9 +20,23 @@ import sys
 import time
 
 from .briefing import session_briefing
+from .broker import open_store
 from .config import Settings
 from .models import DeliveryState, MessageKind
-from .store import Store
+
+
+def parse_until(text: str) -> float:
+    """`+2h`, `+30m`, epoch nebo ISO čas → epoch."""
+    import re
+    from datetime import datetime
+
+    m = re.fullmatch(r"\+(\d+)([smhd])", text.strip())
+    if m:
+        return time.time() + int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    try:
+        return float(text)
+    except ValueError:
+        return datetime.fromisoformat(text).timestamp()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
     p_wait.add_argument("--for", required=True, dest="recipient")
     p_wait.add_argument("--since", type=int, default=0)
     p_wait.add_argument("--timeout", type=float, default=3600)
+    p_wait.add_argument(
+        "--rewake", action="store_true",
+        help="for an asyncRewake hook: print to stderr and exit 2 (wakes the session)",
+    )
+
+    p_accept = sub.add_parser("accept", help="acknowledge that you are taking an addressed message/task")
+    p_accept.add_argument("message_id", type=int)
+    p_accept.add_argument("--note", default="", help="what you will do — the sender sees it")
 
     p_retry = sub.add_parser("retry", help="put a failed task back in the queue")
     p_retry.add_argument("message_id", type=int)
@@ -83,20 +105,88 @@ def main(argv: list[str] | None = None) -> int:
     p_web = sub.add_parser("web", help="start the local live web room")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
-    p_web.add_argument("--open", action="store_true", dest="open_browser")
+    p_web.add_argument("--open", action="store_true", dest="open_browser",
+                       help="open the browser logged in (the token never goes to stdout)")
+
+    p_limit = sub.add_parser("limit", help="report an exhausted limit (tasks move to a fallback agent)")
+    p_limit.add_argument("--until", default="+1h", help="+2h, +30m, ISO time or epoch")
+    p_limit.add_argument("--reason", default="")
+    p_limit.add_argument("--agent", default=None)
+    p_limit.add_argument("--clear", action="store_true", help="the limit no longer applies")
+
+    sub.add_parser("limits", help="active limits and fallback chains")
+
+    p_overdue = sub.add_parser("overdue", help="messages nobody acknowledged / undelivered")
+    p_overdue.add_argument("--seconds", type=int, default=120)
+
+    p_broker = sub.add_parser("broker", help="run the broker (single SQLite writer, Unix socket 0600)")
+    p_broker.add_argument("--socket", default=None)
+
+    p_init = sub.add_parser("init", help="write the hooks into a client config (idempotent, with backup)")
+    p_init.add_argument("agent", choices=["claude-code", "codex"])
+    p_init.add_argument("--write", action="store_true", help="actually write (otherwise just show)")
+    p_init.add_argument("--rewake", action="store_true", help="add waking of a sleeping session")
+
+    sub.add_parser("simulate", help="replay a full scenario in a temporary DB (post-install check)")
+
+    p_notify = sub.add_parser("notify", help="Telegram alerts for what is waiting on the human")
+    p_notify.add_argument("--dry", action="store_true")
+    p_notify.add_argument("--loop", action="store_true")
+    p_notify.add_argument("--overdue", type=int, default=300)
+
+    sub.add_parser("doctor", help="check installation, permissions and hooks")
+
+    p_bridge = sub.add_parser("bridge", help="autonomous worker for one agent's queue")
+    p_bridge.add_argument("--agent", required=True)
+    p_bridge.add_argument("--command", default=None)
+    p_bridge.add_argument("--once", action="store_true")
+    p_bridge.add_argument("--provider", choices=["cli", "openrouter"], default="cli")
+    p_bridge.add_argument("--model", default="")
+
+    p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
+    p_prune.add_argument("--days", type=int, default=None)
 
     p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
     p_hist.add_argument("--path", default=None)
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "simulate":
+        from .simulate import run_simulation
+
+        return 0 if run_simulation() else 1
+    if args.cmd == "notify":
+        from .notifier import main as notify_main
+
+        return notify_main((["--dry"] if args.dry else []) + (["--loop"] if args.loop else [])
+                           + ["--overdue", str(args.overdue)])
+    if args.cmd == "init":
+        from .init_cmd import run_init
+
+        return run_init(args.agent, write=args.write, rewake=args.rewake)
+    if args.cmd == "doctor":
+        from .doctor import run_doctor
+
+        return run_doctor()
+    if args.cmd == "broker":
+        from .broker import main as broker_main
+
+        return broker_main(["--socket", args.socket] if args.socket else [])
+    if args.cmd == "bridge":
+        from .bridge import main as bridge_main
+
+        return bridge_main(["--agent", args.agent]
+                           + (["--command", args.command] if args.command else [])
+                           + (["--once"] if args.once else [])
+                           + ["--provider", args.provider]
+                           + (["--model", args.model] if args.model else []))
     settings = Settings.from_env()
-    store = Store(settings=settings)
+    store = open_store(settings)
     me = settings.agent
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
-        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me))
+        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me), store.awaiting_accept(me))
         print(text or f"[agent-lease] You are in the room as `{me}`. Nobody else is here and nothing is new.")
 
     elif args.cmd == "claim":
@@ -126,12 +216,24 @@ def main(argv: list[str] | None = None) -> int:
         print("Sent. ⚠️ The other agent sees it on its next prompt, not immediately.")
 
     elif args.cmd == "send":
+        if args.recipient == "auto":
+            from . import jev
+
+            candidates = [p["agent"] for p in store.peers() if p["agent"] != me and p["active"]]
+            chosen = jev.route(args.text, candidates) if jev.enabled() else None
+            if not chosen:
+                print("auto: cannot decide (Jev off/unavailable or no candidate) — "
+                      "zadej --to <agent>.", file=sys.stderr)
+                return 1
+            args.recipient = chosen
+            print(f"auto → {chosen}")
         message_id = store.send(
             me, args.recipient, args.text, kind=args.kind,
             dedupe_key=args.dedupe_key, reply_to=args.reply_to,
         )
         store.heartbeat(me, cwd=os.getcwd())
-        print(f"Stored #{message_id} for {args.recipient} ({args.kind}).")
+        print(f"Stored #{message_id} for {args.recipient} ({args.kind}). "
+              "Receipts (seen / taking) come back to you in the room.")
 
     elif args.cmd == "jobs":
         recipient = args.recipient or me
@@ -153,24 +255,48 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "wait":
         deadline = time.monotonic() + max(0, args.timeout)
+        seen_signal = 0.0
+        next_db = 0.0
+        next_beat = 0.0
         while True:
-            messages = store.addressed(args.recipient, since_id=args.since)
-            if messages:
-                for message in messages:
-                    print(
-                        f"#{message['id']} {message['kind']} "
-                        f"{message['agent']} → {message['recipient']}: {message['text']}"
-                    )
-                return 0
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            # Signální soubor se mění při každém odeslání → reakce do desetin sekundy
+            # bez dotazování DB; DB se projde i bez signálu každých 5 s (pojistka).
+            signal = store.signal_mtime(args.recipient)
+            now = time.monotonic()
+            if me == args.recipient and now >= next_beat:
+                # spící čekatel nesmí vypadat jako offline (jinak by mu failover bral úkoly)
+                store.heartbeat(me)
+                next_beat = now + 60.0
+            if signal != seen_signal or now >= next_db:
+                seen_signal, next_db = signal, now + 5.0
+                messages = [
+                    m for m in store.addressed(args.recipient, since_id=args.since)
+                    if m["kind"] != "result" or args.rewake is False
+                ]
+                if args.rewake:
+                    messages = [m for m in messages if m["state"] in ("pending", "leased")
+                                or m["kind"] == "result"]
+                if messages:
+                    out = sys.stderr if args.rewake else sys.stdout
+                    for message in messages:
+                        print(
+                            f"#{message['id']} {message['kind']} "
+                            f"{message['agent']} → {message['recipient']}: {message['text']}",
+                            file=out,
+                        )
+                    return 2 if args.rewake else 0
+            if deadline - time.monotonic() <= 0:
                 return 124
-            time.sleep(min(1.0, remaining))
+            time.sleep(0.2)
+
+    elif args.cmd == "accept":
+        if not store.accept(args.message_id, me, args.note):  # jen za sebe
+            print("Not acknowledged: no such message, or it is not addressed to you.", file=sys.stderr)
+            return 1
+        print(f"✔ Acknowledged #{args.message_id}. The sender knows. Now do the work.")
 
     elif args.cmd == "retry":
-        if not store.retry(
-            args.message_id, args.recipient, not_before=args.not_before, actor=me
-        ):
+        if not store.retry(args.message_id, args.recipient, not_before=args.not_before, actor=me):
             print("Retry refused: no such task, not in a failed state, or not yours.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → pending")
@@ -184,10 +310,37 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "web":
         from .webui import main as web_main
 
-        web_args = ["--host", args.host, "--port", str(args.port)]
-        if args.open_browser:
-            web_args.append("--open")
-        return web_main(web_args)
+        return web_main(["--host", args.host, "--port", str(args.port)]
+                        + (["--open"] if args.open_browser else []))
+
+    elif args.cmd == "limit":
+        who = args.agent or me
+        if args.clear:
+            print("Limit cleared." if store.clear_limit(who) else "There was no limit.")
+        else:
+            until = parse_until(args.until)
+            store.report_limit(who, until, args.reason)
+            print(f"Limit for {who} until {time.strftime('%H:%M', time.localtime(until))}. "
+                  "Unstarted tasks move to a fallback (AGENT_LEASE_FALLBACKS).")
+
+    elif args.cmd == "limits":
+        rows = store.limits()
+        for r in rows:
+            print(f"{r['agent']:<14} {r['seconds_left'] // 60} min left  {r['reason']}")
+        print("Fallback chains:", settings.fallbacks or "(not set: AGENT_LEASE_FALLBACKS)")
+
+    elif args.cmd == "overdue":
+        late = store.overdue(args.seconds)
+        for m in late:
+            print(f"#{m['id']:<5} {m['problem']:<20} {m['from']} → {m['to']} "
+                  f"({m['waiting_seconds']} s): {m['text'][:70]}")
+        if not late:
+            print("Nothing has waited longer than the limit.")
+        return 1 if late else 0
+
+    elif args.cmd == "prune":
+        removed = store.prune(args.days)
+        print(f"Deleted: {removed['messages']} messages, {removed['audit']} audit entries.")
 
     elif args.cmd == "history":
         for e in store.history(limit=args.limit, path=args.path):

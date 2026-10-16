@@ -16,13 +16,13 @@ import os
 
 from fastmcp import FastMCP
 
+from .broker import open_store
 from .config import Settings
 from .models import DeliveryState, MessageKind
-from .store import Store
 
 mcp = FastMCP("agent-lease")
 _settings = Settings.from_env()
-_store = Store(settings=_settings)
+_store = open_store(_settings)
 
 
 @mcp.tool
@@ -143,6 +143,33 @@ def ack(message_id: int, state: str, lease_token: str | None = None, error: str 
         lease_token=lease_token, error=error,
     )
     return {"ok": ok, "id": message_id, "state": state}
+
+
+@mcp.tool
+def accept(message_id: int, note: str = "") -> dict:
+    """
+    Acknowledge that you are TAKING an addressed message/task — do it now, BEFORE the work.
+
+    The sender gets "✔ taking #id: <note>" and does not have to ask whether you
+    saw it. `note` = one sentence on what you will do. Until you acknowledge, the
+    hook reminds you on every prompt.
+    """
+    ok = _store.accept(message_id, _settings.agent, note)
+    return {"ok": ok, "id": message_id}
+
+
+@mcp.tool
+def report_limit(minutes: int = 60, reason: str = "") -> dict:
+    """
+    Running out of quota/rate limit? Call THIS before you stop.
+
+    Your unstarted tasks move to the next agent in the fallback chain after a
+    short grace period, and the sender is told. `minutes` = estimate until reset.
+    """
+    import time as _t
+
+    _store.report_limit(_settings.agent, _t.time() + max(1, minutes) * 60, reason)
+    return {"ok": True, "limited_minutes": minutes}
 
 
 @mcp.tool

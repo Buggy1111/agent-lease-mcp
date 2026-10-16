@@ -307,7 +307,9 @@ def test_existing_permissive_database_is_tightened(tmp_path):
 
 
 def test_input_bounds(tmp_path):
-    """APP-009: meze na text, krátká pole, LIMIT a délku lease."""
+    """APP-009: příliš dlouhé vstupy se odmítnou, LIMIT a délka lease mají strop."""
+    import time
+
     import pytest
 
     from agent_lease_mcp.config import MAX_SHORT_CHARS, MAX_TASK_LEASE_SECONDS, MAX_TEXT_CHARS
@@ -315,10 +317,10 @@ def test_input_bounds(tmp_path):
     store = Store(tmp_path / "room.db")
     with pytest.raises(ValueError):
         store.send("a", "b", "x" * (MAX_TEXT_CHARS + 1))
-    store.heartbeat("a", status="s" * 12_000)
-    assert len(next(p for p in store.peers() if p["agent"] == "a")["status"]) == MAX_SHORT_CHARS
-    result = store.claim([str(tmp_path / "f")], agent="a", purpose="p" * 12_000)
-    assert len(store.holder_of(result.granted[0]).purpose) == MAX_SHORT_CHARS
+    with pytest.raises(ValueError):
+        store.heartbeat("a", status="s" * (MAX_SHORT_CHARS + 1))
+    with pytest.raises(ValueError):
+        store.claim([str(tmp_path / "f")], agent="a", purpose="p" * (MAX_SHORT_CHARS + 1))
 
     for i in range(6):
         store.say("a", f"m{i}")
@@ -326,8 +328,6 @@ def test_input_bounds(tmp_path):
 
     store.send("a", "worker", "úkol", kind="task")
     delivery = store.lease_next("worker", lease_seconds=1_000_000_000)
-    import time
-
     assert delivery.lease_until - time.time() <= MAX_TASK_LEASE_SECONDS + 5
 
 
@@ -368,11 +368,11 @@ def test_foreign_jobs_hide_lease_tokens_and_unrelated_items(tmp_path):
     store.lease_next("worker")
 
     as_worker = store.jobs("worker", viewer="worker")
-    assert any(j["lease_token"] for j in as_worker), "adresát token vidí"
+    assert len(as_worker) == 2, "adresát vidí všechny svoje úkoly"
+    assert all("lease_token" not in j for j in as_worker), "token se ve výpisu nevrací nikdy"
 
     as_boss = store.jobs("worker", viewer="boss")
     assert [j["id"] for j in as_boss] == [mine], "odesílatel vidí jen svoje"
-    assert all(j["lease_token"] is None for j in as_boss)
 
     assert store.jobs("worker", viewer="stranger") == []
 

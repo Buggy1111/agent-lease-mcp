@@ -77,6 +77,8 @@ Injections stay silent when there is nothing to say.
 | `room(status?)` | one call per checkpoint: who is here, what is held, what is new |
 | `say(text)` / `inbox(since_id)` | messages to the room |
 | `send` / `jobs` / `next_task` / `ack` / `retry` / `cancel` | addressed messages and durable tasks with delivery state |
+| `accept(message_id, note)` | acknowledge you are taking an addressed message — the sender sees it |
+| `report_limit(minutes, reason)` | out of quota: your unstarted tasks move to a fallback agent |
 | `history(path?)` | who touched what and how it ended — the answer to "why was I blocked" |
 
 The same operations exist as a CLI (`agent-lease room|claim|release|say|send|…`),
@@ -87,6 +89,19 @@ background session when a message arrives.
 `say`/`inbox` is not a live chat: MCP is pull, the other side reads a message when
 it next looks. For a live view there is a local web room:
 `agent-lease web --open` (loopback only, see [Security](#security)).
+
+## Quick start (two minutes)
+
+```bash
+uv tool install agent-lease-mcp
+agent-lease init claude-code --write --rewake   # writes all hooks, keeps a .bak backup
+agent-lease init codex --write
+agent-lease simulate                            # 2 s: replays a full scenario in a temp DB
+agent-lease doctor                              # checks it really works
+agent-lease web --open                          # live room in the browser
+```
+
+`init` without `--write` only shows what it would write. Manual setup below.
 
 ## Install
 
@@ -155,6 +170,9 @@ blocks its own files. An agent called `unconfigured-*` in `room` means exactly t
 | `AGENT_LEASE_TTL` | `1800` | default lease length (s) |
 | `AGENT_LEASE_RETENTION_DAYS` | `30` | messages and audit older than this are deleted (`0` = keep) |
 | `AGENT_LEASE_FAIL_CLOSED` | off | `1` = block the tool call when the hook itself fails |
+| `AGENT_LEASE_HUMAN` | `human` | the human's name in the room (stored next to the DB by the web UI) |
+| `AGENT_LEASE_TASK_SENDERS` | human + configured agents | who may create tasks (comma-separated) |
+| `AGENT_LEASE_FALLBACKS` | — | failover chains, e.g. `codex=claude-code;claude-code=codex` |
 
 ### Optional: Bash safety gate
 
@@ -164,6 +182,33 @@ not "who holds this file" but "is this command destructive". Hard rules
 as it is wired in. An optional external classifier (TypeSafe Jev) is off by
 default, starts in shadow mode, receives only redacted commands and is advisory —
 never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-guard.md).
+
+## Receipts, failover, bridge and broker
+
+- **Every addressed message has a visible state** ⏳ → 👁 seen → ✔ taking → done.
+  "Seen" is written by the hook automatically; "taking" must be acknowledged by
+  the agent (`accept`) and is reminded on every prompt. Nothing gets lost
+  silently. `agent-lease overdue` lists what nobody acknowledged.
+- **Limits and failover.** When an agent runs out of quota (`agent-lease limit`
+  or MCP `report_limit`), its unstarted tasks move to the next agent in
+  `AGENT_LEASE_FALLBACKS` (e.g. `codex=claude-code;claude-code=codex`) after a
+  grace period, and the sender is told.
+- **Bridge** (`agent-lease bridge --agent codex`) — an autonomous worker: takes a
+  task, acknowledges it, runs `codex exec` / `claude -p` read-only and returns the
+  result. `--provider openrouter --model <model>` sends it to any model through
+  OpenRouter as plain text without tools (read-only; good for review and a
+  second opinion). Keys only from the environment.
+- **Broker** (`agent-lease broker`) — single SQLite writer over a `0600` Unix
+  socket; other tools use it automatically when it runs, so a sandboxed Codex
+  does not need direct access to the database.
+- **Overview panel** in the live room: each agent's active task, queue,
+  unacknowledged items, limits and items to review. `agent-lease notify --loop`
+  sends to Telegram only what waits on the human, each event at most once
+  (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` from the environment; `--dry` to test).
+- systemd units in `deploy/systemd/`, Windows/WSL starter in `deploy/windows/`.
+
+Details (in Czech): [receipts](docs/ZPRAVY-A-POTVRZENI.md),
+[limits and failover](docs/LIMITY-A-FAILOVER.md), [Jev](docs/JEV.md).
 
 ## Security
 

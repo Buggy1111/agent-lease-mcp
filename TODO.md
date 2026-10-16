@@ -1,3 +1,16 @@
+# Stav
+
+## ✅ v0.2 (3. 10. 2026)
+Potvrzení příjmu (viděl/beru), probuzení, bridge (Codex/Claude/OpenRouter), broker,
+doctor, bezpečnostní hardening, CI. Viz CHANGELOG.md.
+
+## Zbývá na Michalovi (nelze z cloudu)
+1. Nastavit hooky podle `docs/ZPRAVY-A-POTVRZENI.md` a ověřit `asyncRewake` na živé session (`agent-lease doctor`).
+2. Zapnout v repu: default branch + branch protection, Dependabot alerts (REPO-001..003).
+3. Otestovat bridge proti skutečnému `codex exec` / `claude -p` a OpenRouter klíči; pak teprve zvažovat zápisový režim (fáze 5).
+4. Windows Task Scheduler (`deploy/windows/start-bridge.ps1`) – neověřeno.
+5. PyPI: rozhodnutí (bod 6 níže) a trusted publishing.
+
 # Stav ověření
 
 ## ✅ Aktualizace 11. 9. 2026 — live chat MVP
