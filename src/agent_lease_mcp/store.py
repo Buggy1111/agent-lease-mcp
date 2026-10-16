@@ -12,13 +12,22 @@ potřeba (víc strojů), je to jedna třída k přepsání — ne architektura k
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .config import MAX_TTL_SECONDS, STALE_PEER_SECONDS, Settings
+from .config import (
+    MAX_LIST_LIMIT,
+    MAX_SHORT_CHARS,
+    MAX_TASK_LEASE_SECONDS,
+    MAX_TEXT_CHARS,
+    MAX_TTL_SECONDS,
+    STALE_PEER_SECONDS,
+    Settings,
+)
 from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
 from .policy import covers, normalize_path
 
@@ -99,10 +108,53 @@ class Store:
         """
         self.settings = settings or Settings.from_env()
         self.db_path = db_path or self.settings.db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._secure_files()
         with self._connect() as con:
             con.executescript(SCHEMA)
             self._migrate_messages(con)
+            self._apply_retention(con)
+
+    def _secure_files(self) -> None:
+        """
+        Databáze jen pro vlastníka (APP-001): `0700` adresář, `0600` soubory.
+
+        Soubor se zakládá dřív, než ho otevře SQLite — ten jinak použije umask
+        procesu (typicky `0644`). `-wal`/`-shm` SQLite vytváří se stejnými
+        právy jako hlavní soubor; existující instalace se tady dorovnají.
+        """
+        parent = self.db_path.parent
+        created = not parent.exists()
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if created or parent == Path.home() / ".agent-lease":
+            os.chmod(parent, 0o700)
+        if not self.db_path.exists():
+            os.close(os.open(self.db_path, os.O_WRONLY | os.O_CREAT, 0o600))
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(f"{self.db_path}{suffix}")
+            if candidate.exists() and candidate.stat().st_mode & 0o077:
+                os.chmod(candidate, 0o600)
+
+    def _apply_retention(self, con: sqlite3.Connection) -> None:
+        """
+        Staré vzkazy a audit pryč (APP-012). Zprávy s nedokončeným doručením
+        zůstávají vždy — retence nesmí potichu zahodit čekající úkol.
+        """
+        days = self.settings.retention_days
+        if days <= 0:
+            return  # 0 = vypnuto
+        cutoff = time.time() - days * 86400
+        open_states = "('pending','leased','started')"
+        con.execute(
+            "DELETE FROM deliveries WHERE message_id IN (SELECT id FROM messages WHERE sent_at < ?) "
+            f"AND message_id NOT IN (SELECT message_id FROM deliveries WHERE state IN {open_states})",
+            (cutoff,),
+        )
+        con.execute(
+            "DELETE FROM messages WHERE sent_at < ? AND id NOT IN (SELECT message_id FROM deliveries) "
+            "AND id NOT IN (SELECT reply_to FROM messages WHERE reply_to IS NOT NULL AND sent_at >= ?)",
+            (cutoff, cutoff),
+        )
+        con.execute("DELETE FROM audit WHERE at < ?", (cutoff,))
 
     @staticmethod
     def _migrate_messages(con: sqlite3.Connection) -> None:
@@ -157,6 +209,9 @@ class Store:
         horší než čistý neúspěch.
         """
         ttl = max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
+        purpose = _short(purpose)
+        if not paths or len(paths) > MAX_LIST_LIMIT:
+            raise ValueError(f"claim chce 1–{MAX_LIST_LIMIT} cest")
         now = time.time()
         wanted = [normalize_path(p) for p in paths]
 
@@ -261,7 +316,9 @@ class Store:
                 "  status=COALESCE(?, agents.status), "
                 "  cwd=COALESCE(?, agents.cwd), "
                 "  seen_at=excluded.seen_at",
-                (agent, status or "", cwd or "", time.time(), status, cwd),
+                (agent, _short(status or ""), _short(cwd or "", 4096), time.time(),
+                 None if status is None else _short(status),
+                 None if cwd is None else _short(cwd, 4096)),
             )
 
     def peers(self, stale_after: int = STALE_PEER_SECONDS) -> list[dict]:
@@ -308,6 +365,10 @@ class Store:
             raise ValueError("recipient nesmí být prázdný")
         if not text.strip():
             raise ValueError("text nesmí být prázdný")
+        if len(text) > MAX_TEXT_CHARS:
+            raise ValueError(f"text je delší než {MAX_TEXT_CHARS} znaků")
+        if len(recipient) > 200 or (dedupe_key and len(dedupe_key) > 200):
+            raise ValueError("recipient/dedupe_key je příliš dlouhý")
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -334,6 +395,7 @@ class Store:
 
     def inbox(self, since_id: int = 0, limit: int = 50) -> list[dict]:
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -346,6 +408,7 @@ class Store:
     def latest_messages(self, limit: int = 200) -> list[dict]:
         """Nejnovější historie v chronologickém pořadí pro první UI snapshot."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -387,6 +450,7 @@ class Store:
     def undelivered(self, agent: str, limit: int = 20) -> list[dict]:
         """Vzkazy od ostatních, které tenhle agent ještě neviděl."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -414,6 +478,7 @@ class Store:
     def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
         """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
         now = time.time()
+        limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
@@ -428,6 +493,7 @@ class Store:
         """Atomicky převezme nejstarší připravený task pro jeden worker."""
         now = time.time()
         token = uuid.uuid4().hex
+        lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             con.execute(
@@ -482,6 +548,7 @@ class Store:
     ) -> bool:
         """Potvrdí pouze platný přechod vlastněného pracovního lease."""
         state_value = DeliveryState(state).value
+        error = _short(error)
         terminal = {
             DeliveryState.SUCCEEDED.value, DeliveryState.FAILED.value,
             DeliveryState.NEEDS_REVIEW.value, DeliveryState.CANCELLED.value,
@@ -556,7 +623,7 @@ class Store:
             sql += " WHERE path = ?"
             args = (normalize_path(path),)
         sql += " ORDER BY id DESC LIMIT ?"
-        args += (limit,)
+        args += (_limit(limit),)
         with self._connect() as con:
             rows = con.execute(sql, args).fetchall()
         return [
@@ -609,3 +676,13 @@ def _presence_state(status: str, age: float, stale_after: int) -> str:
     if status and age <= stale_after * 2:
         return "stalled"
     return "offline"
+
+
+def _limit(value: int) -> int:
+    """LIMIT do rozumného rozsahu; záporné číslo by v SQLite znamenalo „vše"."""
+    return max(1, min(int(value), MAX_LIST_LIMIT))
+
+
+def _short(value: str, max_chars: int = MAX_SHORT_CHARS) -> str:
+    """Krátká pole (status, purpose, chyba) se ořezávají, nezahazují."""
+    return value if len(value) <= max_chars else value[: max_chars - 1] + "…"

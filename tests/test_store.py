@@ -271,3 +271,90 @@ def test_audit_records_who_touched_what(store: Store, tmp_path: Path):
 
     assert "claim" in actions
     assert "claim-refused" in actions
+
+
+# ── hardening (APP-001, APP-009, APP-012) ───────────────────────────────────
+
+
+def test_database_files_are_owner_only(tmp_path):
+    """APP-001: i s povolnou umask je databáze jen pro vlastníka."""
+    import os
+    import stat
+
+    old = os.umask(0o000)
+    try:
+        db = tmp_path / "fresh" / "room.db"
+        store = Store(db)
+        store.say("a", "ahoj")  # vytvoří i -wal/-shm
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
+    for suffix in ("", "-wal", "-shm"):
+        f = db.with_name(db.name + suffix)
+        if f.exists():
+            assert stat.S_IMODE(f.stat().st_mode) & 0o077 == 0, f"{f.name} je čitelná pro ostatní"
+
+
+def test_existing_permissive_database_is_tightened(tmp_path):
+    import os
+    import stat
+
+    db = tmp_path / "room.db"
+    Store(db)
+    os.chmod(db, 0o644)
+    Store(db)
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
+
+def test_input_bounds(tmp_path):
+    """APP-009: meze na text, krátká pole, LIMIT a délku lease."""
+    import pytest
+
+    from agent_lease_mcp.config import MAX_SHORT_CHARS, MAX_TASK_LEASE_SECONDS, MAX_TEXT_CHARS
+
+    store = Store(tmp_path / "room.db")
+    with pytest.raises(ValueError):
+        store.send("a", "b", "x" * (MAX_TEXT_CHARS + 1))
+    store.heartbeat("a", status="s" * 12_000)
+    assert len(next(p for p in store.peers() if p["agent"] == "a")["status"]) == MAX_SHORT_CHARS
+    result = store.claim([str(tmp_path / "f")], agent="a", purpose="p" * 12_000)
+    assert len(store.holder_of(result.granted[0]).purpose) == MAX_SHORT_CHARS
+
+    for i in range(6):
+        store.say("a", f"m{i}")
+    assert len(store.inbox(limit=-1)) == 1, "záporný LIMIT nesmí vrátit všechno"
+
+    store.send("a", "worker", "úkol", kind="task")
+    delivery = store.lease_next("worker", lease_seconds=1_000_000_000)
+    import time
+
+    assert delivery.lease_until - time.time() <= MAX_TASK_LEASE_SECONDS + 5
+
+
+def test_retention_drops_old_messages_but_keeps_open_tasks(tmp_path):
+    """APP-012: staré vzkazy a audit pryč, nedokončený úkol nikdy."""
+    import sqlite3
+    import time
+
+    db = tmp_path / "room.db"
+    store = Store(db)
+    old_chat = store.say("a", "starý vzkaz")
+    old_task = store.send("a", "worker", "starý nedokončený úkol", kind="task")
+    done = store.send("a", "worker", "starý hotový úkol", kind="task")
+    store.lease_next("worker")  # vezme old_task (nejstarší)
+    d = store.lease_next("worker")
+    store.ack(done, "worker", "succeeded", lease_token=d.lease_token)
+    store.record("a", "claim", "/x")
+    long_ago = time.time() - 40 * 86400
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE messages SET sent_at=?", (long_ago,))
+        con.execute("UPDATE audit SET at=?", (long_ago,))
+    fresh = store.say("a", "čerstvý")
+
+    Store(db)  # retence běží při otevření
+
+    ids = {m["id"] for m in Store(db).inbox(limit=500)}
+    assert old_chat not in ids and done not in ids
+    assert old_task in ids, "nedokončený úkol se nesmí smazat"
+    assert fresh in ids
+    assert Store(db).history() == []

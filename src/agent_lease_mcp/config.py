@@ -18,12 +18,23 @@ MAX_TTL_SECONDS = 8 * 3600
 STALE_PEER_SECONDS = 900
 RESERVED_HUMAN_AGENT = "michal"
 
+# Meze vstupů (APP-009). Místnost je lokální, ale jeden zacyklený agent ji umí
+# zahltit stejně dobře jako útočník — a negativní LIMIT v SQLite znamená „vše".
+MAX_TEXT_CHARS = 8000
+MAX_SHORT_CHARS = 500          # status, purpose, chyba úkolu
+MAX_LIST_LIMIT = 500
+MAX_TASK_LEASE_SECONDS = 3600
+
+# Retence (APP-012): staré vzkazy a audit se mažou samy. Nedokončené úkoly nikdy.
+DEFAULT_RETENTION_DAYS = 30
+
 
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
     agent: str
     default_ttl: int
+    retention_days: int = DEFAULT_RETENTION_DAYS
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -33,6 +44,7 @@ class Settings:
             db_path=db_path,
             agent=cls._agent_from_env(),
             default_ttl=_int_env("AGENT_LEASE_TTL", DEFAULT_TTL_SECONDS),
+            retention_days=_int_env("AGENT_LEASE_RETENTION_DAYS", DEFAULT_RETENTION_DAYS),
         )
 
     @staticmethod
