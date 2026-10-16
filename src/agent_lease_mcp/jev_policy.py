@@ -94,13 +94,15 @@ def decide_from_jev(p_destructive: float, threshold: float, enforce: bool) -> Gu
 
 # Tajné hodnoty, které nesmí do logu ani k externímu klasifikátoru. Úzké a
 # konzervativní: radši zamaskovat o něco víc, než pustit klíč ven.
-_VALUE = r"[A-Za-z0-9_\-.+/=%]+"
+# Hodnota: holé znaky klíče, nebo celý řetězec v jednoduchých uvozovkách (v nich
+# shell nic nespouští), nebo ve dvojitých bez `$` a zpětného apostrofu.
+_VALUE = r"(?:'[^']*'|\"[^\"$`]*\"|[A-Za-z0-9_\-.+/=%]+)"
 _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Hodnota smí obsahovat jen znaky, které se v tajných klíčích vyskytují. Nikdy
     # `$ ( ) ; | & < > \`` ani mezeru — jinak by šel „zamaskovat" i kus příkazu
     # a klasifikátor by viděl něco jiného, než se spustí (parser differential).
     re.compile(r"(?i)(authorization:\s*(?:bearer|basic|token)\s+)" + _VALUE),
-    re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|key)[\w-]*\s*[=:]\s*['\"]?)" + _VALUE),
+    re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|key)[\w-]*\s*[=:]\s*)" + _VALUE),
     re.compile(r"(?i)(--(?:password|token|api-key|secret)[= ]\s*)" + _VALUE),
     re.compile(r"(://[^/\s:@$();|&<>`]+:)" + _VALUE + r"(@)"),
     re.compile(r"()\b(?:sk-[\w-]{16,}|gh[pousr]_\w{20,}|xox[abp]-[\w-]{10,}|AKIA[0-9A-Z]{16}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+)"),

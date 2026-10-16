@@ -132,3 +132,11 @@ def test_redact_never_hides_shell_syntax(command):
     for keep in ("rm -rf ~", "reboot"):
         if keep in command:
             assert keep in out
+
+
+def test_redact_masks_quoted_values():
+    from agent_lease_mcp.jev_policy import redact
+
+    out = redact("PASSWORD='p@ss w$rd' ./run && TOKEN=\"ab cd\" x")
+    assert "p@ss" not in out and "ab cd" not in out
+    assert "./run" in out
