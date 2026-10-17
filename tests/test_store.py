@@ -191,6 +191,32 @@ def test_failed_task_can_retry_then_cancel(store: Store):
     assert not store.retry(message_id, "codex")
 
 
+def test_lease_next_can_ignore_tasks_before_activation(store: Store):
+    old = store.send("michal", "codex", "old", kind="task")
+    new = store.send("michal", "codex", "new", kind="task")
+
+    delivery = store.lease_next("codex", after_message_id=old)
+
+    assert delivery is not None and delivery.message_id == new
+    assert next(j for j in store.jobs("codex") if j["id"] == old)["state"] == "pending"
+
+
+def test_task_summary_separates_receipt_from_execution(store: Store):
+    unaccepted = store.send("michal", "codex", "one", kind="task")
+    accepted = store.send("michal", "codex", "two", kind="task")
+    store.accept(accepted, "codex")
+
+    assert store.task_summary("codex") == {
+        "pending": 2,
+        "unaccepted": 1,
+        "accepted_without_start": 1,
+        "leased": 0,
+        "started": 0,
+        "needs_review": 0,
+    }
+    assert unaccepted != accepted
+
+
 def test_peer_goes_stale(store: Store):
     store.heartbeat("codex", status="kontrola")
     assert store.peers(stale_after=900)[0]["active"] is True

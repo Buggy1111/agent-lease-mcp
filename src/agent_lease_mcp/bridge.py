@@ -139,10 +139,12 @@ def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPE
 
 class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
-                 timeout: float = 1800, max_per_hour: int = 12, runner=None) -> None:
+                 timeout: float = 1800, max_per_hour: int = 12, runner=None,
+                 after_message_id: int = 0) -> None:
         self.store, self.agent, self.command = store, agent, command
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
+        self.after_message_id = max(0, int(after_message_id))
         self._starts: list[float] = []
 
     def _budget_left(self) -> bool:
@@ -157,7 +159,10 @@ class Bridge:
         if not self._budget_left():
             self.store.heartbeat(self.agent, status="bridge: hourly cap reached")
             return False
-        delivery = self.store.lease_next(self.agent, lease_seconds=self.lease_seconds)
+        delivery = self.store.lease_next(
+            self.agent, lease_seconds=self.lease_seconds,
+            after_message_id=self.after_message_id,
+        )
         if delivery is None:
             return False
         token = delivery.lease_token or ""
@@ -244,6 +249,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--timeout", type=float, default=1800)
     p.add_argument("--once", action="store_true", help="process one pass and exit")
+    p.add_argument(
+        "--include-existing", action="store_true",
+        help="on this worker's first activation, include tasks already in the queue",
+    )
     args = p.parse_args(argv)
     runner = None
     command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
@@ -259,8 +268,13 @@ def main(argv: list[str] | None = None) -> int:
         print("--command missing and there is no default for this agent.", file=sys.stderr)
         return 2
     settings = Settings.from_env()
-    bridge = Bridge(open_store(settings), args.agent, command, runner=runner,
-                    timeout=args.timeout, max_per_hour=args.max_per_hour)
+    store = open_store(settings)
+    after_message_id = store.worker_activation(
+        args.agent, include_existing=args.include_existing,
+    )
+    bridge = Bridge(store, args.agent, command, runner=runner,
+                    timeout=args.timeout, max_per_hour=args.max_per_hour,
+                    after_message_id=after_message_id)
     if args.once:
         bridge.step()
         return 0

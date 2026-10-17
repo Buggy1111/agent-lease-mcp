@@ -141,6 +141,16 @@ CREATE TABLE IF NOT EXISTS cursors (
     agent      TEXT PRIMARY KEY,
     last_msg   INTEGER NOT NULL DEFAULT 0
 );
+
+-- Bezpečný bod prvního spuštění autonomního workeru. Staré tasky mohly být
+-- ručně přijaté nebo už dávno překonané; nový worker je nesmí po instalaci
+-- hromadně spustit. Hodnota je trvalá, takže restart naopak neztratí tasky,
+-- které dorazily během výpadku workeru.
+CREATE TABLE IF NOT EXISTS worker_activations (
+    agent             TEXT PRIMARY KEY,
+    after_message_id  INTEGER NOT NULL,
+    activated_at      REAL NOT NULL
+);
 """
 
 
@@ -733,6 +743,31 @@ class Store:
             })
         return board
 
+    def task_summary(self, recipient: str) -> dict:
+        """Aggregate task pipeline state without loading task text or lease tokens."""
+        _check_agent(recipient)
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT d.state, COUNT(*) AS total, "
+                "SUM(CASE WHEN r.accepted_at IS NULL THEN 1 ELSE 0 END) AS unaccepted "
+                "FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=d.recipient "
+                "WHERE d.recipient=? AND m.kind='task' GROUP BY d.state",
+                (recipient,),
+            ).fetchall()
+        states = {r["state"]: int(r["total"]) for r in rows}
+        pending = states.get("pending", 0)
+        pending_row = next((r for r in rows if r["state"] == "pending"), None)
+        unaccepted = int(pending_row["unaccepted"] or 0) if pending_row else 0
+        return {
+            "pending": pending,
+            "unaccepted": unaccepted,
+            "accepted_without_start": max(0, pending - unaccepted),
+            "leased": states.get("leased", 0),
+            "started": states.get("started", 0),
+            "needs_review": states.get("needs_review", 0),
+        }
+
     def get_screen(self, message_id: int) -> dict | None:
         with self._connect() as con:
             row = con.execute("SELECT risk, actionable FROM screens WHERE message_id=?",
@@ -912,9 +947,35 @@ class Store:
             ).fetchall()
         return [_row_to_message(row, now) for row in rows]
 
-    def lease_next(self, recipient: str, *, lease_seconds: int = 60) -> Delivery | None:
+    def worker_activation(self, agent: str, *, include_existing: bool = False) -> int:
+        """Create once and return the durable lower task-id bound for a worker."""
+        _check_agent(agent)
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT after_message_id FROM worker_activations WHERE agent=?", (agent,)
+            ).fetchone()
+            if row:
+                return int(row["after_message_id"])
+            after = 0
+            if not include_existing:
+                after = int(con.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM messages"
+                ).fetchone()[0])
+            con.execute(
+                "INSERT INTO worker_activations(agent, after_message_id, activated_at) "
+                "VALUES(?,?,?)", (agent, after, now),
+            )
+            self._record(con, agent, "worker-activate", "", f"after #{after}")
+            return after
+
+    def lease_next(
+        self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0
+    ) -> Delivery | None:
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         """Atomicky převezme nejstarší připravený task pro jeden worker."""
+        after_message_id = max(0, int(after_message_id))
         now = time.time()
         token = uuid.uuid4().hex
         with self._connect() as con:
@@ -940,9 +1001,10 @@ class Store:
                 "SELECT m.*, d.state, d.attempts FROM deliveries d "
                 "JOIN messages m ON m.id=d.message_id "
                 "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
+                "AND m.id>? "
                 "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
                 "ORDER BY m.id LIMIT 1",
-                (recipient, now, now),
+                (recipient, after_message_id, now, now),
             ).fetchone()
             if not row:
                 return None

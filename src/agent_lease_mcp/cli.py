@@ -134,12 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     p_notify.add_argument("--loop", action="store_true")
     p_notify.add_argument("--overdue", type=int, default=300)
 
-    sub.add_parser("doctor", help="check installation, permissions and hooks")
+    p_doctor = sub.add_parser("doctor", help="check installation, delivery and worker health")
+    p_doctor.add_argument("--json", action="store_true", help="machine-readable diagnostics")
 
     p_bridge = sub.add_parser("bridge", help="autonomous worker for one agent's queue")
     p_bridge.add_argument("--agent", required=True)
     p_bridge.add_argument("--command", default=None)
     p_bridge.add_argument("--once", action="store_true")
+    p_bridge.add_argument("--include-existing", action="store_true")
     p_bridge.add_argument("--provider", choices=["cli", "openrouter"], default="cli")
     p_bridge.add_argument("--model", default="")
 
@@ -167,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "doctor":
         from .doctor import run_doctor
 
-        return run_doctor()
+        return run_doctor(json_output=args.json)
     if args.cmd == "broker":
         from .broker import main as broker_main
 
@@ -178,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         return bridge_main(["--agent", args.agent]
                            + (["--command", args.command] if args.command else [])
                            + (["--once"] if args.once else [])
+                           + (["--include-existing"] if args.include_existing else [])
                            + ["--provider", args.provider]
                            + (["--model", args.model] if args.model else []))
     settings = Settings.from_env()

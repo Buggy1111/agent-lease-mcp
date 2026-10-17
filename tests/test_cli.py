@@ -9,6 +9,7 @@ s cizím statusem: CLI na rozdíl od MCP serveru presence nehlásilo.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Thread
 from time import sleep
@@ -126,6 +127,15 @@ def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
 
     assert main(["web", "--port", "9876", "--open"]) == 0
     assert called["argv"] == ["--host", "127.0.0.1", "--port", "9876", "--open"]
+
+
+def test_doctor_json_cli(db: Path, tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert main(["doctor", "--json"]) in (0, 1)
+    report = json.loads(capsys.readouterr().out)
+    assert isinstance(report["checks"], list)
+    assert any(check["id"] == "delivery_pipeline" for check in report["checks"])
 
 
 def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypatch):

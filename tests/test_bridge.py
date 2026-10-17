@@ -71,6 +71,25 @@ def test_hourly_cap(store: Store, tmp_path: Path):
     assert sum(j["state"] == "pending" for j in store.jobs("codex")) == 1
 
 
+def test_first_worker_activation_skips_old_backlog_but_survives_restart(
+    store: Store, tmp_path: Path
+):
+    old = store.send("michal", "codex", "old task", kind="task")
+    after = store.worker_activation("codex")
+    assert after == old
+    assert store.worker_activation("codex", include_existing=True) == after
+
+    new = store.send("michal", "codex", "new task", kind="task")
+    bridge = Bridge(
+        store, "codex", fake(tmp_path, "print('ok')"), after_message_id=after,
+    )
+    assert bridge.step()
+
+    states = {j["id"]: j["state"] for j in store.jobs("codex")}
+    assert states[old] == "pending"
+    assert states[new] == "succeeded"
+
+
 def test_unauthorized_sender_cannot_enqueue(store: Store):
     with pytest.raises(PermissionError):
         store.send("unconfigured-x-1", "codex", "rm", kind="task")
@@ -94,6 +113,44 @@ def test_doctor_runs(tmp_path: Path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "agent identity: codex" in out and code in (0, 1)
     assert os.path.isdir(tmp_path / "d")
+
+
+def test_doctor_json_separates_delivery_from_worker(tmp_path: Path, monkeypatch, capsys):
+    import json
+
+    db = tmp_path / "room.db"
+    monkeypatch.setenv("AGENT_LEASE_DB", str(db))
+    monkeypatch.setenv("AGENT_NAME", "codex")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    store = Store(db)
+    mid = store.send("michal", "codex", "diagnostic task", kind="task")
+    store.mark_seen("codex", [mid])
+    store.accept(mid, "codex", "queued manually")
+
+    from agent_lease_mcp.doctor import run_doctor
+    code = run_doctor(json_output=True)
+    report = json.loads(capsys.readouterr().out)
+    checks = {item["id"]: item for item in report["checks"]}
+
+    assert code in (0, 1)
+    assert checks["delivery_pipeline"]["pending"] == 1
+    assert checks["delivery_pipeline"]["unaccepted"] == 0
+    assert checks["delivery_pipeline"]["accepted_without_start"] == 1
+    assert checks["worker"]["observed"] is False
+    assert "diagnostic task" not in json.dumps(report)
+
+
+def test_doctor_reads_hook_identity_without_exposing_commands(tmp_path: Path):
+    import json
+
+    hooks = tmp_path / "hooks.json"
+    hooks.write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [{
+        "type": "command", "command": "AGENT_NAME=codex agent-lease-context --secret nope"
+    }]}]}}))
+
+    from agent_lease_mcp.doctor import _hook_agent_names
+
+    assert _hook_agent_names(hooks) == {"codex"}
 
 
 def _fake_openrouter(status=200, body=None, headers=None):

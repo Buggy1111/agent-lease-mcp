@@ -39,6 +39,18 @@ def test_remote_store_mirrors_store_including_dataclasses(broker):
     assert remote.ack(mid, "codex", "succeeded", lease_token=d.lease_token)
 
 
+def test_worker_activation_roundtrips_over_broker(broker):
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    from agent_lease_mcp.store import Store
+
+    direct = Store(settings=settings)
+    old = direct.send("michal", "codex", "old", kind="task")
+
+    assert remote.worker_activation("codex") == old
+    assert remote.worker_activation("codex", include_existing=True) == old
+
+
 def test_errors_cross_the_socket(broker):
     settings, sock = broker
     remote = RemoteStore(settings, sock)
