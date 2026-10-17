@@ -52,6 +52,29 @@ def test_started_work_is_never_moved(store: Store):
     assert not store.jobs("claude-code")
 
 
+def test_accepted_pending_work_is_never_moved(store: Store):
+    mid = store.send("michal", "codex", "already taken", kind="task")
+    store.accept(mid, "codex", "working interactively")
+
+    store.report_limit("codex", time.time() + 3600)
+
+    assert any(j["id"] == mid for j in store.jobs("codex"))
+    assert not store.jobs("claude-code")
+
+
+def test_failover_activation_skips_old_backlog_but_moves_new_task(store: Store):
+    old = store.send("michal", "codex", "old", kind="task")
+    after = store.failover_activation("codex")
+    assert after == old
+    assert store.failover_activation("codex", include_existing=True) == after
+    new = store.send("michal", "codex", "new", kind="task")
+
+    store.report_limit("codex", time.time() + 3600)
+
+    assert any(j["id"] == old for j in store.jobs("codex"))
+    assert any(j["id"] == new for j in store.jobs("claude-code"))
+
+
 def test_grace_period_prevents_bouncing(tmp_path: Path):
     fb = parse_fallbacks("codex=claude-code")
     s = Store(tmp_path / "r.db", settings=Settings(tmp_path / "r.db", "x", 1800,

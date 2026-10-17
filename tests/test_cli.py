@@ -148,6 +148,17 @@ def test_worker_activate_only_sets_baseline(db: Path, capsys):
     assert Store(db).lease_next("codex", after_message_id=old) is None
 
 
+def test_failover_activate_only_sets_baselines(db: Path, capsys):
+    old = Store(db).send("michal", "codex", "old", kind="task")
+
+    assert main(["failover-activate", "codex", "claude-code"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"codex will move task ids greater than {old}" in out
+    assert f"claude-code will move task ids greater than {old}" in out
+    assert Store(db).jobs("codex")[0]["state"] == "pending"
+
+
 def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypatch):
     """Security review: AGENT_LEASE_HUMAN v prostředí agenta nesmí uvolnit jméno
     člověka, které místnost má uložené."""

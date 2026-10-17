@@ -151,6 +151,15 @@ CREATE TABLE IF NOT EXISTS worker_activations (
     after_message_id  INTEGER NOT NULL,
     activated_at      REAL NOT NULL
 );
+
+-- Stejná pojistka pro první zapnutí failoveru. Bez explicitní aktivace zůstává
+-- staré chování kvůli zpětné kompatibilitě; instalační postup nastaví hranici
+-- před zapnutím řetězců, aby nerozeslal historický backlog.
+CREATE TABLE IF NOT EXISTS failover_activations (
+    agent             TEXT PRIMARY KEY,
+    after_message_id  INTEGER NOT NULL,
+    activated_at      REAL NOT NULL
+);
 """
 
 
@@ -608,6 +617,29 @@ class Store:
         return any(p["agent"] == agent and p["presence"] in ("idle", "busy")
                    for p in self.peers())
 
+    def failover_activation(self, agent: str, *, include_existing: bool = False) -> int:
+        """Create once and return the durable lower task-id bound for failover."""
+        _check_agent(agent)
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT after_message_id FROM failover_activations WHERE agent=?", (agent,)
+            ).fetchone()
+            if row:
+                return int(row["after_message_id"])
+            after = 0
+            if not include_existing:
+                after = int(con.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM messages"
+                ).fetchone()[0])
+            con.execute(
+                "INSERT INTO failover_activations(agent, after_message_id, activated_at) "
+                "VALUES(?,?,?)", (agent, after, now),
+            )
+            self._record(con, agent, "failover-activate", "", f"after #{after}")
+            return after
+
     def failover_sweep(self, *, grace: int | None = None) -> list[dict]:
         """
         Přesune NEZAHÁJENÉ úkoly od nedostupného agenta na první dostupnou náhradu
@@ -633,15 +665,21 @@ class Store:
                 target = next((c for c in chain if c in alive and c not in limited), None)
                 if not target:
                     continue
+                activation = con.execute(
+                    "SELECT after_message_id FROM failover_activations WHERE agent=?", (src,)
+                ).fetchone()
+                after_message_id = int(activation["after_message_id"]) if activation else 0
                 rows = con.execute(
                     "SELECT m.id, m.agent, m.text, m.sent_at FROM deliveries d "
                     "JOIN messages m ON m.id=d.message_id "
+                    "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=d.recipient "
                     "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
-                    "AND m.sent_at <= ? AND m.agent<>?",
+                    "AND r.accepted_at IS NULL AND m.id>? AND m.sent_at <= ? AND m.agent<>?",
                     # Explicitní limit = krátká lhůta. Pouhé „nedává znamení" = dlouhá:
                     # agent může spát v `wait` a úkol si vzít, jakmile ho probudíme.
-                    (src, now - (grace if src in limited
-                                 else max(grace, self.settings.offline_grace)), target),
+                    (src, after_message_id, now - (grace if src in limited
+                                                   else max(grace, self.settings.offline_grace)),
+                     target),
                 ).fetchall()
                 for r in rows:
                     if con.execute("SELECT 1 FROM deliveries WHERE message_id=? AND recipient=?",

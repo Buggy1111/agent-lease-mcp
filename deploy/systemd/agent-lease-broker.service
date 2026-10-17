@@ -2,6 +2,7 @@
 Description=agent-lease broker (jediný writer SQLite, Unix socket 0600)
 
 [Service]
+EnvironmentFile=-%h/.config/agent-lease/environment
 ExecStart=%h/.local/bin/agent-lease-broker
 Restart=on-failure
 RestartSec=2

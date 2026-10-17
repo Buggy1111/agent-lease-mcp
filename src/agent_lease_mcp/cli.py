@@ -150,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_activate.add_argument("--include-existing", action="store_true")
 
+    p_failover_activate = sub.add_parser(
+        "failover-activate", help="set safe failover baselines without moving a task",
+    )
+    p_failover_activate.add_argument("agents", nargs="+")
+    p_failover_activate.add_argument("--include-existing", action="store_true")
+
     p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
     p_prune.add_argument("--days", type=int, default=None)
 
@@ -194,6 +200,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "worker-activate":
         after = store.worker_activation(me, include_existing=args.include_existing)
         print(f"Worker {me} will process task ids greater than {after}.")
+        return 0
+    if args.cmd == "failover-activate":
+        for agent in args.agents:
+            after = store.failover_activation(agent, include_existing=args.include_existing)
+            print(f"Failover from {agent} will move task ids greater than {after}.")
         return 0
 
     if args.cmd == "room":
