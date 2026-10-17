@@ -1224,7 +1224,7 @@ class Store:
 
     def retry(self, message_id: int, recipient: str, *, not_before: float = 0,
               actor: str | None = None) -> bool:
-        """Vrátí neúspěšné doručení do fronty a zachová počet pokusů."""
+        """Vrátí neúspěšné doručení nebo přeplánuje pending úkol; zachová pokusy."""
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             if not self._may_manage(con, message_id, recipient, actor):
@@ -1232,7 +1232,7 @@ class Store:
             cur = con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
                 "last_error='', updated_at=? WHERE message_id=? AND recipient=? "
-                "AND state IN ('failed','needs_review','dead_letter')",
+                "AND state IN ('pending','failed','needs_review','dead_letter')",
                 (time.time(), message_id, recipient),
             )
             if cur.rowcount:

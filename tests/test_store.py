@@ -199,6 +199,16 @@ def test_failed_task_can_retry_then_cancel(store: Store):
     assert store.jobs("codex")[0]["state"] == "pending"
     assert store.cancel(message_id, "codex")
     assert store.jobs("codex")[0]["state"] == "cancelled"
+
+
+def test_authorized_retry_can_make_a_deferred_pending_task_ready(store: Store):
+    message_id = store.send(
+        "michal", "codex", "otestuj", kind="task", not_before=time.time() + 3600,
+    )
+    assert store.lease_next("codex") is None
+
+    assert store.retry(message_id, "codex", actor="michal")
+    assert store.lease_next("codex").message_id == message_id
     assert not store.retry(message_id, "codex")
 
 
