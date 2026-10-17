@@ -20,7 +20,7 @@ import tempfile
 import tomllib
 from pathlib import Path
 
-from .config import Settings, is_trusted_agent
+from .config import Settings, is_trusted_agent, parse_fallbacks
 
 OK, WARN, FAIL = "✔", "⚠", "✘"
 
@@ -68,6 +68,19 @@ def _codex_queue_supported(binary: str | None) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return probe.returncode == 0
+
+
+def _service_fallbacks(path: Path) -> dict[str, tuple[str, ...]]:
+    """Read only the non-secret fallback setting from a systemd EnvironmentFile."""
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return {}
+    for raw in lines:
+        line = raw.strip()
+        if line.startswith("AGENT_LEASE_FALLBACKS="):
+            return parse_fallbacks(line.split("=", 1)[1])
+    return {}
 
 
 def run_doctor(*, json_output: bool = False) -> int:
@@ -198,8 +211,12 @@ def run_doctor(*, json_output: bool = False) -> int:
          f"broker running ({sock})" if broker_running
          else "broker not running (tools write to SQLite directly)",
          running=broker_running, socket=str(sock))
-    if settings.fallbacks:
-        line("fallbacks", OK, f"failover chains: {settings.fallbacks}", configured=True)
+    service_fallbacks = _service_fallbacks(home / ".config" / "agent-lease" / "environment")
+    effective_fallbacks = settings.fallbacks or service_fallbacks
+    if effective_fallbacks:
+        source = "process environment" if settings.fallbacks else "systemd environment file"
+        line("fallbacks", OK, f"failover chains ({source}): {effective_fallbacks}",
+             configured=True, source=source)
     else:
         line("fallbacks", WARN,
              "AGENT_LEASE_FALLBACKS not set — when an agent hits its limit, its queue waits",
@@ -226,6 +243,13 @@ def run_doctor(*, json_output: bool = False) -> int:
              accepted_without_start=accepted_without_start,
              leased=summary["leased"], started=summary["started"],
              needs_review=summary["needs_review"])
+
+        activations = store.activation_status(settings.agent)
+        activation_level = OK if activations["worker_after_message_id"] is not None else WARN
+        line("activation_baselines", activation_level,
+             f"{settings.agent}: worker after #{activations['worker_after_message_id']}; "
+             f"failover after #{activations['failover_after_message_id']}",
+             **activations)
 
         peer = next((p for p in store.peers() if p["agent"] == settings.agent), None)
         worker_observed = bool(peer and str(peer.get("status", "")).startswith("bridge:"))

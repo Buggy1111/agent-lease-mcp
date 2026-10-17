@@ -153,6 +153,20 @@ def test_doctor_reads_hook_identity_without_exposing_commands(tmp_path: Path):
     assert _hook_agent_names(hooks) == {"codex"}
 
 
+def test_doctor_reads_service_fallbacks_without_loading_other_values(tmp_path: Path):
+    env = tmp_path / "environment"
+    env.write_text(
+        "SECRET=do-not-read\n"
+        "AGENT_LEASE_FALLBACKS=codex=claude-code;claude-code=codex\n"
+    )
+
+    from agent_lease_mcp.doctor import _service_fallbacks
+
+    assert _service_fallbacks(env) == {
+        "codex": ("claude-code",), "claude-code": ("codex",),
+    }
+
+
 def _fake_openrouter(status=200, body=None, headers=None):
     import json
     import threading

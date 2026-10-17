@@ -217,6 +217,19 @@ def test_task_summary_separates_receipt_from_execution(store: Store):
     assert unaccepted != accepted
 
 
+def test_activation_status_is_read_only(store: Store):
+    assert store.activation_status("codex") == {
+        "worker_after_message_id": None,
+        "failover_after_message_id": None,
+    }
+    store.worker_activation("codex")
+    store.failover_activation("codex")
+    assert store.activation_status("codex") == {
+        "worker_after_message_id": 0,
+        "failover_after_message_id": 0,
+    }
+
+
 def test_peer_goes_stale(store: Store):
     store.heartbeat("codex", status="kontrola")
     assert store.peers(stale_after=900)[0]["active"] is True

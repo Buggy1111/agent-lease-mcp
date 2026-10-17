@@ -1008,6 +1008,21 @@ class Store:
             self._record(con, agent, "worker-activate", "", f"after #{after}")
             return after
 
+    def activation_status(self, agent: str) -> dict:
+        """Return persisted safety baselines without creating or changing them."""
+        _check_agent(agent)
+        with self._connect() as con:
+            worker = con.execute(
+                "SELECT after_message_id FROM worker_activations WHERE agent=?", (agent,)
+            ).fetchone()
+            failover = con.execute(
+                "SELECT after_message_id FROM failover_activations WHERE agent=?", (agent,)
+            ).fetchone()
+        return {
+            "worker_after_message_id": int(worker["after_message_id"]) if worker else None,
+            "failover_after_message_id": int(failover["after_message_id"]) if failover else None,
+        }
+
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0
     ) -> Delivery | None:
