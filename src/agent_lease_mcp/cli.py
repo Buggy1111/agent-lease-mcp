@@ -116,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("limits", help="active limits and fallback chains")
 
+    p_provider = sub.add_parser(
+        "provider-sync", help="read and persist an explicit provider availability signal",
+    )
+    p_provider.add_argument("--agent", choices=["codex"], default="codex")
+
     p_overdue = sub.add_parser("overdue", help="messages nobody acknowledged / undelivered")
     p_overdue.add_argument("--seconds", type=int, default=120)
 
@@ -206,6 +211,18 @@ def main(argv: list[str] | None = None) -> int:
             after = store.failover_activation(agent, include_existing=args.include_existing)
             print(f"Failover from {agent} will move task ids greater than {after}.")
         return 0
+    if args.cmd == "provider-sync":
+        from .rate_limits import probe_codex_rate_limits
+
+        state = probe_codex_rate_limits()
+        store.report_provider_state(
+            args.agent, state.state, state.source, observed_at=state.observed_at,
+            resets_at=state.resets_at, reason=state.reason,
+        )
+        reset = f", reset hint {time.strftime('%Y-%m-%d %H:%M', time.localtime(state.resets_at))}" \
+            if state.resets_at else ""
+        print(f"{args.agent}: {state.state} ({state.source}){reset}")
+        return 0 if state.state != "unknown" else 1
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
@@ -353,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
         rows = store.limits()
         for r in rows:
             print(f"{r['agent']:<14} {r['seconds_left'] // 60} min left  {r['reason']}")
+        for r in store.provider_states():
+            print(f"{r['agent']:<14} provider={r['state']} via {r['source']}  {r['reason']}")
         print("Fallback chains:", settings.fallbacks or "(not set: AGENT_LEASE_FALLBACKS)")
 
     elif args.cmd == "overdue":

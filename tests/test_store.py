@@ -92,6 +92,15 @@ def test_concurrent_claims_have_exactly_one_winner(store: Store, tmp_path: Path)
     assert sum(r.ok for r in results) == 1, "nájem smí dostat právě jeden"
 
 
+def test_provider_state_is_typed_and_unknown_is_not_available(store: Store):
+    store.heartbeat("codex")
+    store.report_provider_state("codex", "unknown", "test", reason="signal absent")
+    assert not store.is_available("codex")
+
+    store.report_provider_state("codex", "available", "test")
+    assert store.is_available("codex")
+
+
 def test_messages_use_cursor(store: Store):
     first = store.say("claude", "beru si balicí skript")
     store.say("codex", "ok, nesahám")

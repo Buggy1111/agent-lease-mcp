@@ -36,6 +36,7 @@ from .broker import open_store
 from .config import Settings
 from .hygiene import redact
 from .models import DeliveryState, MessageKind
+from .rate_limits import probe_codex_rate_limits
 from .store import Store
 
 # `{prompt}` se nahradí jedním argumentem (bez shellu → žádná injekce přes text zprávy).
@@ -140,11 +141,15 @@ def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPE
 class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
-                 after_message_id: int = 0) -> None:
+                 after_message_id: int = 0, provider_probe=None,
+                 provider_probe_interval: float = 60) -> None:
         self.store, self.agent, self.command = store, agent, command
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
         self.after_message_id = max(0, int(after_message_id))
+        self.provider_probe = provider_probe
+        self.provider_probe_interval = provider_probe_interval
+        self._last_provider_probe = 0.0
         self._starts: list[float] = []
 
     def _budget_left(self) -> bool:
@@ -155,7 +160,19 @@ class Bridge:
     def step(self) -> bool:
         """Jeden průchod. Vrací True, pokud se něco zpracovalo."""
         self.store.heartbeat(self.agent, status="bridge: waiting for a task")
+        now = time.monotonic()
+        if self.provider_probe is not None and now - self._last_provider_probe >= self.provider_probe_interval:
+            provider = self.provider_probe()
+            self._last_provider_probe = now
+            self.store.report_provider_state(
+                self.agent, provider.state, provider.source, observed_at=provider.observed_at,
+                resets_at=provider.resets_at, reason=provider.reason,
+            )
         self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
+        provider = self.store.provider_state(self.agent)
+        if provider and provider["state"] != "available":
+            self.store.heartbeat(self.agent, status=f"bridge: provider {provider['state']}")
+            return False
         if not self._budget_left():
             self.store.heartbeat(self.agent, status="bridge: hourly cap reached")
             return False
@@ -274,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     bridge = Bridge(store, args.agent, command, runner=runner,
                     timeout=args.timeout, max_per_hour=args.max_per_hour,
-                    after_message_id=after_message_id)
+                    after_message_id=after_message_id,
+                    provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()
         return 0

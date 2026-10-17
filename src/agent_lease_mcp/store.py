@@ -115,6 +115,17 @@ CREATE TABLE IF NOT EXISTS limits (
     at     REAL NOT NULL
 );
 
+-- Poslední typovaný signál přímo od poskytovatele. `unknown` je samostatný stav:
+-- nesmí se zaměnit za obnovenou dostupnost ani za prokázaný limit.
+CREATE TABLE IF NOT EXISTS provider_states (
+    agent       TEXT PRIMARY KEY,
+    state       TEXT NOT NULL CHECK(state IN ('available', 'limited', 'unknown')),
+    source      TEXT NOT NULL,
+    observed_at REAL NOT NULL,
+    resets_at   REAL,
+    reason      TEXT NOT NULL DEFAULT ''
+);
+
 -- Co už šlo na Telegram/notifikace, ať se nic neposílá dvakrát.
 CREATE TABLE IF NOT EXISTS notified (
     key TEXT PRIMARY KEY,
@@ -610,9 +621,45 @@ class Store:
         return [{"agent": r["agent"], "until": r["until"], "reason": r["reason"],
                  "seconds_left": int(r["until"] - now)} for r in rows]
 
+    def report_provider_state(self, agent: str, state: str, source: str, *,
+                              observed_at: float | None = None,
+                              resets_at: float | None = None, reason: str = "") -> None:
+        """Persist an explicit provider signal; never manufacture a reset deadline."""
+        _check_agent(agent)
+        if state not in {"available", "limited", "unknown"}:
+            raise ValueError("state must be available, limited or unknown")
+        source = redact(check_short("source", source))
+        reason = redact(check_short("reason", reason))
+        at = time.time() if observed_at is None else observed_at
+        with self._connect() as con:
+            con.execute(
+                "INSERT INTO provider_states(agent,state,source,observed_at,resets_at,reason) "
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(agent) DO UPDATE SET "
+                "state=excluded.state, source=excluded.source, observed_at=excluded.observed_at, "
+                "resets_at=excluded.resets_at, reason=excluded.reason",
+                (agent, state, source, at, resets_at, reason),
+            )
+            self._record(con, agent, "provider-state", "", f"{state} via {source}: {reason}")
+        if state == "limited":
+            self.failover_sweep(grace=0)
+
+    def provider_states(self) -> list[dict]:
+        with self._connect() as con:
+            rows = con.execute("SELECT * FROM provider_states ORDER BY agent").fetchall()
+        return [dict(row) for row in rows]
+
+    def provider_state(self, agent: str) -> dict | None:
+        _check_agent(agent)
+        with self._connect() as con:
+            row = con.execute("SELECT * FROM provider_states WHERE agent=?", (agent,)).fetchone()
+        return dict(row) if row else None
+
     def is_available(self, agent: str) -> bool:
         """Agent žije (nedávný heartbeat) a nemá vyčerpaný limit."""
         if any(l["agent"] == agent for l in self.limits()):
+            return False
+        provider = self.provider_state(agent)
+        if provider and provider["state"] != "available":
             return False
         return any(p["agent"] == agent and p["presence"] in ("idle", "busy")
                    for p in self.peers())
@@ -655,6 +702,9 @@ class Store:
             return []
         now = time.time()
         limited = {l["agent"]: l for l in self.limits()}
+        limited.update({p["agent"]: p for p in self.provider_states()
+                        if p["state"] == "limited"})
+        unknown = {p["agent"] for p in self.provider_states() if p["state"] == "unknown"}
         alive = {p["agent"] for p in self.peers() if p["presence"] in ("idle", "busy")}
         moves: list[dict] = []
         with self._connect() as con:
@@ -662,7 +712,8 @@ class Store:
             for src, chain in chains.items():
                 if src in alive and src not in limited:
                     continue  # zdroj je v pořádku
-                target = next((c for c in chain if c in alive and c not in limited), None)
+                target = next((c for c in chain
+                               if c in alive and c not in limited and c not in unknown), None)
                 if not target:
                     continue
                 activation = con.execute(

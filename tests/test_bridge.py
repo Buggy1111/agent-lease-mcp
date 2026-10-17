@@ -9,6 +9,7 @@ import pytest
 
 from agent_lease_mcp.bridge import Bridge, parse_retry_after
 from agent_lease_mcp.config import Settings
+from agent_lease_mcp.rate_limits import ProviderState
 from agent_lease_mcp.store import Store
 
 
@@ -69,6 +70,20 @@ def test_hourly_cap(store: Store, tmp_path: Path):
     assert b.step() and b.step()
     assert not b.step()  # třetí čeká na další hodinu
     assert sum(j["state"] == "pending" for j in store.jobs("codex")) == 1
+
+
+def test_explicit_provider_limit_prevents_task_lease(store: Store, tmp_path: Path):
+    mid = store.send("michal", "codex", "must wait", kind="task")
+
+    def limited():
+        return ProviderState("limited", "test", 100, "rate_limit_reached")
+
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('must not run')"),
+                    provider_probe=limited, provider_probe_interval=60)
+
+    assert not bridge.step()
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "pending"
+    assert store.provider_state("codex")["state"] == "limited"
 
 
 def test_first_worker_activation_skips_old_backlog_but_survives_restart(
