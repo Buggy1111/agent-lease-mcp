@@ -1,5 +1,22 @@
 # Roadmap: reliable agent handoff from delivery to completion
 
+## Verified progress — 2026-10-17
+
+- Phase 0 complete: JSON doctor separates persistence, receipt, acceptance,
+  execution, hook identities, worker health and failover activation.
+- Phase 1 operational for the supervised read-only Codex worker. A synthetic
+  `claude-code → codex` task completed without a follow-up human prompt; the
+  real Ada-client proof is still pending after her provider limit clears.
+- Phase 2 partial: safe activation baselines, accepted-task protection, typed
+  Codex provider state, evidence-labelled Claude CLI detection, and durable
+  both-limited queues are implemented. A supervised Claude worker and the real
+  two-direction host test remain open.
+- Phase 4 partial: the room now distinguishes offline, provider-unknown and
+  provider-limited states and shows a bounded reason. Claim blockers and
+  next-eligible task time remain open.
+- Last full local regression: 290 tests passed on Linux/WSL. This is not yet the
+  required Windows 11 restart/logon matrix from Phase 5.
+
 ## Primary goal
 
 An authorised task sent between Ada (Claude Code) and Nox (Codex) is durably

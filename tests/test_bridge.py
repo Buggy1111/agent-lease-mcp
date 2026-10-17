@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import stat
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,29 @@ def test_rate_limit_defers_instead_of_retry_storm(store: Store, tmp_path: Path):
     assert job["state"] == "pending"
     assert store.lease_next("codex") is None  # not_before je v budoucnu
     assert parse_retry_after("try again in 2 hours") == 7200
+
+
+def test_missing_reset_is_not_invented(store: Store, tmp_path: Path):
+    mid = store.send("michal", "claude-code", "limit", kind="task")
+    cmd = fake(tmp_path, "import sys; print('rate limit reached'); sys.exit(1)")
+    Bridge(store, "claude-code", cmd).step()
+
+    provider = store.provider_state("claude-code")
+    assert provider["state"] == "limited" and provider["resets_at"] is None
+    assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "pending"
+    assert parse_retry_after("rate limit reached") is None
+    assert store.limits() == []
+
+
+def test_successful_retry_confirms_provider_recovery(store: Store, tmp_path: Path, monkeypatch):
+    store.report_provider_state("claude-code", "limited", "cli_error", observed_at=100)
+    mid = store.send("michal", "claude-code", "try again", kind="task")
+    monkeypatch.setattr(time, "time", lambda: 1001)
+
+    assert Bridge(store, "claude-code", fake(tmp_path, "print('ok')")).step()
+    assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "succeeded"
+    provider = store.provider_state("claude-code")
+    assert provider["state"] == "available" and provider["source"] == "cli_success"
 
 
 def test_hourly_cap(store: Store, tmp_path: Path):

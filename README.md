@@ -189,8 +189,11 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   "Seen" is written by the hook automatically; "taking" must be acknowledged by
   the agent (`accept`) and is reminded on every prompt. Nothing gets lost
   silently. `agent-lease overdue` lists what nobody acknowledged.
-- **Limits and failover.** When an agent runs out of quota (`agent-lease limit`
-  or MCP `report_limit`), its unstarted tasks move to the next agent in
+- **Limits and failover.** Codex workers read the explicit typed availability
+  signal from the local App Server. Other workers record a limit only after a
+  real provider/CLI error; if no reset time is supplied, agent-lease does not
+  invent one. Manual `agent-lease limit` / MCP `report_limit` remains available.
+  Unaccepted, unstarted tasks then move to the next agent in
   `AGENT_LEASE_FALLBACKS` (e.g. `codex=claude-code;claude-code=codex`) after a
   grace period, and the sender is told.
 - **Bridge** (`agent-lease bridge --agent codex`) — an autonomous worker: takes a
@@ -202,7 +205,8 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   socket; other tools use it automatically when it runs, so a sandboxed Codex
   does not need direct access to the database.
 - **Overview panel** in the live room: each agent's active task, queue,
-  unacknowledged items, limits and items to review. `agent-lease notify --loop`
+  unacknowledged items, typed provider state, reason for waiting, limits and
+  items to review. `agent-lease notify --loop`
   sends to Telegram only what waits on the human, each event at most once
   (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` from the environment; `--dry` to test).
 - systemd units in `deploy/systemd/`, Windows/WSL starter in `deploy/windows/`.
@@ -236,6 +240,12 @@ account**. What that means in practice:
   length are bounded; old messages and audit entries expire, unfinished tasks never.
 
 Known limits, stated plainly:
+
+- **Provider signals differ.** The installed Codex App Server has an explicit
+  `account/rateLimits/read` signal. Claude Code's documented CLI does not expose
+  an equivalent status read, so recovery is confirmed by a bounded normal task
+  retry after a supplied reset time or a labelled local backoff. `unknown` is
+  never treated as proof that a provider recovered.
 
 - **Shell commands are checked best effort.** Redirects, `tee`, `sed -i`,
   `truncate`, `cp`/`mv` targets, wrappers like `sudo`/`env` and `sh -c` are

@@ -60,13 +60,13 @@ class RunResult:
     ok: bool
     output: str
     rate_limited: bool = False
-    retry_after: float = 0.0
+    retry_after: float | None = None
 
 
-def parse_retry_after(text: str, default: float = 900.0) -> float:
+def parse_retry_after(text: str) -> float | None:
     m = _RESET.search(text)
     if not m:
-        return default
+        return None
     n = int(m.group(1))
     unit = m.group(2).lower()
     return n * (3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
@@ -170,7 +170,14 @@ class Bridge:
             )
         self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
         provider = self.store.provider_state(self.agent)
-        if provider and provider["state"] != "available":
+        # Claude Code nemá zdokumentovaný bezplatný status endpoint. Po explicitním
+        # resetu (nebo po konzervativním lokálním intervalu) proto dovolíme právě
+        # normální retry úkolu; teprve jeho úspěch prokáže obnovení dostupnosti.
+        retry_probe_at = None
+        if provider and provider["state"] == "limited" and self.provider_probe is None:
+            retry_probe_at = provider["resets_at"] or provider["observed_at"] + 900
+        may_probe_recovery = retry_probe_at is not None and time.time() >= retry_probe_at
+        if provider and provider["state"] != "available" and not may_probe_recovery:
             self.store.heartbeat(self.agent, status=f"bridge: provider {provider['state']}")
             return False
         if not self._budget_left():
@@ -222,20 +229,31 @@ class Bridge:
                                error=f"jev: match with the task {match:.0%}")
                 return True
         if result.ok:
+            if provider and provider["state"] != "available":
+                self.store.report_provider_state(
+                    self.agent, "available", "cli_success", reason="recovery confirmed",
+                )
             self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
                             kind=MessageKind.RESULT, reply_to=mid)
             self.store.ack(mid, self.agent, DeliveryState.SUCCEEDED, lease_token=token)
         elif result.rate_limited:
-            until = time.time() + result.retry_after
+            local_backoff = result.retry_after or 900
+            until = time.time() + local_backoff
             self.store.ack(mid, self.agent, DeliveryState.FAILED, lease_token=token,
-                           error=f"rate limit, znovu po {int(result.retry_after)} s")
+                           error=f"rate limit, local retry after {int(local_backoff)} s")
             self.store.retry(mid, self.agent, not_before=until, actor=self.agent)
             self.store.heartbeat(self.agent, status="rate-limited (bridge)")
-            # nahlásit limit → zbytek fronty se přesune na náhradu, ne zamrzne
-            self.store.report_limit(self.agent, until, "provider limit (bridge)")
+            # Chybějící reset se nesmí vydávat za údaj poskytovatele. Lokální
+            # backoff patří jen k tasku; provider state má resets_at=None.
+            self.store.report_provider_state(
+                self.agent, "limited", "cli_error", resets_at=(until if result.retry_after else None),
+                reason="rate_limit_error",
+            )
             self.store.send(self.agent, delivery.sender,
-                            f"Task #{mid} postponed: provider limit, retrying in "
-                            f"{int(result.retry_after // 60)} min.",
+                            f"Task #{mid} postponed: provider limit; local retry check in "
+                            f"{int(local_backoff // 60)} min"
+                            + (" (provider reset supplied)." if result.retry_after else
+                               " (provider supplied no reset time)."),
                             kind=MessageKind.RESULT, reply_to=mid)
         else:
             self.store.send(self.agent, delivery.sender, f"Task #{mid} selhal:\n{body}",
