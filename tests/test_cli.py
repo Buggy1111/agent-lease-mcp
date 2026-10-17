@@ -138,6 +138,16 @@ def test_doctor_json_cli(db: Path, tmp_path: Path, monkeypatch, capsys):
     assert any(check["id"] == "delivery_pipeline" for check in report["checks"])
 
 
+def test_worker_activate_only_sets_baseline(db: Path, capsys):
+    old = Store(db).send("michal", "codex", "old", kind="task")
+
+    assert main(["worker-activate"]) == 0
+
+    assert f"greater than {old}" in capsys.readouterr().out
+    assert Store(db).jobs("codex")[0]["state"] == "pending"
+    assert Store(db).lease_next("codex", after_message_id=old) is None
+
+
 def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypatch):
     """Security review: AGENT_LEASE_HUMAN v prostředí agenta nesmí uvolnit jméno
     člověka, které místnost má uložené."""

@@ -145,6 +145,11 @@ def main(argv: list[str] | None = None) -> int:
     p_bridge.add_argument("--provider", choices=["cli", "openrouter"], default="cli")
     p_bridge.add_argument("--model", default="")
 
+    p_activate = sub.add_parser(
+        "worker-activate", help="set this agent's safe worker baseline without running a task",
+    )
+    p_activate.add_argument("--include-existing", action="store_true")
+
     p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
     p_prune.add_argument("--days", type=int, default=None)
 
@@ -186,6 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.from_env()
     store = open_store(settings)
     me = settings.agent
+    if args.cmd == "worker-activate":
+        after = store.worker_activation(me, include_existing=args.include_existing)
+        print(f"Worker {me} will process task ids greater than {after}.")
+        return 0
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
