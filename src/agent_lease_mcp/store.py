@@ -273,6 +273,9 @@ class Store:
         _check_agent(agent)
         target = normalize_path(check_path(path))
         now = time.time()
+        # Stejný strop jako `claim()` — jinak by si agent s obří AGENT_LEASE_TTL
+        # vzal nájem na roky a po pádu by blokoval ostatní (Nox, review 17. 10.).
+        ttl = max(1, min(int(self.settings.default_ttl), MAX_TTL_SECONDS))
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self._prune(con, now)
@@ -290,14 +293,14 @@ class Store:
                 con.execute(
                     f"UPDATE claims SET expires_at = MAX(expires_at, ?) "
                     f"WHERE agent = ? AND path IN ({marks})",
-                    (now + self.settings.default_ttl, agent, *[c.path for c in covering]),
+                    (now + ttl, agent, *[c.path for c in covering]),
                 )
             else:
                 con.execute(
                     "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
                     "VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
                     "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at",
-                    (target, agent, purpose[:500], now, now + self.settings.default_ttl),
+                    (target, agent, purpose[:500], now, now + ttl),
                 )
                 self._record(con, agent, "claim", target, purpose[:500])
         return None
@@ -1059,7 +1062,9 @@ class Store:
         visící reply_to nikdo nechytil.
         """
         days = self.settings.retention_days if older_than_days is None else older_than_days
-        cutoff = time.time() - max(0, days) * 86400
+        if days < 0:
+            raise ValueError("days must not be negative")
+        cutoff = time.time() - days * 86400
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             doomed = [
@@ -1073,7 +1078,10 @@ class Store:
             for i in range(0, len(doomed), 500):
                 chunk = doomed[i:i + 500]
                 marks = ",".join("?" * len(chunk))
-                con.execute(f"DELETE FROM deliveries WHERE message_id IN ({marks})", chunk)
+                # foreign_keys v SQLite nejsou zapnuté — závislé řádky mazat ručně,
+                # jinak by potvrzení a screening zůstaly navždy (Nox, review 17. 10.).
+                for table in ("deliveries", "receipts", "screens"):
+                    con.execute(f"DELETE FROM {table} WHERE message_id IN ({marks})", chunk)
                 con.execute(f"DELETE FROM messages WHERE id IN ({marks})", chunk)
             if doomed:
                 con.execute(

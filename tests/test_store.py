@@ -406,3 +406,40 @@ def test_retention_handles_addressed_chats_and_reply_chains(tmp_path):
     assert chat not in msgs, "netask s pending doručením se retenuje"
     assert root not in msgs and middle not in msgs
     assert msgs[fresh]["reply_to"] is None, "žádný visící odkaz"
+
+
+def test_auto_lease_respects_the_ttl_cap(tmp_path):
+    """Nox review: edit_gate musí mít stejný strop jako claim()."""
+    import time
+
+    from agent_lease_mcp.config import MAX_TTL_SECONDS, Settings
+
+    db = tmp_path / "room.db"
+    st = Store(db, settings=Settings(db, "a", 1_000_000_000))
+    target = str(tmp_path / "f.txt")
+    assert st.edit_gate(target, "a") is None  # nový auto-nájem
+    assert st.holder_of(target).expires_at - time.time() <= MAX_TTL_SECONDS + 5
+    assert st.edit_gate(target, "a") is None  # obnova
+    assert st.holder_of(target).expires_at - time.time() <= MAX_TTL_SECONDS + 5
+
+
+def test_prune_removes_receipts_and_screens_too(tmp_path):
+    """Nox review: retence nesmí nechat osiřelé potvrzení a screening."""
+    import sqlite3
+    import time
+
+    import pytest
+
+    db = tmp_path / "room.db"
+    st = Store(db)
+    mid = st.send("michal", "codex", "starý chat", kind="chat")
+    st.mark_seen("codex", [mid])
+    st.set_screen(mid, 0.1, 0.2)
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE messages SET sent_at=?", (time.time() - 40 * 86400,))
+    st.prune()
+    with sqlite3.connect(db) as con:
+        for table in ("receipts", "screens", "deliveries"):
+            assert con.execute(f"SELECT COUNT(*) FROM {table} WHERE message_id=?", (mid,)).fetchone()[0] == 0
+    with pytest.raises(ValueError):
+        st.prune(-1)
