@@ -44,7 +44,9 @@ DEFAULT_COMMANDS = {
     "codex": "codex exec --sandbox read-only --skip-git-repo-check {prompt}",
     "claude-code": "claude -p {prompt} --output-format text --permission-mode plan",
 }
-_RATE_LIMIT = re.compile(r"rate.?limit|usage limit|too many requests|\b429\b|quota", re.IGNORECASE)
+_RATE_LIMIT = re.compile(
+    r"rate.?limit|usage limit|weekly limit|too many requests|\b429\b|quota", re.IGNORECASE,
+)
 _RESET = re.compile(r"(?:in|after)\s+(\d+)\s*(second|sec|s|minute|min|m|hour|h)", re.IGNORECASE)
 
 PROMPT_TEMPLATE = (
