@@ -16,7 +16,7 @@
 - Phase 4 partial: the room now distinguishes offline, provider-unknown and
   provider-limited states and shows a bounded reason. Claim blockers and
   next-eligible task time remain open.
-- Last full local regression: 293 tests passed on Linux/WSL. This is not yet the
+- Last full local regression: 294 tests passed on Linux/WSL. This is not yet the
   required Windows 11 restart/logon matrix from Phase 5.
 
 ## Primary goal
