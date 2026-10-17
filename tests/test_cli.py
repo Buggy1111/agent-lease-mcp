@@ -159,6 +159,20 @@ def test_failover_activate_only_sets_baselines(db: Path, capsys):
     assert Store(db).jobs("codex")[0]["state"] == "pending"
 
 
+def test_provider_clear_only_clears_callers_state(db: Path, capsys):
+    store = Store(db)
+    store.report_provider_state("codex", "limited", "test")
+    store.report_provider_state("claude-code", "limited", "test")
+
+    assert main(["provider-clear"]) == 0
+    assert "cleared" in capsys.readouterr().out.lower()
+    assert store.provider_state("codex") is None
+    assert store.provider_state("claude-code") is not None
+
+    assert main(["provider-clear", "--agent", "claude-code"]) == 1
+    assert store.provider_state("claude-code") is not None
+
+
 def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypatch):
     """Security review: AGENT_LEASE_HUMAN v prostředí agenta nesmí uvolnit jméno
     člověka, které místnost má uložené."""

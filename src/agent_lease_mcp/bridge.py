@@ -30,6 +30,8 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jev
 from .broker import open_store
@@ -48,6 +50,14 @@ _RATE_LIMIT = re.compile(
     r"rate.?limit|usage limit|weekly limit|too many requests|\b429\b|quota", re.IGNORECASE,
 )
 _RESET = re.compile(r"(?:in|after)\s+(\d+)\s*(second|sec|s|minute|min|m|hour|h)", re.IGNORECASE)
+_CALENDAR_RESET = re.compile(
+    r"\bresets\s+([A-Z][a-z]{2})\s+(\d{1,2}),\s*(\d{1,2})"
+    r"(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", re.IGNORECASE,
+)
+_MONTHS = {name: number for number, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"),
+    1,
+)}
 
 PROMPT_TEMPLATE = (
     "You are `{agent}` and you are doing a task assigned through agent-lease by `{sender}` (#{mid}).\n"
@@ -65,13 +75,29 @@ class RunResult:
     retry_after: float | None = None
 
 
-def parse_retry_after(text: str) -> float | None:
+def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
     m = _RESET.search(text)
-    if not m:
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        return n * (3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
+    calendar = _CALENDAR_RESET.search(text)
+    if not calendar:
         return None
-    n = int(m.group(1))
-    unit = m.group(2).lower()
-    return n * (3600 if unit.startswith("h") else 60 if unit.startswith("m") else 1)
+    month_name, day, hour, minute, meridiem, zone_name = calendar.groups()
+    try:
+        zone = ZoneInfo(zone_name)
+        current = datetime.fromtimestamp(time.time() if now is None else now, zone)
+        hour_value = int(hour) % 12 + (12 if meridiem.lower() == "pm" else 0)
+        candidate = datetime(
+            current.year, _MONTHS[month_name.lower()], int(day), hour_value,
+            int(minute or 0), tzinfo=zone,
+        )
+        if candidate <= current:
+            candidate = candidate.replace(year=current.year + 1)
+    except (KeyError, ValueError, ZoneInfoNotFoundError):
+        return None
+    return candidate.timestamp() - current.timestamp()
 
 
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> RunResult:
@@ -172,12 +198,12 @@ class Bridge:
             )
         self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
         provider = self.store.provider_state(self.agent)
-        # Claude Code nemá zdokumentovaný bezplatný status endpoint. Po explicitním
-        # resetu (nebo po konzervativním lokálním intervalu) proto dovolíme právě
-        # normální retry úkolu; teprve jeho úspěch prokáže obnovení dostupnosti.
+        # Claude Code nemá zdokumentovaný bezplatný status endpoint. Retry proto
+        # dovolíme jen po poskytovatelem sděleném resetu. Bez něj se čeká na
+        # explicitní `provider-clear`; periodický placený probe by byl retry storm.
         retry_probe_at = None
         if provider and provider["state"] == "limited" and self.provider_probe is None:
-            retry_probe_at = provider["resets_at"] or provider["observed_at"] + 900
+            retry_probe_at = provider["resets_at"]
         may_probe_recovery = retry_probe_at is not None and time.time() >= retry_probe_at
         if provider and provider["state"] != "available" and not may_probe_recovery:
             self.store.heartbeat(self.agent, status=f"bridge: provider {provider['state']}")
@@ -239,11 +265,12 @@ class Bridge:
                             kind=MessageKind.RESULT, reply_to=mid)
             self.store.ack(mid, self.agent, DeliveryState.SUCCEEDED, lease_token=token)
         elif result.rate_limited:
-            local_backoff = result.retry_after or 900
-            until = time.time() + local_backoff
+            until = time.time() + result.retry_after if result.retry_after else None
             self.store.ack(mid, self.agent, DeliveryState.FAILED, lease_token=token,
-                           error=f"rate limit, local retry after {int(local_backoff)} s")
-            self.store.retry(mid, self.agent, not_before=until, actor=self.agent)
+                           error=(f"rate limit, provider reset after {int(result.retry_after)} s"
+                                  if result.retry_after else
+                                  "rate limit, provider supplied no reset time"))
+            self.store.retry(mid, self.agent, not_before=until or 0, actor=self.agent)
             self.store.heartbeat(self.agent, status="rate-limited (bridge)")
             # Chybějící reset se nesmí vydávat za údaj poskytovatele. Lokální
             # backoff patří jen k tasku; provider state má resets_at=None.
@@ -251,11 +278,12 @@ class Bridge:
                 self.agent, "limited", "cli_error", resets_at=(until if result.retry_after else None),
                 reason="rate_limit_error",
             )
-            self.store.send(self.agent, delivery.sender,
-                            f"Task #{mid} postponed: provider limit; local retry check in "
-                            f"{int(local_backoff // 60)} min"
-                            + (" (provider reset supplied)." if result.retry_after else
-                               " (provider supplied no reset time)."),
+            notice = (f"Task #{mid} postponed: provider limit; provider reset in "
+                      f"{int(result.retry_after // 60)} min."
+                      if result.retry_after else
+                      f"Task #{mid} paused: provider limit without a machine-readable reset; "
+                      "automatic probes are disabled. Clear the provider state after recovery.")
+            self.store.send(self.agent, delivery.sender, notice,
                             kind=MessageKind.RESULT, reply_to=mid)
         else:
             self.store.send(self.agent, delivery.sender, f"Task #{mid} selhal:\n{body}",

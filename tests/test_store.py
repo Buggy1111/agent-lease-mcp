@@ -99,6 +99,8 @@ def test_provider_state_is_typed_and_unknown_is_not_available(store: Store):
 
     store.report_provider_state("codex", "available", "test")
     assert store.is_available("codex")
+    assert store.clear_provider_state("codex")
+    assert store.provider_state("codex") is None
 
 
 def test_messages_use_cursor(store: Store):

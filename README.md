@@ -244,8 +244,9 @@ Known limits, stated plainly:
 - **Provider signals differ.** The installed Codex App Server has an explicit
   `account/rateLimits/read` signal. Claude Code's documented CLI does not expose
   an equivalent status read, so recovery is confirmed by a bounded normal task
-  retry after a supplied reset time or a labelled local backoff. `unknown` is
-  never treated as proof that a provider recovered.
+  retry only after a provider-supplied reset time. Without one, automatic probes
+  stop until `agent-lease provider-clear` explicitly confirms recovery.
+  `unknown` is never treated as proof that a provider recovered.
 
 - **Shell commands are checked best effort.** Redirects, `tee`, `sed -i`,
   `truncate`, `cp`/`mv` targets, wrappers like `sudo`/`env` and `sh -c` are

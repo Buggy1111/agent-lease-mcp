@@ -23,8 +23,10 @@ záchrana, protože nemá kvótu předplatného a běží jen jako textový dota
    `agent-lease provider-sync --agent codex`.
 2. **Claude Code / obecný CLI bridge** uloží `limited` až po skutečné chybě
    procesu. Čas resetu uloží jen tehdy, když jej poskytovatel opravdu sdělil;
-   jinak má provider stav `resets_at = null` a task pouze označený lokální
-   backoff. Úspěšný kontrolní běh pak potvrdí návrat do `available`.
+   jinak má provider stav `resets_at = null` a automatické kontrolní běhy se
+   zastaví, aby nevznikl retry storm. Po potvrzeném návratu jej agent odblokuje
+   příkazem `agent-lease provider-clear`; je-li reset ve výstupu v podporovaném
+   kalendářním tvaru, worker počká přímo do něj. Úspěšný běh potvrdí `available`.
 3. **OpenRouter bridge** používá HTTP 402/429 a případný `Retry-After`.
 4. **Interaktivní agent** má v pokynech: *„Blíží-li se ti limit nebo ti došel,
    zavolej `report_limit` (MCP) / `agent-lease limit --until +2h`."*

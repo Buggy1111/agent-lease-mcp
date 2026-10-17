@@ -60,6 +60,8 @@ def test_provider_state_roundtrips_over_broker(broker):
         "agent": "codex", "state": "available", "source": "codex_app_server",
         "observed_at": 123.0, "resets_at": None, "reason": "",
     }
+    assert remote.clear_provider_state("codex")
+    assert remote.provider_state("codex") is None
 
 
 def test_errors_cross_the_socket(broker):

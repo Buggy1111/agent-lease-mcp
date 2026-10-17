@@ -120,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
         "provider-sync", help="read and persist an explicit provider availability signal",
     )
     p_provider.add_argument("--agent", choices=["codex"], default="codex")
+    p_provider_clear = sub.add_parser(
+        "provider-clear", help="confirm recovery and remove a stale provider state",
+    )
+    p_provider_clear.add_argument("--agent", default=None)
 
     p_overdue = sub.add_parser("overdue", help="messages nobody acknowledged / undelivered")
     p_overdue.add_argument("--seconds", type=int, default=120)
@@ -223,6 +227,14 @@ def main(argv: list[str] | None = None) -> int:
             if state.resets_at else ""
         print(f"{args.agent}: {state.state} ({state.source}){reset}")
         return 0 if state.state != "unknown" else 1
+    if args.cmd == "provider-clear":
+        who = args.agent or me
+        if who != me:
+            print("You can only clear your own provider state.", file=sys.stderr)
+            return 1
+        print("Provider state cleared." if store.clear_provider_state(who)
+              else "There was no provider state.")
+        return 0
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())

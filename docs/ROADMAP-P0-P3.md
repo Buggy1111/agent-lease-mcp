@@ -9,12 +9,14 @@
   real Ada-client proof is still pending after her provider limit clears.
 - Phase 2 partial: safe activation baselines, accepted-task protection, typed
   Codex provider state, evidence-labelled Claude CLI detection, and durable
-  both-limited queues are implemented. A supervised Claude worker and the real
-  two-direction host test remain open.
+  both-limited queues are implemented. Both supervised workers are active; the
+  real Ada-session → Nox test and post-recovery completion remain open.
+- Recovery probes without a provider-supplied reset are disabled; this closes
+  the repeated 15-minute Claude retry/notification storm observed on task #268.
 - Phase 4 partial: the room now distinguishes offline, provider-unknown and
   provider-limited states and shows a bounded reason. Claim blockers and
   next-eligible task time remain open.
-- Last full local regression: 291 tests passed on Linux/WSL. This is not yet the
+- Last full local regression: 293 tests passed on Linux/WSL. This is not yet the
   required Windows 11 restart/logon matrix from Phase 5.
 
 ## Primary goal

@@ -663,6 +663,19 @@ class Store:
             row = con.execute("SELECT * FROM provider_states WHERE agent=?", (agent,)).fetchone()
         return dict(row) if row else None
 
+    def clear_provider_state(self, agent: str) -> bool:
+        """Forget a provider observation after a human/agent confirms recovery."""
+        _check_agent(agent)
+        with self._connect() as con:
+            removed = bool(con.execute(
+                "DELETE FROM provider_states WHERE agent=?", (agent,)
+            ).rowcount)
+            if removed:
+                self._record(con, agent, "provider-clear", "", "explicit recovery confirmation")
+        if removed:
+            self._signal(agent)
+        return removed
+
     def is_available(self, agent: str) -> bool:
         """Agent žije (nedávný heartbeat) a nemá vyčerpaný limit."""
         if any(l["agent"] == agent for l in self.limits()):

@@ -76,22 +76,37 @@ def test_missing_reset_is_not_invented(store: Store, tmp_path: Path):
     assert store.limits() == []
 
 
-def test_claude_weekly_limit_wording_is_detected_without_parsing_calendar_text(
+def test_claude_weekly_limit_wording_persists_calendar_reset(
     store: Store, tmp_path: Path,
 ):
     mid = store.send("michal", "claude-code", "limit", kind="task")
     cmd = fake(
         tmp_path,
-        "import sys; print(\"You've hit your weekly limit · resets Oct 20, 6pm\"); sys.exit(1)",
+        "import sys; print(\"You've hit your weekly limit · resets Oct 20, 6pm "
+        "(Europe/Prague)\"); sys.exit(1)",
     )
     Bridge(store, "claude-code", cmd).step()
 
     assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "pending"
-    assert store.provider_state("claude-code")["resets_at"] is None
+    assert store.provider_state("claude-code")["resets_at"] is not None
+
+
+def test_calendar_reset_is_parsed_in_provider_timezone():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    now = datetime(2026, 10, 17, 18, 0, tzinfo=ZoneInfo("Europe/Prague")).timestamp()
+    delay = parse_retry_after(
+        "You've hit your weekly limit · resets Oct 20, 6pm (Europe/Prague)", now=now,
+    )
+
+    assert delay == 3 * 86400
 
 
 def test_successful_retry_confirms_provider_recovery(store: Store, tmp_path: Path, monkeypatch):
-    store.report_provider_state("claude-code", "limited", "cli_error", observed_at=100)
+    store.report_provider_state(
+        "claude-code", "limited", "cli_error", observed_at=100, resets_at=1000,
+    )
     mid = store.send("michal", "claude-code", "try again", kind="task")
     monkeypatch.setattr(time, "time", lambda: 1001)
 
