@@ -677,10 +677,14 @@ function renderBoard(rows) {
   const el = document.getElementById("board");
   el.innerHTML = (rows || []).map(b => {
     const lim = b.limited_until ? `<span class="state failed">⏸ limited until ${limitTime(b.limited_until)}</span>` : "";
+    const provider = b.provider_state
+      ? `<span class="state ${b.provider_state === "available" ? "succeeded" : b.provider_state === "limited" ? "failed" : "needs_review"}">provider ${esc(b.provider_state)}</span>`
+      : "";
+    const why = b.blocked_reason ? `<div class="task">why waiting: ${esc(b.blocked_reason)}${b.provider_reason ? " · " + esc(b.provider_reason) : ""}${b.provider_resets_at ? " · reset hint " + limitTime(b.provider_resets_at) : ""}</div>` : "";
     const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "free")}</div>`;
     const q = b.queued ? `<span class="state pending">queue ${b.queued}${b.unaccepted ? " · unacknowledged " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · waiting " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
     const rv = b.needs_review ? `<span class="state failed">needs review ${b.needs_review}</span>` : "";
-    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}<div class="row">${lim}${q}${rv}</div></div>`;
+    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}${why}<div class="row">${provider}${lim}${q}${rv}</div></div>`;
   }).join("") || "<div class='empty'>nobody here</div>";
 }
 
@@ -694,7 +698,7 @@ function renderRoom(r) {
       </div>
       <div class="who">
         <div class="agent">${esc(p.agent)}</div>
-        <div class="task">${p.limited_until ? "⏸ limited until " + limitTime(p.limited_until) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
+        <div class="task">${p.provider_state === "limited" ? "⏸ provider rate limit" : p.provider_state === "unknown" ? "⚠ provider signal unavailable" : p.limited_until ? "⏸ limited until " + limitTime(p.limited_until) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
       </div>
     </div>`).join("") || "<div class='empty'>nobody here</div>";
   claimsEl.innerHTML = (r.claims || []).map(c => `

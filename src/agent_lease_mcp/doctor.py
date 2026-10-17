@@ -228,6 +228,18 @@ def run_doctor(*, json_output: bool = False) -> int:
             line("active_limit", WARN,
                  f"{lim['agent']} is limited for {lim['seconds_left'] // 60} more min",
                  agent=lim["agent"], seconds_left=lim["seconds_left"])
+        provider = store.provider_state("codex")
+        if provider:
+            provider_level = OK if provider["state"] == "available" else WARN
+            line("codex_provider_state", provider_level,
+                 f"Codex provider: {provider['state']} via {provider['source']}",
+                 agent="codex", state=provider["state"], source=provider["source"],
+                 observed_at=provider["observed_at"], resets_at=provider["resets_at"],
+                 reason=provider["reason"])
+        else:
+            line("codex_provider_state", WARN,
+                 "Codex provider state has not been observed yet",
+                 agent="codex", state=None)
 
         summary = store.task_summary(settings.agent)
         queued = summary["pending"]

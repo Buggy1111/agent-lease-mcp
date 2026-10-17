@@ -426,6 +426,8 @@ class Store:
             rows = con.execute("SELECT * FROM agents ORDER BY seen_at DESC").fetchall()
             limited = {r["agent"]: r["until"] for r in
                        con.execute("SELECT agent, until FROM limits WHERE until > ?", (now,))}
+            providers = {r["agent"]: dict(r) for r in
+                         con.execute("SELECT * FROM provider_states")}
         return [
             {
                 "agent": r["agent"],
@@ -433,10 +435,17 @@ class Store:
                 "cwd": r["cwd"],
                 "seen_seconds_ago": int(now - r["seen_at"]),
                 "active": r["seen_at"] >= now - stale_after,
-                "presence": "rate-limited" if r["agent"] in limited else _presence_state(
-                    r["status"], now - r["seen_at"], stale_after
+                "presence": (
+                    "rate-limited" if r["agent"] in limited or
+                    providers.get(r["agent"], {}).get("state") == "limited" else
+                    "provider-unknown" if providers.get(r["agent"], {}).get("state") == "unknown"
+                    else _presence_state(r["status"], now - r["seen_at"], stale_after)
                 ),
                 "limited_until": limited.get(r["agent"]),
+                "provider_state": providers.get(r["agent"], {}).get("state"),
+                "provider_source": providers.get(r["agent"], {}).get("source"),
+                "provider_reason": providers.get(r["agent"], {}).get("reason", ""),
+                "provider_resets_at": providers.get(r["agent"], {}).get("resets_at"),
             }
             for r in rows
         ]
@@ -741,8 +750,14 @@ class Store:
                     con.execute("UPDATE messages SET recipient=? WHERE id=?", (target, r["id"]))
                     con.execute("DELETE FROM receipts WHERE message_id=? AND recipient=?",
                                 (r["id"], src))
-                    why = (f"limited until {time.strftime('%H:%M', time.localtime(limited[src]['until']))}"
-                           if src in limited else "unavailable")
+                    limit = limited.get(src)
+                    if limit and limit.get("until"):
+                        why = ("limited until "
+                               f"{time.strftime('%H:%M', time.localtime(limit['until']))}")
+                    elif limit:
+                        why = f"provider limit ({limit.get('reason') or limit.get('source')})"
+                    else:
+                        why = "unavailable"
                     note = f"↪ task #{r['id']} moved {src} → {target} ({src}: {why})"
                     for to in {r["agent"], human_name(self.db_path)}:
                         con.execute(
@@ -822,6 +837,18 @@ class Store:
                 "presence": peers.get(name, {}).get("presence", "offline"),
                 "status": peers.get(name, {}).get("status", ""),
                 "limited_until": peers.get(name, {}).get("limited_until"),
+                "provider_state": peers.get(name, {}).get("provider_state"),
+                "provider_source": peers.get(name, {}).get("provider_source"),
+                "provider_reason": peers.get(name, {}).get("provider_reason", ""),
+                "provider_resets_at": peers.get(name, {}).get("provider_resets_at"),
+                "blocked_reason": (
+                    "provider rate limit" if peers.get(name, {}).get("provider_state") == "limited"
+                    else "provider signal unavailable"
+                    if peers.get(name, {}).get("provider_state") == "unknown"
+                    else "reported rate limit" if peers.get(name, {}).get("limited_until")
+                    else "no recent heartbeat" if peers.get(name, {}).get("presence") == "offline"
+                    else ""
+                ),
                 "active": ({"id": active["message_id"], "text": active["text"][:120],
                             "from": active["sender"]} if active else None),
                 "queued": sum(r["state"] == "pending" for r in mine),

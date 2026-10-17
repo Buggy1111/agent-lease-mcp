@@ -51,6 +51,17 @@ def test_worker_activation_roundtrips_over_broker(broker):
     assert remote.worker_activation("codex", include_existing=True) == old
 
 
+def test_provider_state_roundtrips_over_broker(broker):
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    remote.report_provider_state("codex", "available", "codex_app_server", observed_at=123)
+
+    assert remote.provider_state("codex") == {
+        "agent": "codex", "state": "available", "source": "codex_app_server",
+        "observed_at": 123.0, "resets_at": None, "reason": "",
+    }
+
+
 def test_errors_cross_the_socket(broker):
     settings, sock = broker
     remote = RemoteStore(settings, sock)

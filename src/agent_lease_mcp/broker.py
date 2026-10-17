@@ -34,6 +34,7 @@ METHODS = frozenset({
     "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "prune", "mark_seen",
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_activation", "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
+    "report_provider_state", "provider_state", "provider_states",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs"})

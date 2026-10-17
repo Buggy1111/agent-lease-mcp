@@ -43,6 +43,28 @@ def test_skips_limited_fallback_and_uses_next(store: Store):
     assert any(j["id"] == mid for j in store.jobs("openrouter"))
 
 
+def test_typed_provider_limit_moves_only_unstarted_work(store: Store):
+    accepted = store.send("michal", "codex", "already accepted", kind="task")
+    store.accept(accepted, "codex", "working")
+    pending = store.send("michal", "codex", "new work", kind="task")
+
+    store.report_provider_state("codex", "limited", "codex_app_server",
+                                reason="rate_limit_reached")
+
+    assert any(j["id"] == accepted for j in store.jobs("codex"))
+    assert any(j["id"] == pending for j in store.jobs("claude-code"))
+
+
+def test_unknown_provider_is_not_selected_as_fallback(store: Store):
+    store.report_provider_state("claude-code", "unknown", "test", reason="no signal")
+    mid = store.send("michal", "codex", "t", kind="task")
+
+    store.report_provider_state("codex", "limited", "codex_app_server",
+                                reason="rate_limit_reached")
+
+    assert any(j["id"] == mid for j in store.jobs("openrouter"))
+
+
 def test_started_work_is_never_moved(store: Store):
     mid = store.send("michal", "codex", "t", kind="task")
     d = store.lease_next("codex")

@@ -38,6 +38,22 @@ def test_board_shows_active_queue_unaccepted_and_limit(store: Store):
     assert next(b for b in store.board() if b["agent"] == "claude-code")["limited_until"]
 
 
+def test_board_distinguishes_provider_limit_unknown_and_offline(store: Store):
+    store.heartbeat("codex", status="bridge: waiting")
+    store.report_provider_state("codex", "unknown", "codex_app_server",
+                                reason="rate_limit_response_missing")
+    row = next(b for b in store.board() if b["agent"] == "codex")
+    assert row["presence"] == "provider-unknown"
+    assert row["blocked_reason"] == "provider signal unavailable"
+    assert row["provider_reason"] == "rate_limit_response_missing"
+
+    store.report_provider_state("codex", "limited", "codex_app_server",
+                                reason="rate_limit_reached", resets_at=time.time() + 60)
+    row = next(b for b in store.board() if b["agent"] == "codex")
+    assert row["presence"] == "rate-limited"
+    assert row["blocked_reason"] == "provider rate limit"
+
+
 def test_notifier_sends_each_event_once_and_retries_failures(store: Store, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
