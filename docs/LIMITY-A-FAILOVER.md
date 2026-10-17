@@ -45,6 +45,11 @@ a [Anthropic API errors](https://docs.anthropic.com/en/api/errors). Codex kontra
 se ověřuje proti schématu nainstalované verze pomocí
 `codex app-server generate-json-schema`; agent-lease nepoužívá privátní socket.
 
+Interaktivní agent a headless worker mají oddělené identity a heartbeat:
+`claude-code` versus `claude-code-bridge`, obdobně pro Codex. Limit workeru tedy
+nepřepíše stav živé interaktivní session. Failover považuje logického agenta za
+dostupného, pokud je dostupná alespoň jedna z těchto cest provedení.
+
 ## Co přesně se stane
 
 - Přesouvají se jen `pending` tasky od nedostupného agenta, které čekají déle než

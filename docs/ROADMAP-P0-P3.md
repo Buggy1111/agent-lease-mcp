@@ -13,10 +13,13 @@
   real Ada-session → Nox test and post-recovery completion remain open.
 - Recovery probes without a provider-supplied reset are disabled; this closes
   the repeated 15-minute Claude retry/notification storm observed on task #268.
+- Interactive and headless identities are now separate (`claude-code` vs
+  `claude-code-bridge`), so a worker quota no longer masquerades as Ada's
+  interactive availability. Failover evaluates both execution paths.
 - Phase 4 partial: the room now distinguishes offline, provider-unknown and
   provider-limited states and shows a bounded reason. Claim blockers and
   next-eligible task time remain open.
-- Last full local regression: 294 tests passed on Linux/WSL. This is not yet the
+- Last full local regression: 298 tests passed on Linux/WSL. This is not yet the
   required Windows 11 restart/logon matrix from Phase 5.
 
 ## Primary goal

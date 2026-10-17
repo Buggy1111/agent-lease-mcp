@@ -170,8 +170,9 @@ class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
                  after_message_id: int = 0, provider_probe=None,
-                 provider_probe_interval: float = 60) -> None:
+                 provider_probe_interval: float = 60, worker_identity: str | None = None) -> None:
         self.store, self.agent, self.command = store, agent, command
+        self.worker_identity = worker_identity or f"{agent}-bridge"
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
         self.after_message_id = max(0, int(after_message_id))
@@ -187,17 +188,18 @@ class Bridge:
 
     def step(self) -> bool:
         """Jeden průchod. Vrací True, pokud se něco zpracovalo."""
-        self.store.heartbeat(self.agent, status="bridge: waiting for a task")
+        self.store.heartbeat(self.worker_identity, status=f"bridge: waiting for {self.agent} task")
         now = time.monotonic()
         if self.provider_probe is not None and now - self._last_provider_probe >= self.provider_probe_interval:
             provider = self.provider_probe()
             self._last_provider_probe = now
             self.store.report_provider_state(
-                self.agent, provider.state, provider.source, observed_at=provider.observed_at,
+                self.worker_identity, provider.state, provider.source,
+                observed_at=provider.observed_at,
                 resets_at=provider.resets_at, reason=provider.reason,
             )
         self.store.failover_sweep()  # i bridge hlídá cizí fronty, kdyby broker nebyl
-        provider = self.store.provider_state(self.agent)
+        provider = self.store.provider_state(self.worker_identity)
         # Claude Code nemá zdokumentovaný bezplatný status endpoint. Retry proto
         # dovolíme jen po poskytovatelem sděleném resetu. Bez něj se čeká na
         # explicitní `provider-clear`; periodický placený probe by byl retry storm.
@@ -206,10 +208,12 @@ class Bridge:
             retry_probe_at = provider["resets_at"]
         may_probe_recovery = retry_probe_at is not None and time.time() >= retry_probe_at
         if provider and provider["state"] != "available" and not may_probe_recovery:
-            self.store.heartbeat(self.agent, status=f"bridge: provider {provider['state']}")
+            self.store.heartbeat(
+                self.worker_identity, status=f"bridge: {self.agent} provider {provider['state']}",
+            )
             return False
         if not self._budget_left():
-            self.store.heartbeat(self.agent, status="bridge: hourly cap reached")
+            self.store.heartbeat(self.worker_identity, status="bridge: hourly cap reached")
             return False
         delivery = self.store.lease_next(
             self.agent, lease_seconds=self.lease_seconds,
@@ -226,7 +230,7 @@ class Bridge:
         if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):
             return True
         self._starts.append(time.time())
-        self.store.heartbeat(self.agent, status=f"bridge: task #{mid}")
+        self.store.heartbeat(self.worker_identity, status=f"bridge: {self.agent} task #{mid}")
         prompt = PROMPT_TEMPLATE.format(
             agent=self.agent, sender=delivery.sender, mid=mid, text=delivery.text
         )
@@ -236,7 +240,7 @@ class Bridge:
             if time.monotonic() - last[0] > self.lease_seconds / 3:
                 last[0] = time.monotonic()
                 self.store.extend_lease(mid, self.agent, token, self.lease_seconds)
-                self.store.heartbeat(self.agent)
+                self.store.heartbeat(self.worker_identity)
 
         if self.runner is not None:
             tick()
@@ -259,7 +263,8 @@ class Bridge:
         if result.ok:
             if provider and provider["state"] != "available":
                 self.store.report_provider_state(
-                    self.agent, "available", "cli_success", reason="recovery confirmed",
+                    self.worker_identity, "available", "cli_success",
+                    reason="recovery confirmed",
                 )
             self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
                             kind=MessageKind.RESULT, reply_to=mid)
@@ -271,11 +276,12 @@ class Bridge:
                                   if result.retry_after else
                                   "rate limit, provider supplied no reset time"))
             self.store.retry(mid, self.agent, not_before=until or 0, actor=self.agent)
-            self.store.heartbeat(self.agent, status="rate-limited (bridge)")
+            self.store.heartbeat(self.worker_identity, status=f"bridge: {self.agent} rate-limited")
             # Chybějící reset se nesmí vydávat za údaj poskytovatele. Lokální
             # backoff patří jen k tasku; provider state má resets_at=None.
             self.store.report_provider_state(
-                self.agent, "limited", "cli_error", resets_at=(until if result.retry_after else None),
+                self.worker_identity, "limited", "cli_error",
+                resets_at=(until if result.retry_after else None),
                 reason="rate_limit_error",
             )
             notice = (f"Task #{mid} postponed: provider limit; provider reset in "

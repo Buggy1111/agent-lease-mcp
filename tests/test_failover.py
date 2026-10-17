@@ -65,6 +65,31 @@ def test_unknown_provider_is_not_selected_as_fallback(store: Store):
     assert any(j["id"] == mid for j in store.jobs("openrouter"))
 
 
+def test_limited_worker_does_not_fail_over_a_live_interactive_agent(store: Store):
+    mid = store.send("michal", "codex", "interactive can take this", kind="task")
+
+    store.report_provider_state("codex-bridge", "limited", "cli_error",
+                                reason="rate_limit_reached")
+
+    assert any(j["id"] == mid for j in store.jobs("codex"))
+    assert not store.jobs("claude-code")
+
+
+def test_limited_worker_fails_over_when_interactive_agent_is_offline(tmp_path: Path):
+    settings = Settings(
+        tmp_path / "r.db", "x", 1800, fallbacks=parse_fallbacks("codex=claude-code"),
+        failover_grace=0, offline_grace=0,
+    )
+    room = Store(settings.db_path, settings=settings)
+    room.heartbeat("codex-bridge")
+    room.heartbeat("claude-code")
+    mid = room.send("michal", "codex", "move me", kind="task")
+
+    room.report_provider_state("codex-bridge", "limited", "cli_error")
+
+    assert any(j["id"] == mid for j in room.jobs("claude-code"))
+
+
 def test_started_work_is_never_moved(store: Store):
     mid = store.send("michal", "codex", "t", kind="task")
     d = store.lease_next("codex")

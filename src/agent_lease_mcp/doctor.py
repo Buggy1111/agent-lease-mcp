@@ -228,7 +228,7 @@ def run_doctor(*, json_output: bool = False) -> int:
             line("active_limit", WARN,
                  f"{lim['agent']} is limited for {lim['seconds_left'] // 60} more min",
                  agent=lim["agent"], seconds_left=lim["seconds_left"])
-        provider = store.provider_state("codex")
+        provider = store.provider_state("codex-bridge") or store.provider_state("codex")
         if provider:
             provider_level = OK if provider["state"] == "available" else WARN
             line("codex_provider_state", provider_level,
@@ -263,13 +263,14 @@ def run_doctor(*, json_output: bool = False) -> int:
              f"failover after #{activations['failover_after_message_id']}",
              **activations)
 
-        peer = next((p for p in store.peers() if p["agent"] == settings.agent), None)
+        worker_name = f"{settings.agent}-bridge"
+        peer = next((p for p in store.peers() if p["agent"] == worker_name), None)
         worker_observed = bool(peer and str(peer.get("status", "")).startswith("bridge:"))
         line("worker", OK if worker_observed else WARN,
              f"autonomous worker observed for {settings.agent}"
              if worker_observed else
              f"no autonomous worker observed for {settings.agent}; hooks need an existing turn",
-             observed=worker_observed)
+             observed=worker_observed, worker_identity=worker_name)
     except Exception as exc:  # noqa: BLE001
         line("delivery_pipeline", WARN,
              f"delivery state could not be inspected: {type(exc).__name__}")

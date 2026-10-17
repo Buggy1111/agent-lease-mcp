@@ -103,6 +103,24 @@ def test_provider_state_is_typed_and_unknown_is_not_available(store: Store):
     assert store.provider_state("codex") is None
 
 
+def test_limited_bridge_does_not_overwrite_live_interactive_agent(store: Store):
+    store.heartbeat("claude-code")
+    store.heartbeat("claude-code-bridge")
+    store.report_provider_state("claude-code-bridge", "limited", "cli_error")
+
+    assert store.is_available("claude-code")
+    peers = {p["agent"]: p for p in store.peers()}
+    assert peers["claude-code"]["presence"] in ("idle", "busy")
+    assert peers["claude-code-bridge"]["presence"] == "rate-limited"
+
+
+def test_available_worker_is_an_execution_path_for_logical_agent(store: Store):
+    store.heartbeat("codex-bridge")
+    store.report_provider_state("codex-bridge", "available", "test")
+
+    assert store.is_available("codex")
+
+
 def test_messages_use_cursor(store: Store):
     first = store.say("claude", "beru si balicí skript")
     store.say("codex", "ok, nesahám")

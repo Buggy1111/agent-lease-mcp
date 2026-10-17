@@ -677,14 +677,9 @@ class Store:
         return removed
 
     def is_available(self, agent: str) -> bool:
-        """Agent žije (nedávný heartbeat) a nemá vyčerpaný limit."""
-        if any(l["agent"] == agent for l in self.limits()):
-            return False
-        provider = self.provider_state(agent)
-        if provider and provider["state"] != "available":
-            return False
-        return any(p["agent"] == agent and p["presence"] in ("idle", "busy")
-                   for p in self.peers())
+        """Logical agent has either a live interactive or live worker execution path."""
+        available = {p["agent"] for p in self.peers() if p["presence"] in ("idle", "busy")}
+        return agent in available or f"{agent}-bridge" in available
 
     def failover_activation(self, agent: str, *, include_existing: bool = False) -> int:
         """Create once and return the durable lower task-id bound for failover."""
@@ -726,22 +721,25 @@ class Store:
         limited = {l["agent"]: l for l in self.limits()}
         limited.update({p["agent"]: p for p in self.provider_states()
                         if p["state"] == "limited"})
-        unknown = {p["agent"] for p in self.provider_states() if p["state"] == "unknown"}
         alive = {p["agent"] for p in self.peers() if p["presence"] in ("idle", "busy")}
+
+        def can_run(agent: str) -> bool:
+            return agent in alive or f"{agent}-bridge" in alive
+
         moves: list[dict] = []
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             for src, chain in chains.items():
-                if src in alive and src not in limited:
+                if can_run(src):
                     continue  # zdroj je v pořádku
-                target = next((c for c in chain
-                               if c in alive and c not in limited and c not in unknown), None)
+                target = next((c for c in chain if can_run(c)), None)
                 if not target:
                     continue
                 activation = con.execute(
                     "SELECT after_message_id FROM failover_activations WHERE agent=?", (src,)
                 ).fetchone()
                 after_message_id = int(activation["after_message_id"]) if activation else 0
+                source_limited = src in limited or f"{src}-bridge" in limited
                 rows = con.execute(
                     "SELECT m.id, m.agent, m.text, m.sent_at FROM deliveries d "
                     "JOIN messages m ON m.id=d.message_id "
@@ -750,7 +748,7 @@ class Store:
                     "AND r.accepted_at IS NULL AND m.id>? AND m.sent_at <= ? AND m.agent<>?",
                     # Explicitní limit = krátká lhůta. Pouhé „nedává znamení" = dlouhá:
                     # agent může spát v `wait` a úkol si vzít, jakmile ho probudíme.
-                    (src, after_message_id, now - (grace if src in limited
+                    (src, after_message_id, now - (grace if source_limited
                                                    else max(grace, self.settings.offline_grace)),
                      target),
                 ).fetchall()
@@ -763,7 +761,7 @@ class Store:
                     con.execute("UPDATE messages SET recipient=? WHERE id=?", (target, r["id"]))
                     con.execute("DELETE FROM receipts WHERE message_id=? AND recipient=?",
                                 (r["id"], src))
-                    limit = limited.get(src)
+                    limit = limited.get(src) or limited.get(f"{src}-bridge")
                     if limit and limit.get("until"):
                         why = ("limited until "
                                f"{time.strftime('%H:%M', time.localtime(limit['until']))}")

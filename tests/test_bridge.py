@@ -36,6 +36,8 @@ def test_success_accepts_first_then_returns_result(store: Store, tmp_path: Path)
     assert any("codex saw" in t for t in texts)           # automatický příjem
     assert any(t.startswith("✔ taking") for t in texts)        # vědomé potvrzení dřív než výsledek
     assert any("výsledek: 4" in t for t in texts)
+    peers = {p["agent"] for p in store.peers()}
+    assert "codex-bridge" in peers and "codex" not in peers
 
 
 def test_prompt_is_one_argument_not_shell(store: Store, tmp_path: Path):
@@ -69,7 +71,7 @@ def test_missing_reset_is_not_invented(store: Store, tmp_path: Path):
     cmd = fake(tmp_path, "import sys; print('rate limit reached'); sys.exit(1)")
     Bridge(store, "claude-code", cmd).step()
 
-    provider = store.provider_state("claude-code")
+    provider = store.provider_state("claude-code-bridge")
     assert provider["state"] == "limited" and provider["resets_at"] is None
     assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "pending"
     assert parse_retry_after("rate limit reached") is None
@@ -88,7 +90,7 @@ def test_claude_weekly_limit_wording_persists_calendar_reset(
     Bridge(store, "claude-code", cmd).step()
 
     assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "pending"
-    assert store.provider_state("claude-code")["resets_at"] is not None
+    assert store.provider_state("claude-code-bridge")["resets_at"] is not None
 
 
 def test_calendar_reset_is_parsed_in_provider_timezone():
@@ -105,14 +107,14 @@ def test_calendar_reset_is_parsed_in_provider_timezone():
 
 def test_successful_retry_confirms_provider_recovery(store: Store, tmp_path: Path, monkeypatch):
     store.report_provider_state(
-        "claude-code", "limited", "cli_error", observed_at=100, resets_at=1000,
+        "claude-code-bridge", "limited", "cli_error", observed_at=100, resets_at=1000,
     )
     mid = store.send("michal", "claude-code", "try again", kind="task")
     monkeypatch.setattr(time, "time", lambda: 1001)
 
     assert Bridge(store, "claude-code", fake(tmp_path, "print('ok')")).step()
     assert next(j for j in store.jobs("claude-code") if j["id"] == mid)["state"] == "succeeded"
-    provider = store.provider_state("claude-code")
+    provider = store.provider_state("claude-code-bridge")
     assert provider["state"] == "available" and provider["source"] == "cli_success"
 
 
@@ -136,7 +138,7 @@ def test_explicit_provider_limit_prevents_task_lease(store: Store, tmp_path: Pat
 
     assert not bridge.step()
     assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "pending"
-    assert store.provider_state("codex")["state"] == "limited"
+    assert store.provider_state("codex-bridge")["state"] == "limited"
 
 
 def test_first_worker_activation_skips_old_backlog_but_survives_restart(

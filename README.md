@@ -200,7 +200,9 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   task, acknowledges it, runs `codex exec` / `claude -p` read-only and returns the
   result. `--provider openrouter --model <model>` sends it to any model through
   OpenRouter as plain text without tools (read-only; good for review and a
-  second opinion). Keys only from the environment.
+  second opinion). Keys only from the environment. Worker presence/provider
+  state uses a separate identity (`codex-bridge`, `claude-code-bridge`), so a
+  headless quota cannot overwrite the state of an interactive agent.
 - **Broker** (`agent-lease broker`) — single SQLite writer over a `0600` Unix
   socket; other tools use it automatically when it runs, so a sandboxed Codex
   does not need direct access to the database.
