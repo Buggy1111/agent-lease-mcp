@@ -6,6 +6,9 @@ Wants=agent-lease-broker.service
 
 [Service]
 Environment=AGENT_NAME=%i-bridge
+# User systemd does not inherit the interactive shell PATH. Both uv-installed
+# agent-lease entry points and the Codex launcher live in ~/.local/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Pro OpenRouter: EnvironmentFile=%h/.config/agent-lease/openrouter.env (OPENROUTER_API_KEY=…, chmod 600)
 ExecStart=%h/.local/bin/agent-lease-bridge --agent %i
 Restart=on-failure
