@@ -85,6 +85,21 @@ CREATE TABLE IF NOT EXISTS deliveries (
 CREATE INDEX IF NOT EXISTS idx_deliveries_queue
 ON deliveries(recipient, state, message_id);
 
+-- Volitelný explicitní workset a priorita tasku. Cesty se nikdy nehádají z
+-- textu; bez deklarace se zachová původní FIFO chování.
+CREATE TABLE IF NOT EXISTS task_metadata (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    priority   INTEGER NOT NULL DEFAULT 0 CHECK(priority BETWEEN -100 AND 100)
+);
+
+CREATE TABLE IF NOT EXISTS task_paths (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    path       TEXT NOT NULL,
+    PRIMARY KEY(message_id, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_priority ON task_metadata(priority, message_id);
+
 -- Potvrzení příjmu. `seen_at` píše automaticky hook ve chvíli, kdy zprávu vloží
 -- do kontextu agenta (nelze zapomenout); `accepted_at` je vědomé „beru, dělám X"
 -- od agenta samotného. Odesílatel tak vždy ví, jestli zpráva dorazila a jestli ji
@@ -468,6 +483,8 @@ class Store:
         expires_at: float | None = None,
         dedupe_key: str | None = None,
         reply_to: int | None = None,
+        paths: list[str] | None = None,
+        priority: int = 0,
     ) -> int:
         """Atomicky uloží adresovanou zprávu a její doručení."""
         kind_value = MessageKind(kind).value
@@ -481,6 +498,15 @@ class Store:
         check_short("project", project)
         if dedupe_key:
             check_name("dedupe_key", dedupe_key)
+        paths = paths or []
+        if len(paths) > MAX_PATHS_PER_CLAIM:
+            raise ValueError(f"at most {MAX_PATHS_PER_CLAIM} task paths are allowed")
+        task_paths = sorted({normalize_path(check_path(path)) for path in paths})
+        priority = int(priority)
+        if not -100 <= priority <= 100:
+            raise ValueError("priority must be between -100 and 100")
+        if kind_value != MessageKind.TASK.value and (task_paths or priority):
+            raise ValueError("paths and priority are only valid for tasks")
         if kind_value in (MessageKind.TASK.value, MessageKind.CONTROL.value) and (
             not self.settings.may_send_task(agent)
         ):
@@ -503,6 +529,15 @@ class Store:
                  expires_at, dedupe_key, reply_to),
             )
             message_id = int(cur.lastrowid)
+            if kind_value == MessageKind.TASK.value:
+                con.execute(
+                    "INSERT INTO task_metadata(message_id, priority) VALUES(?,?)",
+                    (message_id, priority),
+                )
+                con.executemany(
+                    "INSERT INTO task_paths(message_id, path) VALUES(?,?)",
+                    [(message_id, path) for path in task_paths],
+                )
             if recipient != "*" and kind_value != MessageKind.RESULT.value:
                 con.execute(
                     "INSERT INTO deliveries(message_id, recipient, updated_at) VALUES(?,?,?)",
@@ -838,11 +873,42 @@ class Store:
                 "WHERE d.state IN ('pending','leased','started','needs_review') "
                 "AND m.kind IN ('task','chat','control') ORDER BY d.message_id"
             ).fetchall()
+            path_rows = con.execute(
+                "SELECT tp.message_id, tp.path FROM task_paths tp "
+                "JOIN deliveries d ON d.message_id=tp.message_id "
+                "WHERE d.state='pending' ORDER BY tp.message_id, tp.path"
+            ).fetchall()
             names = set(peers) | {r["recipient"] for r in rows}
+        paths_by_message: dict[int, list[str]] = {}
+        for path_row in path_rows:
+            paths_by_message.setdefault(int(path_row["message_id"]), []).append(path_row["path"])
+        claims = self.claims()
         board = []
         for name in sorted(names):
             mine = [r for r in rows if r["recipient"] == name]
             active = next((r for r in mine if r["state"] in ("started", "leased")), None)
+            blocked_task = None
+            for pending in (r for r in mine if r["state"] == "pending"):
+                for path in paths_by_message.get(int(pending["message_id"]), []):
+                    blocker = next((claim for claim in claims
+                                    if claim.agent not in (name, f"{name}-bridge") and
+                                    (covers(claim.path, path) or covers(path, claim.path))), None)
+                    if blocker:
+                        blocked_task = {
+                            "id": pending["message_id"], "path": path,
+                            "held_by": blocker.agent, "expires_in": blocker.expires_in,
+                        }
+                        break
+                if blocked_task:
+                    break
+            provider_reason = (
+                "provider rate limit" if peers.get(name, {}).get("provider_state") == "limited"
+                else "provider signal unavailable"
+                if peers.get(name, {}).get("provider_state") == "unknown"
+                else "reported rate limit" if peers.get(name, {}).get("limited_until")
+                else "no recent heartbeat" if peers.get(name, {}).get("presence") == "offline"
+                else ""
+            )
             board.append({
                 "agent": name,
                 "presence": peers.get(name, {}).get("presence", "offline"),
@@ -852,14 +918,10 @@ class Store:
                 "provider_source": peers.get(name, {}).get("provider_source"),
                 "provider_reason": peers.get(name, {}).get("provider_reason", ""),
                 "provider_resets_at": peers.get(name, {}).get("provider_resets_at"),
-                "blocked_reason": (
-                    "provider rate limit" if peers.get(name, {}).get("provider_state") == "limited"
-                    else "provider signal unavailable"
-                    if peers.get(name, {}).get("provider_state") == "unknown"
-                    else "reported rate limit" if peers.get(name, {}).get("limited_until")
-                    else "no recent heartbeat" if peers.get(name, {}).get("presence") == "offline"
-                    else ""
+                "blocked_reason": provider_reason or (
+                    "task lease conflict" if blocked_task else ""
                 ),
+                "blocked_task": blocked_task,
                 "active": ({"id": active["message_id"], "text": active["text"][:120],
                             "from": active["sender"]} if active else None),
                 "queued": sum(r["state"] == "pending" for r in mine),
@@ -1139,16 +1201,27 @@ class Store:
                 "updated_at=? WHERE recipient=? AND state='leased' AND lease_until<=?",
                 (now, recipient, now),
             )
-            row = con.execute(
-                "SELECT m.*, d.state, d.attempts FROM deliveries d "
+            rows = con.execute(
+                "SELECT m.*, d.state, d.attempts, COALESCE(tm.priority, 0) AS priority "
+                "FROM deliveries d "
                 "JOIN messages m ON m.id=d.message_id "
+                "LEFT JOIN task_metadata tm ON tm.message_id=m.id "
                 "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
                 "AND m.id>? "
                 "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
-                "ORDER BY m.id LIMIT 1",
+                "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
                 (recipient, after_message_id, now, now),
-            ).fetchone()
-            if not row:
+            ).fetchall()
+            row = None
+            for candidate in rows:
+                paths = [r["path"] for r in con.execute(
+                    "SELECT path FROM task_paths WHERE message_id=? ORDER BY path",
+                    (candidate["id"],),
+                ).fetchall()]
+                if not paths or not self._conflicts(con, paths, recipient):
+                    row = candidate
+                    break
+            if row is None:
                 return None
             con.execute(
                 "UPDATE deliveries SET state='leased', attempts=attempts+1, "

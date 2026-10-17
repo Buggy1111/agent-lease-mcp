@@ -69,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     p_send.add_argument("--kind", choices=[k.value for k in MessageKind], default="chat")
     p_send.add_argument("--dedupe-key", default=None)
     p_send.add_argument("--reply-to", type=int, default=None)
+    p_send.add_argument("--path", action="append", dest="paths", default=[],
+                        help="declared task path; repeat for multiple paths")
+    p_send.add_argument("--priority", type=int, default=0, help="task priority from -100 to 100")
 
     p_jobs = sub.add_parser("jobs", help="addressed items and their state")
     p_jobs.add_argument("--for", dest="recipient", default=None)
@@ -282,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
         message_id = store.send(
             me, args.recipient, args.text, kind=args.kind,
             dedupe_key=args.dedupe_key, reply_to=args.reply_to,
+            paths=args.paths, priority=args.priority,
         )
         store.heartbeat(me, cwd=os.getcwd())
         print(f"Stored #{message_id} for {args.recipient} ({args.kind}). "

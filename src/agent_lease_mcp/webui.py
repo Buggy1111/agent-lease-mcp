@@ -681,10 +681,13 @@ function renderBoard(rows) {
       ? `<span class="state ${b.provider_state === "available" ? "succeeded" : b.provider_state === "limited" ? "failed" : "needs_review"}">provider ${esc(b.provider_state)}</span>`
       : "";
     const why = b.blocked_reason ? `<div class="task">why waiting: ${esc(b.blocked_reason)}${b.provider_reason ? " · " + esc(b.provider_reason) : ""}${b.provider_resets_at ? " · reset hint " + limitTime(b.provider_resets_at) : ""}</div>` : "";
+    const blocked = b.blocked_task
+      ? `<div class="task">🔒 #${b.blocked_task.id} ${esc(b.blocked_task.path)} · ${esc(b.blocked_task.held_by)} · ${ttl(b.blocked_task.expires_in)}</div>`
+      : "";
     const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "free")}</div>`;
     const q = b.queued ? `<span class="state pending">queue ${b.queued}${b.unaccepted ? " · unacknowledged " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · waiting " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
     const rv = b.needs_review ? `<span class="state failed">needs review ${b.needs_review}</span>` : "";
-    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}${why}<div class="row">${provider}${lim}${q}${rv}</div></div>`;
+    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}${why}${blocked}<div class="row">${provider}${lim}${q}${rv}</div></div>`;
   }).join("") || "<div class='empty'>nobody here</div>";
 }
 

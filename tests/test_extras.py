@@ -54,6 +54,18 @@ def test_board_distinguishes_provider_limit_unknown_and_offline(store: Store):
     assert row["blocked_reason"] == "provider rate limit"
 
 
+def test_board_explains_blocking_task_claim(store: Store, tmp_path: Path):
+    path = str(tmp_path / "shared.py")
+    mid = store.send("michal", "codex", "blocked task", kind="task", paths=[path])
+    store.claim([path], agent="claude-code", purpose="editing", ttl_seconds=300)
+
+    row = next(b for b in store.board() if b["agent"] == "codex")
+
+    assert row["blocked_reason"] == "task lease conflict"
+    assert row["blocked_task"]["id"] == mid
+    assert row["blocked_task"]["held_by"] == "claude-code"
+
+
 def test_notifier_sends_each_event_once_and_retries_failures(store: Store, monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")

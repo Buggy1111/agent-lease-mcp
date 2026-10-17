@@ -217,6 +217,7 @@ def test_failed_task_can_retry_then_cancel(store: Store):
     assert store.jobs("codex")[0]["state"] == "pending"
     assert store.cancel(message_id, "codex")
     assert store.jobs("codex")[0]["state"] == "cancelled"
+    assert not store.retry(message_id, "codex")
 
 
 def test_authorized_retry_can_make_a_deferred_pending_task_ready(store: Store):
@@ -228,6 +229,34 @@ def test_authorized_retry_can_make_a_deferred_pending_task_ready(store: Store):
     assert store.retry(message_id, "codex", actor="michal")
     assert store.lease_next("codex").message_id == message_id
     assert not store.retry(message_id, "codex")
+
+
+def test_lease_next_skips_task_blocked_by_foreign_claim(store: Store, tmp_path: Path):
+    blocked_path = str(tmp_path / "blocked.py")
+    free_path = str(tmp_path / "free.py")
+    first = store.send("michal", "codex", "blocked", kind="task", paths=[blocked_path])
+    second = store.send("michal", "codex", "independent", kind="task", paths=[free_path])
+    store.claim([blocked_path], agent="claude-code", purpose="editing")
+
+    delivery = store.lease_next("codex")
+
+    assert delivery.message_id == second
+    assert next(j for j in store.jobs("codex") if j["id"] == first)["state"] == "pending"
+
+
+def test_task_priority_is_stable_and_only_reorders_eligible_tasks(store: Store, tmp_path: Path):
+    low = store.send("michal", "codex", "low", kind="task", priority=-5)
+    high_old = store.send("michal", "codex", "high old", kind="task", priority=10)
+    high_new = store.send("michal", "codex", "high new", kind="task", priority=10)
+
+    assert store.lease_next("codex").message_id == high_old
+    assert store.lease_next("codex").message_id == high_new
+    assert store.lease_next("codex").message_id == low
+
+
+def test_task_metadata_rejected_for_chat(store: Store, tmp_path: Path):
+    with pytest.raises(ValueError):
+        store.send("michal", "codex", "chat", kind="chat", paths=[str(tmp_path)])
 
 
 def test_lease_next_can_ignore_tasks_before_activation(store: Store):

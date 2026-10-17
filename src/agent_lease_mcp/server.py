@@ -88,11 +88,13 @@ def send(
     kind: str = "chat",
     dedupe_key: str | None = None,
     reply_to: int | None = None,
+    paths: list[str] | None = None,
+    priority: int = 0,
 ) -> dict:
-    """Addressed chat message or durable task; a `chat` does not start any work by itself."""
+    """Addressed message/task. Task paths are explicit and make scheduling lease-aware."""
     msg_id = _store.send(
         _settings.agent, to, text, kind=MessageKind(kind),
-        dedupe_key=dedupe_key, reply_to=reply_to,
+        dedupe_key=dedupe_key, reply_to=reply_to, paths=paths, priority=priority,
     )
     _store.heartbeat(_settings.agent, cwd=os.getcwd())
     return {"id": msg_id, "to": to, "kind": kind}

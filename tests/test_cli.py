@@ -79,6 +79,16 @@ def test_send_and_jobs_roundtrip(db: Path, capsys):
     assert "pending" in capsys.readouterr().out
 
 
+def test_send_accepts_explicit_task_paths_and_priority(db: Path, tmp_path: Path, capsys):
+    blocked = tmp_path / "blocked.py"
+    Store(db).claim([str(blocked)], agent="claude-code")
+    assert main([
+        "send", "blocked", "--to", "codex", "--kind", "task",
+        "--path", str(blocked), "--priority", "20",
+    ]) == 0
+    assert Store(db).lease_next("codex") is None
+
+
 def test_wait_wakes_for_addressed_message(db: Path, capsys):
     def send_later():
         sleep(0.05)

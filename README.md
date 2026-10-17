@@ -208,7 +208,9 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   does not need direct access to the database.
 - **Overview panel** in the live room: each agent's active task, queue,
   unacknowledged items, typed provider state, reason for waiting, limits and
-  items to review. `agent-lease notify --loop`
+  items to review. Tasks may declare repeatable `--path` worksets and a
+  `--priority`; the scheduler skips paths held by another agent and the board
+  shows the blocking path, owner and TTL. `agent-lease notify --loop`
   sends to Telegram only what waits on the human, each event at most once
   (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` from the environment; `--dry` to test).
 - systemd units in `deploy/systemd/`, Windows/WSL starter in `deploy/windows/`.

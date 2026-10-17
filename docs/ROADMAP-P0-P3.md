@@ -19,7 +19,7 @@
 - Phase 4 partial: the room now distinguishes offline, provider-unknown and
   provider-limited states and shows a bounded reason. Claim blockers and
   next-eligible task time remain open.
-- Last full local regression: 298 tests passed on Linux/WSL. This is not yet the
+- Last full local regression: 303 tests passed on Linux/WSL. This is not yet the
   required Windows 11 restart/logon matrix from Phase 5.
 
 ## Primary goal
@@ -154,6 +154,11 @@ keeps work safe when either provider is temporarily unavailable.
 - Do not equate a stale heartbeat with a provider quota error.
 
 ## Phase 3 — Lease-aware scheduling and queue policy
+
+**Progress:** explicit task worksets and bounded priorities are implemented.
+The scheduler uses priority then stable FIFO, skips tasks conflicting with live
+claims, and the room exposes the blocking task/path/owner/TTL. Dependencies,
+handover hop bounds and global queue limits remain open.
 
 **How this serves the primary goal:** It lets an available agent do independent
 work instead of waiting behind a task whose files are currently leased.
