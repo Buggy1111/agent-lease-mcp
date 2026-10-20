@@ -1,27 +1,29 @@
 # Agent Lease MCP – TODO
 
-Stav k 20. 10. 2026 (ověřeno proti běžícím službám a `docs/ROADMAP-P0-P3.md`).
+Stav k 20. 10. 2026 večer (ověřeno ostrými testy proti běžícím službám).
 ✅ hotovo · 🟡 z větší části · ⬜ otevřené
 
 - ✅ 1. **Společná místnost** — Ada, Nox i workery vidí ostatní, stav a aktivitu.
 - ✅ 2. **Automatické předávání zpráv** — adresované zprávy a úkoly mezi agenty.
 - ✅ 3. **Potvrzování úkolů** — viděl → beru → hotovo, opakování, zrušení.
-- 🟡 4. **Automatické probuzení Codexu** — úkol `claude-code → codex` doběhl bez
-  lidského promptu přes worker na pozadí. Zbývá: probuzení *živé* Noxovy session
-  (asyncRewake) ověřit naostro.
-- 🟡 5. **Automatické spuštění práce** — worker úkol převezme, potvrdí, spustí
-  `codex exec` read-only a vrátí výsledek. Zbývá: zápisový režim (se schválením)
-  a průběžné hlášení dlouhé práce.
+- 🟡 4. **Automatické probuzení Codexu** — ✅ naostro 20. 10.: úkoly #288, #292,
+  #300 od Ady převzal worker sám do pár sekund, bez lidského promptu. Zbývá:
+  probuzení *živé interaktivní* Noxovy session (asyncRewake).
+- 🟡 5. **Automatické spuštění práce** — ✅ naostro: převezme, potvrdí, spustí
+  `codex exec` read-only a vrátí čistou odpověď (opraveno: dřív celý přepis běhu).
+  Zbývá: zápisový režim (se schválením) a průběžné hlášení dlouhé práce.
 - 🟡 6. **Hlídání limitů agentů** — týdenní limit Claude, typovaný stav Codexu,
   oddělení interaktivní session od workeru, žádné 15minutové retry bouře.
-- ⬜ 7. **Pokračování po obnovení limitů** — fronta při limitu čeká správně;
-  chybí ostrý test „limit skončí → naváže bez ztráty a bez duplicit".
+- ✅ 7. **Pokračování po obnovení limitů** — naostro 20. 10. (#300): během limitu
+  úkol čekal, po zrušení proběhl přesně jednou (1 pokus, 1 výsledek). Test odhalil
+  a opravil chybu: ohlášený limit worker ignoroval, když poskytovatel hlásil
+  „available" (#296). Failover na jiného agenta zatím vypnutý (`AGENT_LEASE_FALLBACKS`).
 - ✅ 8. **Bezpečné přidělování souborů** — vynucené hookem (Edit/Write/apply_patch,
   spouštěné skripty, zjevné zápisy z Bashe), atomický `edit_gate`.
 - ✅ 9. **Automatické uvolňování zámků** — Stop/SessionEnd vrací nájmy, TTL pojistka.
 - ✅ 10. **Obnova po pádu agenta** — stav úkolu se drží, `needs_review`, žádné dvojí provedení.
-- 🟡 11. **Bridge pro skutečné AI agenty** — `codex exec` naostro běží; `claude -p`
-  čeká na konec limitu Ady; OpenRouter jen v testech.
+- 🟡 11. **Bridge pro skutečné AI agenty** — ✅ `codex exec` naostro (3 úkoly);
+  `claude -p` čeká na konec limitu Ady; OpenRouter jen v testech.
 - ✅ 12. **Automatické testování výsledků** — 304 testů, ruff, CI na 3.11–3.13.
 - ✅ 13. **Vzájemné kontroly Ada ↔ Nox** — ručně ověřeno při 0.2.0 (Nox našel 6
   reálných chyb, Ada opravila a přetestovala). Zbývá automatizovat smyčku
@@ -29,16 +31,19 @@ Stav k 20. 10. 2026 (ověřeno proti běžícím službám a `docs/ROADMAP-P0-P3
 - ✅ 14. **Bezpečnostní audit** — 13 nálezů opraveno/zdokumentováno a zveřejněno,
   branch protection, Dependabot, private vulnerability reporting, Jev guard.
 - 🟡 15. **Windows 11 + WSL autostart** — broker a oba workery běží jako systemd
-  služby ve WSL, `deploy/windows/start-bridge.ps1` existuje. Zbývá: test
-  „restart PC → vše naběhne samo".
+  služby ve WSL, `deploy/windows/start-bridge.ps1` existuje. Opraveno: první
+  kontrola limitu po bootu se přeskakovala (CI). Zbývá: Michal restartuje PC →
+  `agent-lease doctor`.
 - ⬜ 16. **Dlouhodobé ostré testování** — oba agenti na bezpečném projektu,
   kolize, limity, restarty, chyby.
 - ⬜ 17. **Třetí agent – koordinátor** — rozděluje práci, hlídá agenty, testy, limity.
 
-## Nejbližší krok
+## Nejbližší kroky
 
-Ostrý test na bezpečném projektu (odemyká 4, 7, 11): Ada pošle Noxovi úkol →
-Nox ho sám udělá a vrátí výsledek → jeden umělý limit → jeden restart.
+1. Michal: restart PC → `agent-lease doctor` (bod 15).
+2. Ostrý test `claude -p` workeru, až Adě skončí limit (bod 11).
+3. Zapnout failover `AGENT_LEASE_FALLBACKS` a otestovat přesun úkolu (bod 7, část 2).
+4. asyncRewake živé Noxovy session (bod 4).
 
 ## Historie
 

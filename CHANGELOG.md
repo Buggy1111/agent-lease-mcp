@@ -26,6 +26,11 @@
 - Failover skips accepted and historical tasks; an explicit reschedule of a
   pending task is allowed.
 - Deploy: the user's Codex binary is visible to the bridge service.
+- Bridge: a reported limit (`agent-lease limit`) is honoured even when the
+  provider's own status says available.
+- Bridge: the first provider-limit check after boot is no longer skipped.
+- Bridge: Codex results are its final answer (`--output-last-message`), not the
+  whole run transcript.
 
 ## 0.2.0 — 2026-10-16
 
