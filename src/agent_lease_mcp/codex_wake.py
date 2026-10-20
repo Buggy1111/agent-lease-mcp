@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .broker import open_store
 from .config import Settings
-from .lifecycle import is_receipt, wakes
+from .lifecycle import wakes
 
 RECIPIENT = "codex"
 
@@ -132,7 +132,6 @@ class CodexWake:
             for message in messages
             if message.get("kind") in {"chat", "result"}
             and wakes(message, RECIPIENT)
-            and not is_receipt(message)
         ]
         if not wake_ids:
             self.cursor = high_water
@@ -161,7 +160,7 @@ class CodexWake:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-lease-codex-wake")
     parser.add_argument("--once", action="store_true", help="check once and exit")
-    parser.add_argument("--poll", type=float, default=1.0, help="fallback poll interval in seconds")
+    parser.add_argument("--poll", type=float, default=0.2, help="signal poll interval in seconds")
     args = parser.parse_args(argv)
 
     thread = os.environ.get("AGENT_LEASE_CODEX_THREAD", "").strip()
@@ -185,8 +184,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[agent-lease-codex-wake] {exc}", file=sys.stderr)
         return 2
 
+    seen_signal = None
+    next_db = 0.0
     while True:
-        wake.step()
+        now = time.monotonic()
+        signal = wake.store.signal_mtime(RECIPIENT)
+        if signal != seen_signal or now >= next_db:
+            seen_signal, next_db = signal, now + 5.0
+            wake.step()
         if args.once:
             return 0
         time.sleep(max(0.1, args.poll))

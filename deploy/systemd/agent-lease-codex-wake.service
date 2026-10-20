@@ -8,6 +8,7 @@ EnvironmentFile=-%h/.config/agent-lease/environment
 Environment=AGENT_NAME=codex-wake
 ExecStart=%h/.local/bin/agent-lease-codex-wake
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=5
 UMask=0077
 

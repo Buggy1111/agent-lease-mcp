@@ -51,14 +51,21 @@ def test_chat_and_real_result_are_batched_but_tasks_and_receipts_are_skipped(
 
     chat = store.send("claude-code", "codex", "ping", kind="chat")
     task = store.send("claude-code", "codex", "headless work", kind="task")
-    receipt = store.send("broker", "codex", "✓ claude-code saw #1", kind="result")
+    source = store.send("codex", "claude-code", "question", kind="chat")
+    store.mark_seen("claude-code", [source])
+    store.accept(source, "claude-code")
+    receipt_ids = {
+        message["id"] for message in store.addressed("codex")
+        if message["text"].startswith(("✓ ", "✔ taking #"))
+    }
     result = store.send("claude-code", "codex", "review hotov", kind="result")
 
     assert wake.step() is True
     args = log.read_text()
     assert "queue\n--thread\nnox\n--message\n" in args
     assert f"#{chat}" in args and f"#{result}" in args
-    assert f"#{task}" not in args and f"#{receipt}" not in args
+    assert f"#{task}" not in args
+    assert all(f"#{receipt_id}" not in args for receipt_id in receipt_ids)
     assert int((tmp_path / "cursor").read_text()) == result
 
 
@@ -87,7 +94,10 @@ def test_receipts_and_tasks_advance_without_calling_codex(tmp_path: Path, monkey
     wake = CodexWake(store, "nox", cursor)
     wake.step()
     store.send("claude-code", "codex", "work", kind="task")
-    last = store.send("broker", "codex", "✓ claude-code saw #1", kind="result")
+    source = store.send("codex", "claude-code", "question", kind="chat")
+    store.mark_seen("claude-code", [source])
+    store.accept(source, "claude-code")
+    last = store.addressed("codex")[-1]["id"]
 
     assert wake.step() is False
     assert int(cursor.read_text()) == last
