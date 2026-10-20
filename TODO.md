@@ -1,15 +1,46 @@
-# Stav
+# Agent Lease MCP – TODO
 
-## ✅ v0.2 (3. 10. 2026)
-Potvrzení příjmu (viděl/beru), probuzení, bridge (Codex/Claude/OpenRouter), broker,
-doctor, bezpečnostní hardening, CI. Viz CHANGELOG.md.
+Stav k 20. 10. 2026 (ověřeno proti běžícím službám a `docs/ROADMAP-P0-P3.md`).
+✅ hotovo · 🟡 z větší části · ⬜ otevřené
 
-## Zbývá na Michalovi (nelze z cloudu)
-1. Nastavit hooky podle `docs/ZPRAVY-A-POTVRZENI.md` a ověřit `asyncRewake` na živé session (`agent-lease doctor`).
-2. Zapnout v repu: default branch + branch protection, Dependabot alerts (REPO-001..003).
-3. Otestovat bridge proti skutečnému `codex exec` / `claude -p` a OpenRouter klíči; pak teprve zvažovat zápisový režim (fáze 5).
-4. Windows Task Scheduler (`deploy/windows/start-bridge.ps1`) – neověřeno.
-5. PyPI: rozhodnutí (bod 6 níže) a trusted publishing.
+- ✅ 1. **Společná místnost** — Ada, Nox i workery vidí ostatní, stav a aktivitu.
+- ✅ 2. **Automatické předávání zpráv** — adresované zprávy a úkoly mezi agenty.
+- ✅ 3. **Potvrzování úkolů** — viděl → beru → hotovo, opakování, zrušení.
+- 🟡 4. **Automatické probuzení Codexu** — úkol `claude-code → codex` doběhl bez
+  lidského promptu přes worker na pozadí. Zbývá: probuzení *živé* Noxovy session
+  (asyncRewake) ověřit naostro.
+- 🟡 5. **Automatické spuštění práce** — worker úkol převezme, potvrdí, spustí
+  `codex exec` read-only a vrátí výsledek. Zbývá: zápisový režim (se schválením)
+  a průběžné hlášení dlouhé práce.
+- 🟡 6. **Hlídání limitů agentů** — týdenní limit Claude, typovaný stav Codexu,
+  oddělení interaktivní session od workeru, žádné 15minutové retry bouře.
+- ⬜ 7. **Pokračování po obnovení limitů** — fronta při limitu čeká správně;
+  chybí ostrý test „limit skončí → naváže bez ztráty a bez duplicit".
+- ✅ 8. **Bezpečné přidělování souborů** — vynucené hookem (Edit/Write/apply_patch,
+  spouštěné skripty, zjevné zápisy z Bashe), atomický `edit_gate`.
+- ✅ 9. **Automatické uvolňování zámků** — Stop/SessionEnd vrací nájmy, TTL pojistka.
+- ✅ 10. **Obnova po pádu agenta** — stav úkolu se drží, `needs_review`, žádné dvojí provedení.
+- 🟡 11. **Bridge pro skutečné AI agenty** — `codex exec` naostro běží; `claude -p`
+  čeká na konec limitu Ady; OpenRouter jen v testech.
+- ✅ 12. **Automatické testování výsledků** — 304 testů, ruff, CI na 3.11–3.13.
+- ✅ 13. **Vzájemné kontroly Ada ↔ Nox** — ručně ověřeno při 0.2.0 (Nox našel 6
+  reálných chyb, Ada opravila a přetestovala). Zbývá automatizovat smyčku
+  „najdi → vrať k opravě → přetestuj".
+- ✅ 14. **Bezpečnostní audit** — 13 nálezů opraveno/zdokumentováno a zveřejněno,
+  branch protection, Dependabot, private vulnerability reporting, Jev guard.
+- 🟡 15. **Windows 11 + WSL autostart** — broker a oba workery běží jako systemd
+  služby ve WSL, `deploy/windows/start-bridge.ps1` existuje. Zbývá: test
+  „restart PC → vše naběhne samo".
+- ⬜ 16. **Dlouhodobé ostré testování** — oba agenti na bezpečném projektu,
+  kolize, limity, restarty, chyby.
+- ⬜ 17. **Třetí agent – koordinátor** — rozděluje práci, hlídá agenty, testy, limity.
+
+## Nejbližší krok
+
+Ostrý test na bezpečném projektu (odemyká 4, 7, 11): Ada pošle Noxovi úkol →
+Nox ho sám udělá a vrátí výsledek → jeden umělý limit → jeden restart.
+
+## Historie
 
 # Stav ověření
 

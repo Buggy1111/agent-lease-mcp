@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Tasks can declare `--path` worksets and a `--priority`; the scheduler skips
+  tasks whose paths are held by another agent, and the board shows the blocking
+  path, owner and TTL.
+- `worker-activate` / `failover-activate` set safe baselines without running or
+  moving a task; `provider-sync` / `provider-clear` manage typed provider state;
+  `doctor --json` separates delivery, receipt, acceptance, execution, hook
+  identity, worker health and failover activation.
+- The room shows offline, provider-unknown and provider-limited states with a
+  bounded reason.
+
+### Fixed
+
+- Broker: relative paths are resolved in the client, not in the broker's own
+  working directory (could protect the wrong file).
+- Headless workers use their own identity (`codex-bridge`, `claude-code-bridge`),
+  so a worker quota no longer marks the interactive agent as limited.
+- Limits: Claude's weekly quota response is recognised; reset times are never
+  invented; recovery probes without a provider-supplied reset are off, which
+  stops the repeated retry and notification storm.
+- Failover skips accepted and historical tasks; an explicit reschedule of a
+  pending task is allowed.
+- Deploy: the user's Codex binary is visible to the bridge service.
+
 ## 0.2.0 — 2026-10-16
 
 First public release. Two lines of work merged: delivery receipts, limit

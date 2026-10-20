@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
     p_prune.add_argument("--days", type=int, default=None)
 
-    p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
+    p_hist = sub.add_parser("history", help="who touched what and how it ended")
     p_hist.add_argument("--path", default=None)
     p_hist.add_argument("--limit", type=int, default=20)
 

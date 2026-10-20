@@ -213,6 +213,15 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   shows the blocking path, owner and TTL. `agent-lease notify --loop`
   sends to Telegram only what waits on the human, each event at most once
   (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` from the environment; `--dry` to test).
+- **Operating workers safely.** `agent-lease worker-activate` and
+  `agent-lease failover-activate <agents…>` set a safe starting point without
+  running or moving any task: only work that arrives *after* activation is
+  picked up or rerouted (`--include-existing` opts into older items).
+  `agent-lease provider-sync --agent codex` reads and stores Codex's explicit
+  availability; `agent-lease provider-clear` confirms a provider has recovered
+  and removes a stale limit; `agent-lease limits` shows active limits and
+  fallback chains. `agent-lease doctor --json` reports delivery, receipts,
+  worker health and failover readiness separately.
 - systemd units in `deploy/systemd/`, Windows/WSL starter in `deploy/windows/`.
 
 Details (in Czech): [receipts](docs/ZPRAVY-A-POTVRZENI.md),
