@@ -289,7 +289,7 @@ class Bridge:
                     self.worker_identity, "available", "cli_success",
                     reason="recovery confirmed",
                 )
-            self.store.send(self.agent, delivery.sender, f"Hotovo #{mid}:\n{body}",
+            self.store.send(self.agent, delivery.sender, f"Done #{mid}:\n{body}",
                             kind=MessageKind.RESULT, reply_to=mid)
             self.store.ack(mid, self.agent, DeliveryState.SUCCEEDED, lease_token=token)
         elif result.rate_limited:

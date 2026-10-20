@@ -46,7 +46,7 @@ def test_prompt_is_one_argument_not_shell(store: Store, tmp_path: Path):
     cmd = fake(tmp_path, "import sys; print(len(sys.argv))")
     Bridge(store, "codex", cmd).step()
     assert not marker.exists()
-    assert any(m["text"].endswith("2") for m in store.inbox() if "Hotovo" in m["text"])
+    assert any(m["text"].endswith("2") for m in store.inbox() if "Done #" in m["text"])
 
 
 def test_failure_goes_to_needs_review_and_reports(store: Store, tmp_path: Path):
