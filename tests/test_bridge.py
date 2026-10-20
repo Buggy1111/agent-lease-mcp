@@ -288,3 +288,16 @@ def test_openrouter_429_is_deferred_not_failed(store: Store):
     job = next(j for j in store.jobs("kimi") if j["id"] == mid)
     assert job["state"] == "pending"  # odloženo, ne ztraceno
     assert store.lease_next("kimi") is None
+
+
+def test_provider_is_probed_on_the_first_step_right_after_boot(store: Store, tmp_path: Path, monkeypatch):
+    """CI odhalilo: monotonic() běží od bootu; s výchozí 0.0 by se na čerstvém
+    stroji (autostart po zapnutí PC) první kontrola limitu přeskočila."""
+    import agent_lease_mcp.bridge as bridge_mod
+
+    monkeypatch.setattr(bridge_mod.time, "monotonic", lambda: 5.0)  # 5 s po bootu
+    store.send("michal", "codex", "must wait", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('must not run')"),
+                    provider_probe=lambda: ProviderState("limited", "test", 100, "rate_limit_reached"),
+                    provider_probe_interval=60)
+    assert not bridge.step()

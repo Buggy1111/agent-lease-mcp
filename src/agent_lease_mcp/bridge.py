@@ -178,7 +178,9 @@ class Bridge:
         self.after_message_id = max(0, int(after_message_id))
         self.provider_probe = provider_probe
         self.provider_probe_interval = provider_probe_interval
-        self._last_provider_probe = 0.0
+        # -inf, ne 0.0: monotonic() běží od startu systému, takže na čerstvě nabootovaném
+        # stroji (CI, autostart po zapnutí PC) by první kontrola limitu 60 s chyběla.
+        self._last_provider_probe = float("-inf")
         self._starts: list[float] = []
 
     def _budget_left(self) -> bool:
