@@ -49,6 +49,7 @@ agent-lease-jev-guard = "agent_lease_mcp.jev_guard:main"
 # Broker (jediný writer přes Unix socket) a bridge (autonomní worker) — PR #1.
 agent-lease-broker = "agent_lease_mcp.broker:main"
 agent-lease-bridge = "agent_lease_mcp.bridge:main"
+agent-lease-codex-wake = "agent_lease_mcp.codex_wake:main"
 # Automatizace bez uživatele: kontext do session/promptu a úklid nájmů na konci tahu.
 agent-lease-context = "agent_lease_mcp.lifecycle:context_main"
 agent-lease-release = "agent_lease_mcp.lifecycle:release_main"

@@ -1,0 +1,15 @@
+[Unit]
+Description=agent-lease wake bridge for an interactive Codex session
+After=agent-lease-broker.service
+
+[Service]
+EnvironmentFile=-%h/.config/agent-lease/environment
+# Set AGENT_LEASE_CODEX_THREAD to the exact name assigned with Codex /rename.
+Environment=AGENT_NAME=codex-wake
+ExecStart=%h/.local/bin/agent-lease-codex-wake
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
