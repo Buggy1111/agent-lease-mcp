@@ -30,9 +30,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jev
