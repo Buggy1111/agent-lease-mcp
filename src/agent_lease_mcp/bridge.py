@@ -264,7 +264,10 @@ class Bridge:
         mid = delivery.message_id
         # 1) odesílatel se hned dozví, že to někdo bere
         self.store.mark_seen(self.agent, [mid])
-        self.store.accept(mid, self.agent, "bridge took the task, starting a headless run (read-only)")
+        if not self.store.accept(mid, self.agent,
+                                 "bridge took the task, starting a headless run (read-only)",
+                                 lease_token=token):
+            return True  # nemělo by nastat: lease je náš; radši nespouštět
         # 2) started PŘED spuštěním — pád tady končí v needs_review, ne v tichém opakování
         if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):
             return True

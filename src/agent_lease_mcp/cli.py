@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     p_accept = sub.add_parser("accept", help="acknowledge that you are taking an addressed message/task")
     p_accept.add_argument("message_id", type=int)
     p_accept.add_argument("--note", default="", help="what you will do — the sender sees it")
+    p_accept.add_argument("--token", default=None, help="lease token, if you leased the task")
 
     p_retry = sub.add_parser("retry", help="put a failed task back in the queue")
     p_retry.add_argument("message_id", type=int)
@@ -361,8 +362,9 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(0.2)
 
     elif args.cmd == "accept":
-        if not store.accept(args.message_id, me, args.note):  # jen za sebe
-            print("Not acknowledged: no such message, or it is not addressed to you.", file=sys.stderr)
+        if not store.accept(args.message_id, me, args.note, lease_token=args.token):  # jen za sebe
+            print("Not acknowledged: no such message, not addressed to you, or a worker "
+                  "(bridge) already holds this task — do not run it.", file=sys.stderr)
             return 1
         print(f"✔ Acknowledged #{args.message_id}. The sender knows. Now do the work.")
 

@@ -148,15 +148,19 @@ def ack(message_id: int, state: str, lease_token: str | None = None, error: str 
 
 
 @mcp.tool
-def accept(message_id: int, note: str = "") -> dict:
+def accept(message_id: int, note: str = "", lease_token: str | None = None) -> dict:
     """
     Acknowledge that you are TAKING an addressed message/task — do it now, BEFORE the work.
 
     The sender gets "✔ taking #id: <note>" and does not have to ask whether you
     saw it. `note` = one sentence on what you will do. Until you acknowledge, the
     hook reminds you on every prompt.
+
+    A task you took with `next_task` needs its `lease_token`. A task a worker
+    (bridge) already holds cannot be accepted — `ok: false` means someone else
+    is doing it; do not run it.
     """
-    ok = _store.accept(message_id, _settings.agent, note)
+    ok = _store.accept(message_id, _settings.agent, note, lease_token=lease_token)
     return {"ok": ok, "id": message_id}
 
 

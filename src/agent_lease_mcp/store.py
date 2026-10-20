@@ -219,8 +219,16 @@ class Store:
         with self._connect() as con:
             con.executescript(SCHEMA)
             self._migrate_messages(con)
+            self._migrate_receipts(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
+
+    @staticmethod
+    def _migrate_receipts(con: sqlite3.Connection) -> None:
+        """`by_lease` = převzal to worker s lease tokenem (bridge), ne interaktivní session."""
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(receipts)")}
+        if "by_lease" not in columns:
+            con.execute("ALTER TABLE receipts ADD COLUMN by_lease INTEGER NOT NULL DEFAULT 0")
 
     @staticmethod
     def _migrate_messages(con: sqlite3.Connection) -> None:
@@ -606,29 +614,49 @@ class Store:
             self._signal(sender)
         return fresh
 
-    def accept(self, message_id: int, recipient: str, note: str = "") -> bool:
-        """Vědomé „beru to" od adresáta; odesílatel dostane zprávu s tím, co se bude dít."""
+    def accept(self, message_id: int, recipient: str, note: str = "",
+               lease_token: str | None = None) -> bool:
+        """
+        Vědomé „beru to" od adresáta; odesílatel dostane zprávu s tím, co se bude dít.
+
+        U tasku je přijetí zároveň vlastnictví a musí být atomické s leasem
+        (review Nox, 20. 10. 2026). Task, který už drží worker (`leased`/`started`),
+        smí přijmout jen ten, kdo zná jeho lease token; jinak `False`. Bez toho
+        by interaktivní session a bridge stejného jména provedly úkol oba.
+        Přijetí s tokenem se značí `by_lease` — když lease vyprší, task se vrátí
+        do fronty a worker ho smí vzít znovu (`lease_next(skip_accepted=True)`).
+        """
         note = redact(check_short("note", note))
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             msg = con.execute(
-                "SELECT agent, recipient FROM messages WHERE id=?", (message_id,)
+                "SELECT agent, recipient, kind FROM messages WHERE id=?", (message_id,)
             ).fetchone()
             if not msg or msg["recipient"] != recipient:
                 return False
+            by_lease = 0
+            if msg["kind"] == MessageKind.TASK.value:
+                d = con.execute(
+                    "SELECT state, lease_token FROM deliveries WHERE message_id=? AND recipient=?",
+                    (message_id, recipient),
+                ).fetchone()
+                held = d is not None and d["state"] in ("leased", "started")
+                if held and not (lease_token and lease_token == d["lease_token"]):
+                    return False  # drží ho worker — nepřebírat
+                by_lease = 1 if held else 0
             row = con.execute(
-                "SELECT accepted_at FROM receipts WHERE message_id=? AND recipient=?",
+                "SELECT accepted_at, by_lease FROM receipts WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
             ).fetchone()
-            if row and row["accepted_at"]:
+            if row and row["accepted_at"] and (row["by_lease"] == by_lease or by_lease):
                 return True  # idempotentní
             con.execute(
-                "INSERT INTO receipts(message_id, recipient, seen_at, accepted_at, note) "
-                "VALUES(?,?,?,?,?) ON CONFLICT(message_id, recipient) DO UPDATE SET "
-                "accepted_at=excluded.accepted_at, note=excluded.note, "
+                "INSERT INTO receipts(message_id, recipient, seen_at, accepted_at, note, by_lease) "
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(message_id, recipient) DO UPDATE SET "
+                "accepted_at=excluded.accepted_at, note=excluded.note, by_lease=excluded.by_lease, "
                 "seen_at=COALESCE(receipts.seen_at, excluded.seen_at)",
-                (message_id, recipient, now, now, note),
+                (message_id, recipient, now, now, note, by_lease),
             )
             con.execute(
                 "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
@@ -1227,7 +1255,8 @@ class Store:
                 "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
                 "AND m.id>? "
                 "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
-                "AND (? IS NULL OR m.sent_at<=?) AND (? = 0 OR r.accepted_at IS NULL) "
+                "AND (? IS NULL OR m.sent_at<=?) "
+                "AND (? = 0 OR r.accepted_at IS NULL OR r.by_lease = 1) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
                 (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted))),
             ).fetchall()

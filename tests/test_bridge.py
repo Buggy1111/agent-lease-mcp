@@ -10,6 +10,7 @@ import pytest
 
 from agent_lease_mcp.bridge import Bridge, parse_retry_after
 from agent_lease_mcp.config import Settings
+from agent_lease_mcp.models import DeliveryState
 from agent_lease_mcp.rate_limits import ProviderState
 from agent_lease_mcp.store import Store
 
@@ -373,3 +374,37 @@ def test_interactive_lease_still_gets_its_own_accepted_task(store: Store):
     mid = store.send("michal", "codex", "úkol", kind="task")
     store.accept(mid, "codex", "beru")
     assert store.lease_next("codex").message_id == mid
+
+
+def test_interactive_accept_after_bridge_lease_is_refused(store: Store, tmp_path: Path):
+    """Review Nox #378: lease_next → interaktivní accept nesměl projít (dvojí provedení)."""
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    lease = store.lease_next("codex", skip_accepted=True)
+    assert lease.message_id == mid
+    assert store.accept(mid, "codex", "beru v okně") is False          # drží ho worker
+    assert store.accept(mid, "codex", "bridge", lease_token=lease.lease_token) is True
+    assert store.ack(mid, "codex", DeliveryState.STARTED, lease_token=lease.lease_token)
+    assert store.accept(mid, "codex", "beru v okně") is False          # pořád ne
+
+
+def test_bridge_may_retake_its_own_task_after_lease_expiry(store: Store, monkeypatch):
+    real = time.time()
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    lease = store.lease_next("codex", lease_seconds=1, skip_accepted=True)
+    store.accept(mid, "codex", "bridge", lease_token=lease.lease_token)
+    monkeypatch.setattr(time, "time", lambda: real + 5)     # lease vypršel před startem
+    again = store.lease_next("codex", skip_accepted=True)
+    assert again is not None and again.message_id == mid
+
+
+def test_interactive_accept_of_a_returned_task_blocks_the_bridge(store: Store):
+    import sqlite3
+
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    lease = store.lease_next("codex", skip_accepted=True)
+    store.accept(mid, "codex", "bridge", lease_token=lease.lease_token)
+    with sqlite3.connect(store.db_path) as con:  # lease vypršel → task zpět ve frontě
+        con.execute("UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL "
+                    "WHERE message_id=?", (mid,))
+    assert store.accept(mid, "codex", "beru v okně") is True     # teď ho bere Nox
+    assert store.lease_next("codex", skip_accepted=True) is None  # bridge už ne
