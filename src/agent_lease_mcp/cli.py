@@ -21,8 +21,11 @@ import time
 
 from .briefing import session_briefing
 from .broker import open_store
-from .config import Settings
+from .config import UNTRUSTED_PREFIXES, Settings
 from .models import DeliveryState, MessageKind
+
+# Příkazy, které nic nezapisují pod jménem volajícího — smí i bez AGENT_NAME.
+READ_ONLY_CMDS = frozenset({"owner", "history", "limits", "overdue", "jobs"})
 
 
 def parse_until(text: str) -> float:
@@ -86,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     p_wait = sub.add_parser("wait", help="wait for an addressed message without spending model tokens")
     p_wait.add_argument("--for", required=True, dest="recipient")
     p_wait.add_argument("--since", type=int, default=0)
-    p_wait.add_argument("--timeout", type=float, default=3600)
+    p_wait.add_argument("--timeout", type=float, default=None,
+                        help="seconds (default 3600; with --rewake: until the session ends)")
     p_wait.add_argument(
         "--rewake", action="store_true",
         help="for an asyncRewake hook: print to stderr and exit 2 (wakes the session)",
@@ -176,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "wait":
+        args.timeout_given = args.timeout is not None
+        if args.timeout is None:
+            args.timeout = 3600.0
     if args.cmd == "simulate":
         from .simulate import run_simulation
 
@@ -207,8 +215,14 @@ def main(argv: list[str] | None = None) -> int:
                            + ["--provider", args.provider]
                            + (["--model", args.model] if args.model else []))
     settings = Settings.from_env()
-    store = open_store(settings)
     me = settings.agent
+    if me.startswith(UNTRUSTED_PREFIXES) and args.cmd not in READ_ONLY_CMDS:
+        # Bez jména by se zápis objevil v místnosti jako `unconfigured-<host>-<pid>`:
+        # druhý agent neví, od koho to je, a každé volání přidá nového „člověka".
+        print(f"AGENT_NAME is not set (or not allowed), so you would act as `{me}`.\n"
+              f"Run it as: AGENT_NAME=<your name> agent-lease {args.cmd} ...", file=sys.stderr)
+        return 2
+    store = open_store(settings)
     if args.cmd == "worker-activate":
         after = store.worker_activation(me, include_existing=args.include_existing)
         print(f"Worker {me} will process task ids greater than {after}.")
@@ -310,13 +324,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.message_id} → {args.state}")
 
     elif args.cmd == "wait":
+        if args.rewake:
+            # asyncRewake hook: budí jen to, co session ještě neviděla (kurzor
+            # kontextu), jeden čekatel na session, konec se zánikem session.
+            from .lifecycle import _hook_session, rewake_wait
+
+            if args.recipient != me:
+                print("--rewake waits only for your own messages (--for must be AGENT_NAME).",
+                      file=sys.stderr)
+                return 1
+            return rewake_wait(store, me, session=_hook_session(),
+                               timeout=args.timeout if args.timeout_given else 0)
         deadline = time.monotonic() + max(0, args.timeout)
         seen_signal = 0.0
         next_db = 0.0
         next_beat = 0.0
         while True:
-            # Signální soubor se mění při každém odeslání → reakce do desetin sekundy
-            # bez dotazování DB; DB se projde i bez signálu každých 5 s (pojistka).
             signal = store.signal_mtime(args.recipient)
             now = time.monotonic()
             if me == args.recipient and now >= next_beat:
@@ -325,22 +348,14 @@ def main(argv: list[str] | None = None) -> int:
                 next_beat = now + 60.0
             if signal != seen_signal or now >= next_db:
                 seen_signal, next_db = signal, now + 5.0
-                messages = [
-                    m for m in store.addressed(args.recipient, since_id=args.since)
-                    if m["kind"] != "result" or args.rewake is False
-                ]
-                if args.rewake:
-                    messages = [m for m in messages if m["state"] in ("pending", "leased")
-                                or m["kind"] == "result"]
+                messages = store.addressed(args.recipient, since_id=args.since)
                 if messages:
-                    out = sys.stderr if args.rewake else sys.stdout
                     for message in messages:
                         print(
                             f"#{message['id']} {message['kind']} "
                             f"{message['agent']} → {message['recipient']}: {message['text']}",
-                            file=out,
                         )
-                    return 2 if args.rewake else 0
+                    return 0
             if deadline - time.monotonic() <= 0:
                 return 124
             time.sleep(0.2)

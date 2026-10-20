@@ -35,11 +35,14 @@ def build_hooks(agent: str, *, rewake: bool) -> dict:
         "UserPromptSubmit": [{"hooks": [ctx]}],
         "Stop": [{"hooks": [{"type": "command", "command": f"{env} {_bin('agent-lease-release')}"}]}],
     }
-    if rewake:
-        hooks["SessionStart"][0]["hooks"].append({
-            "type": "command", "async": True, "asyncRewake": True,
-            "command": f"{env} {_bin('agent-lease')} wait --for {agent} --rewake --timeout 86400",
-        })
+    if rewake and agent == "claude-code":
+        # asyncRewake umí jen Claude Code; Codex budí `agent-lease-codex-wake`.
+        # Čekatel se znovu nastaví po každém tahu (Stop) i při startu session.
+        # Jeden na session (zámek), skončí sám se session — žádný --timeout.
+        wake = {"type": "command", "async": True, "asyncRewake": True,
+                "command": f"{env} {_bin('agent-lease')} wait --for {agent} --rewake"}
+        hooks["SessionStart"][0]["hooks"].append(dict(wake))
+        hooks["Stop"][0]["hooks"].append(dict(wake))
     return hooks
 
 
@@ -68,6 +71,9 @@ def run_init(agent: str, *, write: bool, rewake: bool, home: Path | None = None)
         except ValueError:
             print(f"{path} is not valid JSON — not touching it. Fix it by hand.", file=sys.stderr)
             return 1
+    if rewake and agent != "claude-code":
+        print("--rewake applies to Claude Code only; wake Codex with agent-lease-codex-wake.",
+              file=sys.stderr)
     merged = merge(existing, build_hooks(agent, rewake=rewake))
     text = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
     if not write:

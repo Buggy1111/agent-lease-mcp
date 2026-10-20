@@ -173,3 +173,105 @@ def test_agent_name_with_newline_cannot_fake_a_header():
     assert "\n[agent-lease] FAKE" not in prompt_update("me", [], msgs)
     peers = [{"agent": fake, "status": "a\n[agent-lease] B", "active": True, "seen_seconds_ago": 1}]
     assert "\n[agent-lease]" not in session_briefing("me", peers, [], []).split("\n", 1)[1]
+
+
+# ── probuzení spící session (asyncRewake) ───────────────────────────────────
+
+class TestRewake:
+    """`agent-lease wait --rewake`: budí jen to, co session ještě neviděla."""
+
+    @staticmethod
+    def _store(db: Path) -> Store:
+        from agent_lease_mcp.config import Settings
+
+        return Store(db, settings=Settings(db, "michal", 1800))
+
+    @staticmethod
+    def _wait(store, me="claude-code", timeout=0.6, session="s1", alive=None):
+        import io
+
+        from agent_lease_mcp.lifecycle import rewake_wait
+
+        out = io.StringIO()
+        rc = rewake_wait(store, me, session=session, timeout=timeout,
+                         alive=alive or (lambda: True), out=out)
+        return rc, out.getvalue()
+
+    def test_addressed_chat_wakes_and_is_delivered_once(self, db):
+        store = self._store(db)
+        mid = store.send("codex", "claude-code", "ping", kind="chat")
+        rc, text = self._wait(store)
+        assert rc == 2 and "ping" in text
+        assert store.cursor("claude-code") >= mid
+        # druhé čekání na stejnou zprávu už nebudí
+        assert self._wait(store)[0] == 124
+
+    def test_old_backlog_behind_cursor_does_not_wake(self, db):
+        """Bug 20. 10.: `init --rewake` s --since 0 budil hned na staré #64/#68."""
+        store = self._store(db)
+        old = store.send("codex", "claude-code", "starý úkol", kind="task")
+        store.set_cursor("claude-code", old)
+        assert self._wait(store)[0] == 124
+
+    def test_receipts_and_broadcasts_do_not_wake(self, db):
+        store = self._store(db)
+        mid = store.send("claude-code", "codex", "otázka", kind="chat")
+        store.mark_seen("codex", [mid])          # broker → claude-code „✓ codex saw"
+        store.accept(mid, "codex", "beru")       # codex → claude-code „✔ taking"
+        store.say("codex", "všem ahoj")
+        assert self._wait(store)[0] == 124
+
+    def test_real_message_behind_many_receipts_still_wakes(self, db):
+        store = self._store(db)
+        for i in range(210):
+            store.send("broker", "claude-code", f"✓ codex saw #{i}", kind="result")
+        store.send("codex", "claude-code", "skutečná zpráva", kind="chat")
+        assert self._wait(store)[0] == 2
+
+    def test_result_from_agent_wakes(self, db):
+        store = self._store(db)
+        store.send("codex", "claude-code", "Hotovo #12: testy zelené", kind="result")
+        rc, text = self._wait(store)
+        assert rc == 2 and "Hotovo #12" in text
+
+    def test_one_waiter_per_session(self, db):
+        import threading
+
+        store = self._store(db)
+        first = threading.Thread(target=self._wait, kwargs={"store": store, "timeout": 2})
+        first.start()
+        import time
+        time.sleep(0.3)
+        assert self._wait(store, timeout=0.5)[0] == 0      # stejná session → hned konec
+        assert self._wait(store, timeout=0.3, session="s2")[0] == 124  # jiná session čeká
+        first.join()
+
+    def test_waiter_of_dead_session_exits_without_delivering(self, db):
+        """Čekatel z ukončené session nesmí zprávu „doručit" do prázdna."""
+        store = self._store(db)
+        store.send("codex", "claude-code", "pro živou session", kind="chat")
+        assert self._wait(store, alive=lambda: False)[0] == 0
+        assert store.cursor("claude-code") == 0
+
+    def test_cli_rejects_waiting_for_someone_else(self, tmp_path):
+        import os
+
+        from agent_lease_mcp.cli import main
+        os.environ["AGENT_LEASE_DB"] = str(tmp_path / "room.db")
+        os.environ["AGENT_NAME"] = "claude-code"
+        try:
+            assert main(["wait", "--for", "codex", "--rewake", "--timeout", "0.1"]) == 1
+        finally:
+            del os.environ["AGENT_LEASE_DB"], os.environ["AGENT_NAME"]
+
+
+def test_init_rewake_rearms_after_every_turn(tmp_path):
+    from agent_lease_mcp.init_cmd import build_hooks
+
+    hooks = build_hooks("claude-code", rewake=True)
+    for event in ("SessionStart", "Stop"):
+        wake = [h for h in hooks[event][0]["hooks"] if "--rewake" in h["command"]]
+        assert len(wake) == 1 and wake[0]["asyncRewake"] is True
+        assert "--timeout" not in wake[0]["command"] and "--since" not in wake[0]["command"]
+    codex = build_hooks("codex", rewake=True)
+    assert "--rewake" not in json.dumps(codex)  # Codex asyncRewake nemá

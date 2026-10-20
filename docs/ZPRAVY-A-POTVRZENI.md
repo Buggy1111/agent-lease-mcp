@@ -34,38 +34,50 @@ Příjemky samy příjemky nevyvolávají (žádný ping-pong) a nezakládají d
 Hook se spustí jen při akci agenta. Spící session proto musí probudit něco
 zvenku. Dvě cesty, obě bez spotřeby modelových tokenů:
 
-- **`agent-lease wait --for <agent> --rewake`** — běží jako hook na pozadí.
-  Odesílání zapíše do signálního souboru `~/.agent-lease/signals/<agent>`, `wait`
-  na něj reaguje do ~0,2 s (DB se z jistoty projde každých 5 s). Po příchodu
-  zprávy vypíše text na stderr a skončí s kódem 2, což harness chápe jako
-  „probuď session".
-- **Codex bridge** — `turn/steer` do běžícího turnu (dokumentace
-  [Codex App Server](https://developers.openai.com/codex/app-server)); viz `agent-lease bridge`.
+- **`agent-lease wait --for <agent> --rewake`** — běží jako asynchronní hook
+  (`asyncRewake`) na `SessionStart` **a `Stop`**, takže se znovu nastaví po každém
+  tahu. Odesílání zapíše do signálního souboru `~/.agent-lease/signals/<agent>`,
+  `wait` na něj reaguje do ~0,2 s (DB se z jistoty projde každých 5 s). Po příchodu
+  zprávy vypíše stejný text jako prompt hook na stderr a skončí s kódem 2, což
+  Claude Code chápe jako „probuď session".
+  - **Budí jen** adresná zpráva od někoho jiného, kterou session ještě neviděla
+    (stejný kurzor jako `agent-lease-context`). Broadcast (`say`) ani automatické
+    příjemky („✓ … saw", „✔ taking") nebudí. Staré nevyřízené zprávy za kurzorem
+    také ne.
+  - Probuzení = doručení: zprávy se označí jako viděné a kurzor se posune, takže
+    stejná zpráva neprobudí dvakrát.
+  - Jeden čekatel na session (zámek `~/.agent-lease/wake/<agent>-<session>.lock`).
+    Čekatel hlídá proces klienta a se zánikem session skončí, aniž by cokoli
+    „doručil" — jinak by zpráva zmizela v mrtvé session.
+- **Codex** asyncRewake nemá. Interaktivní session budí `agent-lease-codex-wake`
+  přes `codex queue --thread <jméno>`; úkoly (`kind=task`) bere `agent-lease bridge`.
 
-Claude Code — `~/.claude/settings.json`:
+Claude Code — nejjednodušší je `agent-lease init claude-code --write --rewake`.
+Ručně (`~/.claude/settings.json`):
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{
-      "hooks": [
-        { "type": "command", "command": "AGENT_NAME=claude-code agent-lease-context" },
-        { "type": "command", "async": true, "asyncRewake": true,
-          "command": "AGENT_NAME=claude-code agent-lease wait --for claude-code --rewake --timeout 86400" }
-      ]
-    }],
+    "SessionStart": [{ "hooks": [
+      { "type": "command", "command": "AGENT_NAME=claude-code agent-lease-context" },
+      { "type": "command", "async": true, "asyncRewake": true,
+        "command": "AGENT_NAME=claude-code agent-lease wait --for claude-code --rewake" }
+    ]}],
     "UserPromptSubmit": [{ "hooks": [
       { "type": "command", "command": "AGENT_NAME=claude-code agent-lease-context" }
+    ]}],
+    "Stop": [{ "hooks": [
+      { "type": "command", "command": "AGENT_NAME=claude-code agent-lease-release" },
+      { "type": "command", "async": true, "asyncRewake": true,
+        "command": "AGENT_NAME=claude-code agent-lease wait --for claude-code --rewake" }
     ]}]
   }
 }
 ```
 
-⚠️ Pole `asyncRewake` jsem v dokumentaci Claude Code nemohl ověřit proti vaší
-verzi — příkaz `agent-lease doctor` vypíše, co je nastavené, ale skutečné
-probuzení spící session si ověř jednou ručně: pošli `send --to claude-code "test"`
-a sleduj, jestli se session sama ozve. Když ne, platí záloha: zpráva dorazí a
-bude vyžadovat potvrzení při nejbližším promptu.
+`asyncRewake` je v Claude Code 2.1.304 ověřené (schéma hooků ho obsahuje).
+Ověření naživo: `AGENT_NAME=codex agent-lease send --to claude-code "test"` a
+spící session se má sama ozvat.
 
 ## Co když adresát pořád mlčí
 

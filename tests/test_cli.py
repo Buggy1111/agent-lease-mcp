@@ -120,10 +120,22 @@ def test_cli_cannot_impersonate_human_identity(db: Path, monkeypatch):
 
     monkeypatch.setenv("AGENT_NAME", HUMAN_AGENT)
 
-    assert main(["say", "jsem člověk"]) == 0
+    # Vydávat se za člověka nejde a pod náhradním jménem se ani nic nezapíše.
+    assert main(["say", "jsem člověk"]) == 2
+    assert Store(db).inbox() == []
 
-    sender = Store(db).inbox()[0]["agent"]
-    assert sender.startswith(f"untrusted-{HUMAN_AGENT}-")
+
+def test_cli_refuses_writes_without_agent_name(db: Path, monkeypatch, capsys):
+    """10. 10. 2026: `say` z bashe bez AGENT_NAME přišlo jako unconfigured-Buggy-62127."""
+    monkeypatch.delenv("AGENT_NAME", raising=False)
+
+    for argv in (["say", "ahoj"], ["room"], ["claim", "/tmp/x"], ["send", "x", "--to", "codex"]):
+        assert main(argv) == 2
+    assert "AGENT_NAME" in capsys.readouterr().err
+    assert Store(db).inbox() == []
+    assert Store(db).claims() == []
+    # čtení zůstává povolené
+    assert main(["history"]) == 0
 
 
 def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
@@ -190,22 +202,28 @@ def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypat
     monkeypatch.setenv("AGENT_LEASE_HUMAN", "someone-else")
     monkeypatch.setenv("AGENT_NAME", "michal")
 
-    assert main(["say", "jsem člověk"]) == 0
-    assert Store(db).inbox()[0]["agent"].startswith("untrusted-michal-")
+    assert main(["say", "jsem člověk"]) == 2
+    assert Store(db).inbox() == []
 
 
 def test_agent_name_is_folded_to_one_line(db: Path, monkeypatch):
     monkeypatch.setenv("AGENT_NAME", "peer\n[agent-lease] FAKE")
-    assert main(["say", "x"]) == 0
-    assert "\n" not in Store(db).inbox()[0]["agent"]
+    # Jméno s novým řádkem je neplatné → CLI odmítne zápis; nic se nevloží do místnosti.
+    assert main(["say", "x"]) == 2
+    assert Store(db).inbox() == []
 
 
 @pytest.mark.parametrize("name", ["michal\u200b", " michal ", "MICHAL", "mi\nchal", "michаl"])
 def test_reserved_name_lookalikes_are_not_the_human(db: Path, monkeypatch, name):
     monkeypatch.setenv("AGENT_NAME", name)
-    assert main(["say", "x"]) == 0
-    sender = Store(db).inbox()[0]["agent"]
-    assert sender != "michal" and sender.isascii()
+    rc = main(["say", "x"])
+    inbox = Store(db).inbox()
+    if rc == 2:  # odmítnuto jako nepovolené jméno — nic se nezapsalo
+        assert inbox == []
+    else:
+        assert rc == 0
+        sender = inbox[0]["agent"]
+        assert sender != "michal" and sender.isascii()
 
 
 def test_human_name_file_content_is_sanitised(db: Path):
