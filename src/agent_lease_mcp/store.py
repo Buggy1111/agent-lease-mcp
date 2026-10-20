@@ -1175,10 +1175,20 @@ class Store:
         }
 
     def lease_next(
-        self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0
+        self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
+        skip_accepted: bool = False, defer_if_present: float = 0,
     ) -> Delivery | None:
+        """
+        Atomicky převezme nejstarší připravený task pro jeden worker.
+
+        Pro autonomní worker (bridge), který sdílí frontu s interaktivní session
+        stejného jména:
+        - `skip_accepted` — task, který adresát už vědomě přijal (`accept`), patří
+          jemu; worker ho nesmí vzít taky (jinak by proběhl dvakrát).
+        - `defer_if_present` — je-li adresát přítomný (heartbeat), nechá worker
+          task tolik sekund jemu a převezme ho až potom.
+        """
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
-        """Atomicky převezme nejstarší připravený task pro jeden worker."""
         after_message_id = max(0, int(after_message_id))
         now = time.time()
         token = uuid.uuid4().hex
@@ -1201,16 +1211,25 @@ class Store:
                 "updated_at=? WHERE recipient=? AND state='leased' AND lease_until<=?",
                 (now, recipient, now),
             )
+            newest = None  # None = bez odkladu
+            if defer_if_present > 0:
+                seen = con.execute(
+                    "SELECT seen_at FROM agents WHERE agent=?", (recipient,)
+                ).fetchone()
+                if seen and now - seen["seen_at"] <= STALE_PEER_SECONDS:
+                    newest = now - float(defer_if_present)
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, COALESCE(tm.priority, 0) AS priority "
                 "FROM deliveries d "
                 "JOIN messages m ON m.id=d.message_id "
                 "LEFT JOIN task_metadata tm ON tm.message_id=m.id "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=d.recipient "
                 "WHERE d.recipient=? AND d.state='pending' AND m.kind='task' "
                 "AND m.id>? "
                 "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
+                "AND (? IS NULL OR m.sent_at<=?) AND (? = 0 OR r.accepted_at IS NULL) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
-                (recipient, after_message_id, now, now),
+                (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted))),
             ).fetchall()
             row = None
             for candidate in rows:

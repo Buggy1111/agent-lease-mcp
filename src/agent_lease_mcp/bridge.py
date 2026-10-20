@@ -191,8 +191,12 @@ class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
                  after_message_id: int = 0, provider_probe=None,
-                 provider_probe_interval: float = 60, worker_identity: str | None = None) -> None:
+                 provider_probe_interval: float = 60, worker_identity: str | None = None,
+                 interactive_grace: float = 300) -> None:
         self.store, self.agent, self.command = store, agent, command
+        # Interaktivní session stejného jména má přednost: přijatý task nikdy,
+        # čerstvý task až po `interactive_grace` s, pokud je adresát přítomný.
+        self.interactive_grace = max(0.0, float(interactive_grace))
         self.worker_identity = worker_identity or f"{agent}-bridge"
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
@@ -252,6 +256,7 @@ class Bridge:
         delivery = self.store.lease_next(
             self.agent, lease_seconds=self.lease_seconds,
             after_message_id=self.after_message_id,
+            skip_accepted=True, defer_if_present=self.interactive_grace,
         )
         if delivery is None:
             return False
@@ -358,6 +363,11 @@ def main(argv: list[str] | None = None) -> int:
         "--include-existing", action="store_true",
         help="on this worker's first activation, include tasks already in the queue",
     )
+    p.add_argument(
+        "--interactive-grace", type=float,
+        default=float(os.environ.get("AGENT_LEASE_INTERACTIVE_GRACE", "300")),
+        help="seconds a present interactive session gets before the bridge takes a task",
+    )
     args = p.parse_args(argv)
     runner = None
     command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
@@ -380,6 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     bridge = Bridge(store, args.agent, command, runner=runner,
                     timeout=args.timeout, max_per_hour=args.max_per_hour,
                     after_message_id=after_message_id,
+                    interactive_grace=args.interactive_grace,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()

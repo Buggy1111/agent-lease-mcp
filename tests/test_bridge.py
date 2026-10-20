@@ -331,3 +331,45 @@ def test_reported_limit_blocks_even_when_provider_says_available(store: Store, t
     store.clear_limit("codex-bridge")
     assert bridge.step(), "po zrušení limitu se úkol zpracuje"
     assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "succeeded"
+
+
+# ── bridge ustoupí interaktivní session stejného jména ──────────────────────
+
+def test_bridge_never_takes_a_task_the_interactive_agent_accepted(store: Store, tmp_path: Path):
+    """20. 10. 2026: Nox přijal task v okně a bridge ho mohl spustit podruhé."""
+    mid = store.send("michal", "codex", "udělej X", kind="task")
+    store.mark_seen("codex", [mid])
+    store.accept(mid, "codex", "beru v okně")
+
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('ok')"), interactive_grace=0)
+    assert bridge.step() is False
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "pending"
+
+
+def test_bridge_waits_for_a_present_interactive_agent_then_takes_over(
+    store: Store, tmp_path: Path, monkeypatch,
+):
+    real = time.time()
+    store.heartbeat("codex")  # interaktivní Nox je u počítače
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('ok')"), interactive_grace=300)
+
+    assert bridge.step() is False                      # čerstvý → nechá ho Noxovi
+    monkeypatch.setattr(time, "time", lambda: real + 301)
+    store.heartbeat("codex")
+    assert bridge.step() is True                       # po grace převezme
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "succeeded"
+
+
+def test_bridge_takes_a_task_at_once_when_nobody_is_present(store: Store, tmp_path: Path):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('ok')"), interactive_grace=300)
+    assert bridge.step() is True
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "succeeded"
+
+
+def test_interactive_lease_still_gets_its_own_accepted_task(store: Store):
+    """MCP `next_task` interaktivní session nesmí přijatý task přeskočit."""
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    store.accept(mid, "codex", "beru")
+    assert store.lease_next("codex").message_id == mid
