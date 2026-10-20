@@ -221,10 +221,21 @@ class TestRewake:
         store.say("codex", "všem ahoj")
         assert self._wait(store)[0] == 124
 
+    def test_result_that_only_looks_like_a_receipt_wakes(self, db):
+        """Review Nox: „✔ taking #42 dokončeno…" bez vazby není příjemka."""
+        store = self._store(db)
+        store.send("codex", "claude-code", "✔ taking #42 dokončeno, testy zelené", kind="result")
+        assert self._wait(store)[0] == 2
+        orig = store.send("claude-code", "codex", "úkol", kind="chat")
+        store.send("codex", "claude-code", f"✔ taking #{orig}hotovo", kind="result", reply_to=orig)
+        assert self._wait(store)[0] == 2
+
     def test_real_message_behind_many_receipts_still_wakes(self, db):
         store = self._store(db)
-        for i in range(210):
-            store.send("broker", "claude-code", f"✓ codex saw #{i}", kind="result")
+        orig = store.send("claude-code", "codex", "x", kind="chat")
+        for _ in range(210):
+            store.send("broker", "claude-code", f"✓ codex saw #{orig} (“x”)", kind="result",
+                       reply_to=orig)
         store.send("codex", "claude-code", "skutečná zpráva", kind="chat")
         assert self._wait(store)[0] == 2
 

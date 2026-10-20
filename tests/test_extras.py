@@ -100,3 +100,29 @@ def test_notifier_without_token_is_a_clear_error(store: Store, monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     store.send("michal", "codex", "x", kind="task")
     assert run_once(store, overdue_seconds=0, dry=False) == 2
+
+
+def test_doctor_codex_wake_reports_named_session_and_service(tmp_path, monkeypatch, capsys):
+    """Codex asyncRewake nemá; doctor hlásí budík (pojmenovaná session + služba)."""
+    import json
+
+    from agent_lease_mcp import doctor
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("AGENT_LEASE_CODEX_THREAD", raising=False)
+    env = tmp_path / ".config" / "agent-lease" / "environment"
+    env.parent.mkdir(parents=True)
+    env.write_text("SECRET=x\nAGENT_LEASE_CODEX_THREAD=nox\n")
+    monkeypatch.setattr(doctor, "_codex_queue_supported", lambda _bin: True)
+
+    monkeypatch.setattr(doctor, "_user_service_active", lambda _name: True)
+    doctor.run_doctor(json_output=True)
+    check = {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
+    assert check["status"] == "ok" and check["configured_thread"] == "nox"
+
+    monkeypatch.setattr(doctor, "_user_service_active", lambda _name: False)
+    doctor.run_doctor(json_output=True)
+    check = {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
+    assert check["status"] == "warning" and "enable --now" in check["message"]

@@ -70,17 +70,33 @@ def _codex_queue_supported(binary: str | None) -> bool:
     return probe.returncode == 0
 
 
-def _service_fallbacks(path: Path) -> dict[str, tuple[str, ...]]:
-    """Read only the non-secret fallback setting from a systemd EnvironmentFile."""
+def _service_env_value(path: Path, key: str) -> str:
+    """Read one non-secret value from a systemd EnvironmentFile ("" if absent)."""
     try:
         lines = path.read_text().splitlines()
     except OSError:
-        return {}
+        return ""
     for raw in lines:
         line = raw.strip()
-        if line.startswith("AGENT_LEASE_FALLBACKS="):
-            return parse_fallbacks(line.split("=", 1)[1])
-    return {}
+        if line.startswith(f"{key}="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _service_fallbacks(path: Path) -> dict[str, tuple[str, ...]]:
+    """Read only the non-secret fallback setting from a systemd EnvironmentFile."""
+    raw = _service_env_value(path, "AGENT_LEASE_FALLBACKS")
+    return parse_fallbacks(raw) if raw else {}
+
+
+def _user_service_active(name: str) -> bool:
+    if not (shutil.which("systemctl") and os.path.exists("/run/systemd/system")):
+        return False
+    try:
+        return subprocess.run(["systemctl", "--user", "is-active", "--quiet", name],
+                              timeout=5, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def run_doctor(*, json_output: bool = False) -> int:
@@ -168,9 +184,10 @@ def run_doctor(*, json_output: bool = False) -> int:
             rw_msg = "set" if rewake else "not set (a message waits for the next prompt)"
             line(f"{slug}_context", OK if ctx else WARN,
                  f"{label}: message injection (agent-lease-context) {ctx_msg}")
-            line(f"{slug}_rewake", OK if rewake else WARN,
-                 f"{label}: waking a sleeping session (wait --rewake) {rw_msg}",
-                 configured=bool(rewake))
+            if slug == "claude":  # Codex asyncRewake nemá — jeho buzení viz codex_rewake níž
+                line(f"{slug}_rewake", OK if rewake else WARN,
+                     f"{label}: waking a sleeping session (wait --rewake) {rw_msg}",
+                     configured=bool(rewake))
             hook_agents = _hook_agent_names(path)
             expected = "claude-code" if slug == "claude" else "codex"
             if hook_agents is not None and hook_agents and hook_agents != {expected}:
@@ -195,6 +212,27 @@ def run_doctor(*, json_output: bool = False) -> int:
          "Codex queue command is available for an existing named session"
          if queue_supported else "Codex queue command not available; use a bridge-owned worker",
          supported=queue_supported)
+
+    env_file = home / ".config" / "agent-lease" / "environment"
+    thread = (os.environ.get("AGENT_LEASE_CODEX_THREAD", "").strip()
+              or _service_env_value(env_file, "AGENT_LEASE_CODEX_THREAD"))
+    wake_active = _user_service_active("agent-lease-codex-wake.service")
+    if queue_supported and thread and wake_active:
+        line("codex_rewake", OK, f"Codex wake service active for named session {thread!r}",
+             configured_thread=thread, service_active=True)
+    else:
+        missing = []
+        if not thread:
+            missing.append("name the session with /rename and set AGENT_LEASE_CODEX_THREAD "
+                           f"in {env_file}")
+        if not wake_active:
+            missing.append("systemctl --user enable --now agent-lease-codex-wake.service")
+        if not queue_supported:
+            missing.append("a Codex CLI with `codex queue`")
+        line("codex_rewake", WARN,
+             "Codex: a sleeping session is not woken (a message waits for the next prompt) — "
+             + "; ".join(missing),
+             configured_thread=thread or None, service_active=wake_active)
 
     if platform.system() == "Linux" and "microsoft" in platform.release().lower():
         line("wsl_lifetime", WARN, "WSL: systemd services do not survive a Windows restart — "

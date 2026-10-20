@@ -141,11 +141,20 @@ def release_main() -> int:
 # ── probuzení spící session (asyncRewake) ────────────────────────────────────
 
 def is_receipt(m: dict) -> bool:
-    """Automatické příjemky („✓ X saw #N", „✔ taking #N") — nikoho nebudí."""
-    if m.get("kind") != "result":
+    """
+    Automatické příjemky — nikoho nebudí. Uznává jen přesný tvar, který generuje
+    store: broker „✓ <kdo> saw #N (…)" a adresátovo „✔ taking #N[: poznámka]",
+    obojí s `reply_to == N`. Běžný result, který náhodou začíná stejnými slovy
+    („✔ taking #42 dokončeno…"), je zpráva a budí (review Nox, 20. 10. 2026).
+    """
+    if m.get("kind") != "result" or m.get("reply_to") is None:
         return False
     text = str(m.get("text") or "")
-    return (m.get("agent") == "broker" and text.startswith("✓ ")) or text.startswith("✔ taking #")
+    ref = f"#{m['reply_to']}"
+    if m.get("agent") == "broker":
+        return text.startswith("✓ ") and f" saw {ref} (" in text
+    taking = f"✔ taking {ref}"
+    return text == taking or text.startswith(taking + ": ")
 
 
 def wakes(m: dict, me: str) -> bool:
