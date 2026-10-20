@@ -39,6 +39,25 @@ def test_remote_store_mirrors_store_including_dataclasses(broker):
     assert remote.ack(mid, "codex", "succeeded", lease_token=d.lease_token)
 
 
+def test_remote_store_resolves_relative_paths_in_client_cwd(broker, tmp_path, monkeypatch):
+    settings, sock = broker
+    client_cwd = tmp_path / "client"
+    client_cwd.mkdir()
+    monkeypatch.chdir(client_cwd)
+    remote = RemoteStore(settings, sock)
+
+    assert remote.claim(["src/a.py"], agent="codex").granted == [
+        str(client_cwd / "src/a.py")
+    ]
+    mid = remote.send("michal", "codex", "task", kind="task", paths=["src/b.py"])
+
+    from agent_lease_mcp.store import Store
+    with Store(settings=settings)._connect() as con:
+        assert con.execute(
+            "SELECT path FROM task_paths WHERE message_id=?", (mid,)
+        ).fetchone()[0] == str(client_cwd / "src/b.py")
+
+
 def test_worker_activation_roundtrips_over_broker(broker):
     settings, sock = broker
     remote = RemoteStore(settings, sock)

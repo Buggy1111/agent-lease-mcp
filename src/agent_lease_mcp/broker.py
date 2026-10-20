@@ -26,6 +26,7 @@ from pathlib import Path
 
 from .config import Settings
 from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
+from .policy import normalize_path
 from .store import Store
 
 METHODS = frozenset({
@@ -169,6 +170,10 @@ class RemoteStore:
         self.db_path = settings.db_path
 
     def _call(self, method: str, args, kwargs):
+        # Path normalization must happen in the client process.  The broker is
+        # a long-running systemd service with a different cwd; resolving a
+        # relative path there can silently protect the wrong file.
+        args, kwargs = _normalize_client_paths(method, args, kwargs)
         with socket.socket(socket.AF_UNIX) as s:
             s.settimeout(30)
             s.connect(str(self.path))
@@ -185,6 +190,33 @@ class RemoteStore:
         if name not in METHODS:
             raise AttributeError(name)
         return lambda *a, **kw: self._call(name, a, kw)
+
+
+def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
+    args = list(args)
+    kwargs = dict(kwargs)
+
+    def path_list(position: int, name: str) -> None:
+        if len(args) > position:
+            args[position] = [normalize_path(path) for path in args[position]]
+        elif name in kwargs and kwargs[name] is not None:
+            kwargs[name] = [normalize_path(path) for path in kwargs[name]]
+
+    def one_path(position: int, name: str) -> None:
+        if len(args) > position and args[position] is not None:
+            args[position] = normalize_path(args[position])
+        elif kwargs.get(name) is not None:
+            kwargs[name] = normalize_path(kwargs[name])
+
+    if method in {"claim", "release"}:
+        path_list(0, "paths")
+    elif method in {"edit_gate", "holder_of"}:
+        one_path(0, "path")
+    elif method == "send" and kwargs.get("paths") is not None:
+        kwargs["paths"] = [normalize_path(path) for path in kwargs["paths"]]
+    elif method == "history":
+        one_path(1, "path")
+    return args, kwargs
 
 
 def open_store(settings: Settings | None = None):
