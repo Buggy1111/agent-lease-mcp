@@ -314,3 +314,20 @@ def test_last_message_file_replaces_the_noisy_transcript(tmp_path: Path):
     )
     res = run_command(f"{sys.executable} {script} {{last_message}} {{prompt}}", "q", timeout=30)
     assert res.ok and res.output == "THE ANSWER"
+
+
+def test_reported_limit_blocks_even_when_provider_says_available(store: Store, tmp_path: Path):
+    """Živý test 20. 10. (#296): ohlášený limit worker ignoroval, protože
+    poskytovatel hlásil „available"."""
+    import time
+
+    mid = store.send("michal", "codex", "must wait", kind="task")
+    store.report_limit("codex-bridge", time.time() + 300, "artificial")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('must not run')"),
+                    provider_probe=lambda: ProviderState("available", "test", None, ""),
+                    provider_probe_interval=60)
+    assert not bridge.step()
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "pending"
+    store.clear_limit("codex-bridge")
+    assert bridge.step(), "po zrušení limitu se úkol zpracuje"
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "succeeded"

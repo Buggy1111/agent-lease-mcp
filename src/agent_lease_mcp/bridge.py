@@ -235,6 +235,17 @@ class Bridge:
                 self.worker_identity, status=f"bridge: {self.agent} provider {provider['state']}",
             )
             return False
+        # Ohlášený limit (`agent-lease limit` / `report_limit`) platí i tehdy, když
+        # poskytovatel hlásí „available" — agent nebo člověk ví víc než status
+        # endpoint (živý test 20. 10., task #296 proběhl přes aktivní limit).
+        reported = [lim for lim in self.store.limits()
+                    if lim["agent"] in (self.agent, self.worker_identity) and lim["seconds_left"] > 0]
+        if reported:
+            self.store.heartbeat(
+                self.worker_identity,
+                status=f"bridge: {self.agent} limited for {reported[0]['seconds_left'] // 60} min",
+            )
+            return False
         if not self._budget_left():
             self.store.heartbeat(self.worker_identity, status="bridge: hourly cap reached")
             return False
