@@ -25,10 +25,12 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -43,7 +45,11 @@ from .store import Store
 
 # `{prompt}` se nahradí jedním argumentem (bez shellu → žádná injekce přes text zprávy).
 DEFAULT_COMMANDS = {
-    "codex": "codex exec --sandbox read-only --skip-git-repo-check {prompt}",
+    # `{last_message}`: Codex zapíše jen svou finální odpověď do souboru. Bez toho
+    # by výsledek byl celý přepis běhu (výpisy nástrojů, hooky, tokeny) oříznutý
+    # na konec — odpověď zahrabaná v šumu (živý test 20. 10., task #288).
+    "codex": "codex exec --sandbox read-only --skip-git-repo-check "
+             "--output-last-message {last_message} {prompt}",
     "claude-code": "claude -p {prompt} --output-format text --permission-mode plan",
 }
 _RATE_LIMIT = re.compile(
@@ -101,14 +107,29 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 
 
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> RunResult:
-    argv = [prompt if part == "{prompt}" else part for part in shlex.split(template)]
+    with tempfile.TemporaryDirectory(prefix="agent-lease-run-") as tmp:
+        last = os.path.join(tmp, "last-message.txt")
+        result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick)
+        if result.ok and "{last_message}" in template:
+            try:
+                final = Path(last).read_text(encoding="utf-8").strip()
+            except OSError:
+                final = ""
+            if final:
+                return RunResult(True, final[-4000:])
+        return result
+
+
+def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None) -> RunResult:
+    argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
+            for part in shlex.split(template)]
     try:
         proc = subprocess.Popen(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True,
         )
     except OSError as exc:
-        return RunResult(False, f"nelze spustit {argv[0]}: {exc}")
+        return RunResult(False, f"cannot start {argv[0]}: {exc}")
     started = time.monotonic()
     chunks: list[str] = []
     reader = threading.Thread(
@@ -119,7 +140,7 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> 
         if time.monotonic() - started > timeout:
             proc.kill()
             reader.join(2)
-            return RunResult(False, f"timeout po {int(timeout)} s")
+            return RunResult(False, f"timed out after {int(timeout)} s")
         if on_tick:
             on_tick()
         time.sleep(0.2)

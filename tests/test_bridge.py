@@ -301,3 +301,16 @@ def test_provider_is_probed_on_the_first_step_right_after_boot(store: Store, tmp
                     provider_probe=lambda: ProviderState("limited", "test", 100, "rate_limit_reached"),
                     provider_probe_interval=60)
     assert not bridge.step()
+
+
+def test_last_message_file_replaces_the_noisy_transcript(tmp_path: Path):
+    """Živý test 20. 10.: bez --output-last-message vracel worker celý přepis běhu."""
+    from agent_lease_mcp.bridge import run_command
+
+    script = tmp_path / "fake_codex.py"
+    script.write_text(
+        "import sys\nprint('tool output ' * 500)\n"
+        "open(sys.argv[1], 'w').write('THE ANSWER')\n"
+    )
+    res = run_command(f"{sys.executable} {script} {{last_message}} {{prompt}}", "q", timeout=30)
+    assert res.ok and res.output == "THE ANSWER"
