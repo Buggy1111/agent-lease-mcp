@@ -217,3 +217,8 @@ def test_first_start_baselines_an_old_recovery_episode(tmp_path: Path, monkeypat
     assert wake.step() is False
     assert not log.exists()
     assert (tmp_path / "cursor.recovery").exists()
+
+
+def test_wake_unit_requires_the_broker():
+    unit = Path(__file__).parents[1] / "deploy" / "systemd" / "agent-lease-codex-wake.service"
+    assert "Environment=AGENT_LEASE_REQUIRE_BROKER=1" in unit.read_text()
