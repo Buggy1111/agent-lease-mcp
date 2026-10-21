@@ -16,10 +16,11 @@ import time
 from pathlib import Path
 
 from .broker import open_store
-from .config import Settings
+from .config import STALE_PEER_SECONDS, Settings
 from .lifecycle import wakes
 
 RECIPIENT = "codex"
+RECOVERY_WINDOW_SECONDS = 86400
 
 
 def _atomic_write(path: Path, value: int) -> None:
@@ -69,13 +70,7 @@ def _addressed_after(store, recipient: str, cursor: int) -> list[dict]:
         since = int(batch[-1]["id"])
 
 
-def queue_nudge(thread: str, message_ids: list[int], *, runner=subprocess.run) -> tuple[bool, str]:
-    ids = ", ".join(f"#{mid}" for mid in message_ids)
-    noun = "zprávu" if len(message_ids) == 1 else "zprávy"
-    notice = (
-        f"[agent-lease] Máš nové adresné {noun} {ids} v místnosti. "
-        "Zavolej inbox/room a odpověz přes send."
-    )
+def _queue_text(thread: str, notice: str, *, runner=subprocess.run) -> tuple[bool, str]:
     try:
         completed = runner(
             ["codex", "queue", "--thread", thread, "--message", notice],
@@ -91,6 +86,16 @@ def queue_nudge(thread: str, message_ids: list[int], *, runner=subprocess.run) -
         return True, ""
     detail = (completed.stderr or completed.stdout or "codex queue failed").strip()
     return False, detail[-500:]
+
+
+def queue_nudge(thread: str, message_ids: list[int], *, runner=subprocess.run) -> tuple[bool, str]:
+    ids = ", ".join(f"#{mid}" for mid in message_ids)
+    noun = "zprávu" if len(message_ids) == 1 else "zprávy"
+    notice = (
+        f"[agent-lease] Máš nové adresné {noun} {ids} v místnosti. "
+        "Zavolej inbox/room a odpověz přes send."
+    )
+    return _queue_text(thread, notice, runner=runner)
 
 
 class CodexWake:
@@ -111,8 +116,13 @@ class CodexWake:
         self.clock = clock
         self.retry_seconds = retry_seconds
         self.cursor = _read_cursor(cursor_path)
+        self.recovery_path = cursor_path.with_name(f"{cursor_path.name}.recovery")
+        self.recovery_episode = _read_cursor(self.recovery_path) or 0
         self._last_error = ""
         self._retry_at = 0.0
+        self._provider_audit_since = 0
+        self._provider_was_limited = {RECIPIENT: False, f"{RECIPIENT}-bridge": False}
+        self._latest_recovery = None
 
     def step(self) -> bool:
         """Process one snapshot; return true only when a Codex nudge was queued."""
@@ -125,18 +135,18 @@ class CodexWake:
 
         messages = _addressed_after(self.store, RECIPIENT, self.cursor)
         if not messages:
-            return False
+            return self._wake_recovered_work()
         high_water = int(messages[-1]["id"])
         wake_ids = [
             int(message["id"])
             for message in messages
-            if message.get("kind") in {"chat", "result"}
+            if message.get("kind") in {"chat", "result", "task"}
             and wakes(message, RECIPIENT)
         ]
         if not wake_ids:
             self.cursor = high_water
             _atomic_write(self.cursor_path, self.cursor)
-            return False
+            return self._wake_recovered_work()
 
         ok, error = queue_nudge(self.thread, wake_ids, runner=self.runner)
         if not ok:
@@ -154,6 +164,79 @@ class CodexWake:
         self._retry_at = 0.0
         self.cursor = high_water
         _atomic_write(self.cursor_path, self.cursor)
+        self._mark_current_recovery()
+        return True
+
+    def _current_recovery(self) -> dict | None:
+        self._scan_provider_audit()
+        episode = self._latest_recovery
+        if not episode or int(episode["id"]) <= self.recovery_episode:
+            return None
+        provider = self.store.provider_state(episode["agent"])
+        if not provider or provider["state"] != "available":
+            return None
+        if time.time() - float(episode["at"]) > RECOVERY_WINDOW_SECONDS:
+            return None
+        return episode
+
+    def _scan_provider_audit(self) -> None:
+        """Page once through history, then inspect only new provider events."""
+        while True:
+            batch = self.store.recent_audit(
+                ("provider-state",), since_id=self._provider_audit_since, limit=200,
+            )
+            if not batch:
+                return
+            for event in batch:
+                self._provider_audit_since = max(self._provider_audit_since, int(event["id"]))
+                agent = event["agent"]
+                if agent not in self._provider_was_limited:
+                    continue
+                detail = str(event.get("detail") or "")
+                if detail.startswith("limited via "):
+                    self._provider_was_limited[agent] = True
+                elif detail.startswith("available via ") and self._provider_was_limited[agent]:
+                    self._latest_recovery = event
+                    self._provider_was_limited[agent] = False
+            if len(batch) < 200:
+                return
+
+    def _mark_current_recovery(self) -> None:
+        episode = self._current_recovery()
+        if episode:
+            self.recovery_episode = int(episode["id"])
+            _atomic_write(self.recovery_path, self.recovery_episode)
+
+    def _wake_recovered_work(self) -> bool:
+        episode = self._current_recovery()
+        if episode is None:
+            return False
+        peer = next((p for p in self.store.peers() if p["agent"] == RECIPIENT), None)
+        inactive = peer is None or peer["seen_seconds_ago"] >= STALE_PEER_SECONDS
+        status = str(peer.get("status") or "") if peer else ""
+        meaningful_status = bool(status and status != "start session")
+        accepted_work = self.store.task_summary(RECIPIENT)["accepted_without_start"] > 0
+        if not inactive or not (accepted_work or meaningful_status):
+            return False
+        notice = (
+            "[agent-lease] Limit Codexu skončil a zůstala rozdělaná práce. "
+            "Zkontroluj room/jobs a bezpečně pokračuj tam, kde ses zastavil."
+        )
+        ok, error = _queue_text(self.thread, notice, runner=self.runner)
+        if not ok:
+            if error != self._last_error:
+                print(
+                    f"[agent-lease-codex-wake] Codex session {self.thread!r} is not active: "
+                    f"{error}",
+                    file=sys.stderr,
+                )
+                self._last_error = error
+            self._retry_at = self.clock() + self.retry_seconds
+            return False
+        self._last_error = ""
+        self._retry_at = 0.0
+        self.recovery_episode = int(episode["id"])
+        _atomic_write(self.recovery_path, self.recovery_episode)
         return True
 
 

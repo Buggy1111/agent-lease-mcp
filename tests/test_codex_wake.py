@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
+import time
 from pathlib import Path
 
 from agent_lease_mcp.codex_wake import CodexWake, main
@@ -40,7 +42,7 @@ def test_first_start_baselines_existing_messages(tmp_path: Path, monkeypatch):
     assert (tmp_path / "cursor").read_text().strip() == "1"
 
 
-def test_chat_and_real_result_are_batched_but_tasks_and_receipts_are_skipped(
+def test_chat_task_and_real_result_are_batched_but_receipts_are_skipped(
     tmp_path: Path, monkeypatch,
 ):
     store = _store(tmp_path)
@@ -63,8 +65,7 @@ def test_chat_and_real_result_are_batched_but_tasks_and_receipts_are_skipped(
     assert wake.step() is True
     args = log.read_text()
     assert "queue\n--thread\nnox\n--message\n" in args
-    assert f"#{chat}" in args and f"#{result}" in args
-    assert f"#{task}" not in args
+    assert f"#{chat}" in args and f"#{task}" in args and f"#{result}" in args
     assert all(f"#{receipt_id}" not in args for receipt_id in receipt_ids)
     assert int((tmp_path / "cursor").read_text()) == result
 
@@ -86,14 +87,13 @@ def test_inactive_session_does_not_advance_cursor_or_spam_error(tmp_path: Path, 
     assert log.read_text().count("queue\n") == 1
 
 
-def test_receipts_and_tasks_advance_without_calling_codex(tmp_path: Path, monkeypatch):
+def test_receipts_advance_without_calling_codex(tmp_path: Path, monkeypatch):
     store = _store(tmp_path)
     bindir, log = _fake_codex(tmp_path)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     cursor = tmp_path / "cursor"
     wake = CodexWake(store, "nox", cursor)
     wake.step()
-    store.send("claude-code", "codex", "work", kind="task")
     source = store.send("codex", "claude-code", "question", kind="chat")
     store.mark_seen("claude-code", [source])
     store.accept(source, "claude-code")
@@ -120,3 +120,40 @@ def test_main_requires_named_thread(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
     assert main(["--once"]) == 2
     assert "/rename" in capsys.readouterr().err
+
+
+def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    task = store.send("michal", "codex", "continue after limit", kind="task")
+    store.accept(task, "codex", "working in the interactive session")
+    store.heartbeat("codex", status="implementing recovery")
+    for i in range(205):
+        store.record("other", "provider-state", detail=f"available via old-{i}")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    with sqlite3.connect(store.db_path) as con:
+        con.execute("UPDATE agents SET seen_at=? WHERE agent='codex'", (time.time() - 901,))
+
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()  # first start baselines the already delivered task
+    assert wake.step() is True
+    assert "Limit Codexu skončil" in log.read_text()
+    before = log.read_text()
+    assert wake.step() is False
+    assert log.read_text() == before
+
+
+def test_provider_recovery_does_not_wake_active_or_finished_session(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    store.heartbeat("codex", status="start session")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()
+
+    assert wake.step() is False
+    assert not log.exists()

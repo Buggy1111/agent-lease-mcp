@@ -81,7 +81,51 @@ _INJECTION = (
     re.compile(r"(?i)\bsystem prompt\b|\bpřepiš (svá|svoje) pravidla"),
 )
 
+# Technické reporty a review často musejí nebezpečný řetězec DOSLOVA pojmenovat.
+# Samotné uvozovky nestačí (útočník může pokyn prostě ocitovat): snížení rizika
+# platí jen při kombinaci citace / inline kódu a blízkého metapopisu, že jde o
+# vzor, příklad, filtr nebo planý poplach.
+_MENTION_CONTEXT = re.compile(
+    r"(?i)(?:\b(example|literal|quoted|phrase|pattern|regex|filter|detect|catch|"
+    r"trigger|documentation|hard rules?|false positive|příklad|doslovn|fráz|vzor|"
+    r"filtr|zachyt|spustil|výpis|zmínk|planý poplach|pokusy? o převzetí)\b|e\.g\.|např\.)"
+)
+_ACTION_AFTER_MENTION = re.compile(
+    r"(?i)^.{0,30}\b(now|then|teď|nyní|pak)\b.{0,60}"
+    r"\b(run|execute|obey|follow|spusť|proveď|udělej|poslechni)\b"
+)
+_QUOTES = (("`", "`"), ("“", "”"), ("„", "“"), ('"', '"'))
+
+
+def _inside_quote(text: str, start: int, end: int, opener: str, closer: str) -> bool:
+    left = text.rfind(opener, max(0, start - 300), start)
+    if left < 0:
+        return False
+    if opener == closer:
+        # Inline citace nekříží řádek; lichý počet oddělovačů na aktuálním
+        # řádku před shodou znamená „uvnitř". Tím nás nerozhodí starší code fence.
+        line_start = text.rfind("\n", 0, start) + 1
+        if text[line_start:start].count(opener) % 2 == 0:
+            return False
+    elif text.rfind(closer, left + len(opener), start) >= left:
+        return False
+    right = text.find(closer, end, min(len(text), end + 300))
+    return right >= end
+
+
+def _quoted_meta_mention(text: str, match: re.Match) -> bool:
+    quoted = any(_inside_quote(text, match.start(), match.end(), *pair) for pair in _QUOTES)
+    if not quoted:
+        return False
+    if _ACTION_AFTER_MENTION.search(text[match.end():match.end() + 120]):
+        return False
+    context = text[max(0, match.start() - 220):min(len(text), match.end() + 220)]
+    return bool(_MENTION_CONTEXT.search(context))
+
 
 def heuristic_risk(text: str) -> float:
-    """0.0 nic nenalezeno; 0.85 při shodě s některým vzorem."""
-    return 0.85 if any(p.search(text) for p in _INJECTION) else 0.0
+    """0.0 bez shody; 0.2 citovaná metazmínka; 0.85 pravděpodobný pokus."""
+    matches = [match for pattern in _INJECTION for match in pattern.finditer(text)]
+    if not matches:
+        return 0.0
+    return 0.2 if all(_quoted_meta_mention(text, match) for match in matches) else 0.85
