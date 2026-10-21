@@ -221,6 +221,10 @@ class Store:
                 os.chmod(candidate, 0o600)
         with self._connect() as con:
             con.executescript(SCHEMA)
+            # Migrace = PRAGMA + ALTER. Souběžné Store() by jinak oba viděli chybějící
+            # sloupec a druhý ALTER by spadl (duplicate column). Zámek až po
+            # executescript, ten otevřenou transakci sám commitne.
+            con.execute("BEGIN IMMEDIATE")
             self._migrate_messages(con)
             self._migrate_receipts(con)
         if self.settings.retention_days > 0:

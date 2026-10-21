@@ -433,3 +433,28 @@ def test_migration_marks_old_bridge_receipts_as_worker_owned(store: Store, tmp_p
     with sqlite3.connect(store.db_path) as con:
         flags = dict(con.execute("SELECT message_id, by_lease FROM receipts"))
     assert flags == {old: 1, mine: 0}
+
+
+def test_concurrent_open_of_old_schema_migrates_once(store: Store):
+    """Review Nox #395: dva Store() nad starou DB nesmí oba zkusit ALTER."""
+    import sqlite3
+    import threading
+
+    with sqlite3.connect(store.db_path) as con:
+        con.execute("ALTER TABLE receipts DROP COLUMN by_lease")
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(8)
+
+    def open_store():
+        barrier.wait()
+        try:
+            Store(store.db_path, settings=Settings(store.db_path, "codex", 1800))
+        except BaseException as exc:  # noqa: BLE001 - test sbírá jakoukoli chybu
+            errors.append(exc)
+
+    threads = [threading.Thread(target=open_store) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
