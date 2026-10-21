@@ -126,3 +126,21 @@ def test_doctor_codex_wake_reports_named_session_and_service(tmp_path, monkeypat
     doctor.run_doctor(json_output=True)
     check = {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
     assert check["status"] == "warning" and "enable --now" in check["message"]
+
+
+def test_doctor_reports_a_service_crash_loop(tmp_path, monkeypatch, capsys):
+    """Regrese 21. 10.: codex-wake padal ve smyčce, doctor hlásil jen „active“."""
+    import json
+
+    from agent_lease_mcp import doctor
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    restarts = {"agent-lease-codex-wake.service": 7104, "agent-lease-broker.service": 1}
+    monkeypatch.setattr(doctor, "_user_service_restarts", lambda name: restarts.get(name))
+    doctor.run_doctor(json_output=True)
+    warnings = [c for c in json.loads(capsys.readouterr().out)["checks"]
+                if c["id"] == "service_restarts"]
+    assert [w["service"] for w in warnings] == ["agent-lease-codex-wake.service"]
+    assert warnings[0]["restarts"] == 7104 and "journalctl" in warnings[0]["message"]

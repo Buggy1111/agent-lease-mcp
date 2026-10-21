@@ -99,6 +99,31 @@ def _user_service_active(name: str) -> bool:
         return False
 
 
+_SERVICES = ("agent-lease-broker.service", "agent-lease-bridge@codex.service",
+             "agent-lease-bridge@claude-code.service", "agent-lease-codex-wake.service")
+_CRASH_LOOP_RESTARTS = 3
+
+
+def _user_service_restarts(name: str) -> int | None:
+    """Kolikrát systemd službu sám restartoval (NRestarts). Ruční restart počítadlo nuluje."""
+    if not (shutil.which("systemctl") and os.path.exists("/run/systemd/system")):
+        return None
+    try:
+        out = subprocess.run(
+            ["systemctl", "--user", "show", name, "-p", "LoadState", "-p", "NRestarts"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    props = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if props.get("LoadState") != "loaded":
+        return None
+    try:
+        return int(props.get("NRestarts", ""))
+    except ValueError:
+        return None
+
+
 def run_doctor(*, json_output: bool = False) -> int:
     settings = Settings.from_env()
     problems = 0
@@ -233,6 +258,16 @@ def run_doctor(*, json_output: bool = False) -> int:
              "Codex: a sleeping session is not woken (a message waits for the next prompt) — "
              + "; ".join(missing),
              configured_thread=thread or None, service_active=wake_active)
+
+    # Služba může běžet „active" a přitom padat dokola (Restart=on-failure). Tak 21. 10.
+    # codex-wake spadl přes 7 000× a nikdo si toho nevšiml.
+    for service in _SERVICES:
+        restarts = _user_service_restarts(service)
+        if restarts is not None and restarts > _CRASH_LOOP_RESTARTS:
+            line("service_restarts", WARN,
+                 f"{service} restarted {restarts}× on its own — likely a crash loop; "
+                 f"see journalctl --user -u {service}",
+                 service=service, restarts=restarts)
 
     if platform.system() == "Linux" and "microsoft" in platform.release().lower():
         line("wsl_lifetime", WARN, "WSL: systemd services do not survive a Windows restart — "
