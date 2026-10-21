@@ -19,7 +19,7 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = [
-    "fastmcp>=3.4,<4",
+    "fastmcp>=3.4,<5",
 ]
 
 [project.urls]
