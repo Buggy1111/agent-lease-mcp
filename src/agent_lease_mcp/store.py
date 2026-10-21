@@ -1160,8 +1160,9 @@ class Store:
         with self._connect() as con:
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, d.lease_token, d.lease_until, "
-                "d.last_error, d.updated_at FROM deliveries d "
+                "d.last_error, d.updated_at, r.seen_at, r.accepted_at FROM deliveries d "
                 "JOIN messages m ON m.id = d.message_id "
+                "LEFT JOIN receipts r ON r.message_id = d.message_id AND r.recipient = d.recipient "
                 "WHERE d.recipient = ? AND (? IS NULL OR d.recipient = ? OR m.agent = ?) "
                 "ORDER BY m.id DESC LIMIT ?",
                 (recipient, viewer, viewer, viewer, limit),
@@ -1474,10 +1475,24 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
     )
 
 
+def _job_state(row: sqlite3.Row) -> str:
+    """Úkol má vlastní stavy. Zpráva (chat/result/control) se nikdy neprovádí,
+    takže její `pending` by visel navždy: ve výpisu se ukáže, jestli ji příjemce
+    viděl nebo převzal. Uložený stav doručení se nemění (retence s ním počítá)."""
+    if row["kind"] == "task" or row["state"] != "pending":
+        return row["state"]
+    keys = row.keys()
+    if "accepted_at" in keys and row["accepted_at"]:
+        return "accepted"
+    if "seen_at" in keys and row["seen_at"]:
+        return "seen"
+    return "unread"
+
+
 def _row_to_job(row: sqlite3.Row, now: float) -> dict:
     return {
         "id": row["id"], "agent": row["agent"], "recipient": row["recipient"],
-        "kind": row["kind"], "text": row["text"], "state": row["state"],
+        "kind": row["kind"], "text": row["text"], "state": _job_state(row),
         "attempts": row["attempts"],
         # APP-003: lease token se vrací jen vlastníkovi v `lease_next`, nikdy ve výpisu.
         "lease_until": row["lease_until"], "last_error": row["last_error"],

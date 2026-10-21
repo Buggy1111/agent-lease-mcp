@@ -475,3 +475,14 @@ def test_presence_stops_showing_limited_after_provider_reset(store: Store):
                                 reason="unknown reset")  # bez resetu se nic nevymýšlí
     peer = next(p for p in store.peers() if p["agent"] == "claude-code-bridge")
     assert peer["presence"] == "rate-limited"
+
+
+def test_jobs_show_whether_a_message_was_read_instead_of_pending_forever(store: Store):
+    chat = store.send("claude-code", "codex", "ahoj", kind="chat")
+    task = store.send("claude-code", "codex", "úkol", kind="task")
+    states = lambda: {j["id"]: j["state"] for j in store.jobs("codex")}
+    assert states() == {chat: "unread", task: "pending"}
+    store.mark_seen("codex", [chat, task])
+    assert states() == {chat: "seen", task: "pending"}  # úkol má vlastní stavy
+    store.accept(chat, "codex", "ok")
+    assert states()[chat] == "accepted"
