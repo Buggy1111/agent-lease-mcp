@@ -9,6 +9,8 @@
   nudges a named session (`codex queue`) for chats, results and tasks and, after
   a provider limit ends, once per episode for unfinished work.
 - `doctor` checks the Codex wake service and its named session.
+- `doctor` warns when a broker, bridge or wake service is crash-looping
+  (more than 3 automatic restarts).
 - Tasks can declare `--path` worksets and a `--priority`; the scheduler skips
   tasks whose paths are held by another agent, and the board shows the blocking
   path, owner and TTL.
@@ -32,6 +34,8 @@
   pattern carrying any further instruction stays high risk.
 - Receipts are recognised only in their exact generated shape; CLI writes
   without `AGENT_NAME` are refused.
+- codex-wake no longer crashes after a provider limit ends: `task_summary` is
+  proxied by the broker; a guard test checks every store method broker clients use.
 - A limit whose provider reset has passed shows as `recovering`; `jobs` shows
   messages as unread/seen/accepted instead of pending forever.
 - Broker: relative paths are resolved in the client, not in the broker's own
