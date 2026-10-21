@@ -278,3 +278,31 @@ def test_open_store_falls_back_when_a_stale_socket_never_answers(tmp_path: Path,
     server.server_close()
     assert default_socket_path(settings).exists()
     assert isinstance(open_store(settings, restart_wait=0.3), Store)
+
+
+def test_doctor_reads_the_room_through_the_broker(broker, monkeypatch, capsys):
+    """Review Nox #448: doctor šel přímým Store() (migrace + retence = zápis) mimo broker."""
+    import json
+
+    from agent_lease_mcp import doctor
+
+    settings, sock = broker
+    monkeypatch.setenv("AGENT_LEASE_DB", str(settings.db_path))
+    monkeypatch.setenv("AGENT_LEASE_SOCKET", str(sock))
+    monkeypatch.setenv("AGENT_NAME", "codex")
+    import agent_lease_mcp.broker as broker_mod
+
+    real_open = broker_mod.open_store
+    opened = []
+
+    def spy(s=None, **kw):
+        store = real_open(s, **kw)
+        opened.append(type(store).__name__)
+        return store
+
+    monkeypatch.setattr(broker_mod, "open_store", spy)
+    doctor.run_doctor(json_output=True)
+    checks = json.loads(capsys.readouterr().out)["checks"]
+    assert opened == ["RemoteStore"]
+    assert not [c for c in checks if "could not be inspected" in c["message"]]
+    assert any(c["id"] == "activation_baselines" for c in checks)

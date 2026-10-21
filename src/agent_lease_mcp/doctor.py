@@ -275,8 +275,7 @@ def run_doctor(*, json_output: bool = False) -> int:
     if shutil.which("systemctl") and os.path.exists("/run/systemd/system"):
         line("systemd", OK, "systemd available (deploy/systemd/*.service)")
 
-    from .broker import default_socket_path, ping
-    from .store import Store
+    from .broker import default_socket_path, open_store, ping
 
     sock = default_socket_path(settings)
     broker_running = ping(sock)
@@ -295,7 +294,8 @@ def run_doctor(*, json_output: bool = False) -> int:
              "AGENT_LEASE_FALLBACKS not set — when an agent hits its limit, its queue waits",
              configured=False)
     try:
-        store = Store(settings=settings)
+        # Přes broker, když běží: přímý Store() spouští migrace a retenci, tedy zapisuje.
+        store = open_store(settings)
         limits = store.limits()
         for lim in limits:
             line("active_limit", WARN,
