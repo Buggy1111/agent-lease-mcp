@@ -122,6 +122,15 @@ def test_main_requires_named_thread(tmp_path: Path, monkeypatch, capsys):
     assert "/rename" in capsys.readouterr().err
 
 
+def test_systemd_service_starts_the_broker_it_depends_on():
+    unit = (
+        Path(__file__).parents[1]
+        / "deploy/systemd/agent-lease-codex-wake.service"
+    ).read_text(encoding="utf-8")
+    assert "After=agent-lease-broker.service" in unit
+    assert "Requires=agent-lease-broker.service" in unit
+
+
 def test_poll_survives_ambiguous_broker_disconnect_without_inline_retry():
     class RestartingStore:
         def __init__(self):
