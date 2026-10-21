@@ -129,7 +129,9 @@ def test_systemd_service_starts_the_broker_it_depends_on():
     ).read_text(encoding="utf-8")
     assert "After=agent-lease-broker.service" in unit
     assert "Wants=agent-lease-broker.service" in unit
-    assert "Requisite=agent-lease-broker.service" in unit
+    # Requires i Requisite by při restartu brokeru restartovaly i wake (ověřeno naostro
+    # 21. 10.). Že wake nikdy nepřejde na přímé SQLite, zajišťuje AGENT_LEASE_REQUIRE_BROKER.
+    assert "Requisite=agent-lease-broker.service" not in unit
     assert "Requires=agent-lease-broker.service" not in unit
 
 
