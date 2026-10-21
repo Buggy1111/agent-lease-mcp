@@ -6,6 +6,8 @@ Wants=agent-lease-broker.service
 
 [Service]
 Environment=AGENT_NAME=%i-bridge
+# Jen přes broker, i když se spustí dřív, než broker naváže socket (single writer).
+Environment=AGENT_LEASE_REQUIRE_BROKER=1
 # User systemd does not inherit the interactive shell PATH. Both uv-installed
 # agent-lease entry points and the Codex launcher live in ~/.local/bin.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin

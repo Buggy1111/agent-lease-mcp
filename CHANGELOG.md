@@ -34,6 +34,9 @@
   pattern carrying any further instruction stays high risk.
 - Receipts are recognised only in their exact generated shape; CLI writes
   without `AGENT_NAME` are refused.
+- Long-running services set `AGENT_LEASE_REQUIRE_BROKER=1` and always use the
+  broker, even when started before it binds its socket; `doctor` reads the room
+  through the broker too.
 - codex-wake no longer crashes after a provider limit ends: `task_summary` is
   proxied by the broker; a guard test checks every store method broker clients use.
 - A limit whose provider reset has passed shows as `recovering`; `jobs` shows

@@ -306,3 +306,16 @@ def test_doctor_reads_the_room_through_the_broker(broker, monkeypatch, capsys):
     assert opened == ["RemoteStore"]
     assert not [c for c in checks if "could not be inspected" in c["message"]]
     assert any(c["id"] == "activation_baselines" for c in checks)
+
+
+def test_services_requiring_the_broker_never_fall_back(tmp_path: Path, monkeypatch):
+    """Review Nox #454: bridge/wake startují dřív, než broker (Type=simple) naváže socket."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.delenv("AGENT_LEASE_SOCKET", raising=False)
+    monkeypatch.setenv("AGENT_LEASE_REQUIRE_BROKER", "1")
+    assert isinstance(open_store(), RemoteStore)  # socket ještě neexistuje
+
+
+def test_bridge_unit_requires_the_broker():
+    unit = Path(__file__).parents[1] / "deploy" / "systemd" / "agent-lease-bridge@.service"
+    assert "Environment=AGENT_LEASE_REQUIRE_BROKER=1" in unit.read_text()

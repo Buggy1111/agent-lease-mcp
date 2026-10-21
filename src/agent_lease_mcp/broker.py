@@ -252,8 +252,10 @@ def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
 def open_store(settings: Settings | None = None, *, restart_wait: float = 3.0):
     """Broker, pokud běží; jinak přímo SQLite.
 
-    - Výslovně nastavený `AGENT_LEASE_SOCKET` znamená „jen přes broker“ (např. sandbox
-      Codexu bez přístupu k DB). Vrací vždy RemoteStore, ten na restart brokeru počká.
+    - Výslovně nastavený `AGENT_LEASE_SOCKET` nebo `AGENT_LEASE_REQUIRE_BROKER=1` znamená
+      „jen přes broker“: sandbox Codexu bez přístupu k DB a dlouho běžící služby (bridge,
+      codex-wake). Ty startují i před brokerem, protože systemd u Type=simple považuje
+      broker za spuštěný dřív, než naváže socket. Vrací vždy RemoteStore, ten počká.
     - Existuje-li výchozí socket, ale broker neodpovídá, nejspíš se právě restartuje:
       chvíli se čeká. Jinak by dlouho běžící proces zůstal bez brokeru natrvalo.
     - Bez socketu nebo se zastaralým socketem (broker neběží) zůstává přímé SQLite,
@@ -261,7 +263,8 @@ def open_store(settings: Settings | None = None, *, restart_wait: float = 3.0):
     """
     settings = settings or Settings.from_env()
     path = default_socket_path(settings)
-    if os.environ.get("AGENT_LEASE_SOCKET"):
+    if os.environ.get("AGENT_LEASE_SOCKET") or os.environ.get(
+            "AGENT_LEASE_REQUIRE_BROKER", "").strip().lower() in ("1", "true", "yes"):
         return RemoteStore(settings, path)
     if path.exists():
         deadline = time.monotonic() + restart_wait
