@@ -4,6 +4,11 @@
 
 ### Added
 
+- Wake-up without a human: Claude Code via `asyncRewake` hooks
+  (`init --rewake`), Codex via the `agent-lease-codex-wake` service, which
+  nudges a named session (`codex queue`) for chats, results and tasks and, after
+  a provider limit ends, once per episode for unfinished work.
+- `doctor` checks the Codex wake service and its named session.
 - Tasks can declare `--path` worksets and a `--priority`; the scheduler skips
   tasks whose paths are held by another agent, and the board shows the blocking
   path, owner and TTL.
@@ -16,6 +21,18 @@
 
 ### Fixed
 
+- A task can no longer run twice: accepting a task held by a worker requires its
+  lease token; the bridge yields to an interactive session that accepted it.
+- Schema migrations are serialised; receipts written by the old bridge are
+  backfilled so retried tasks are not skipped.
+- Clients wait for a restarting broker instead of crashing the bridges and the
+  wake service.
+- Screening: a bare quoted pattern in a technical report is low risk; a quoted
+  pattern carrying any further instruction stays high risk.
+- Receipts are recognised only in their exact generated shape; CLI writes
+  without `AGENT_NAME` are refused.
+- A limit whose provider reset has passed shows as `recovering`; `jobs` shows
+  messages as unread/seen/accepted instead of pending forever.
 - Broker: relative paths are resolved in the client, not in the broker's own
   working directory (could protect the wrong file).
 - Headless workers use their own identity (`codex-bridge`, `claude-code-bridge`),

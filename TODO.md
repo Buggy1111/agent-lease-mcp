@@ -1,14 +1,15 @@
 # Agent Lease MCP – TODO
 
-Stav k 20. 10. 2026 večer (ověřeno ostrými testy proti běžícím službám).
+Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám).
 ✅ hotovo · 🟡 z větší části · ⬜ otevřené
 
 - ✅ 1. **Společná místnost** — Ada, Nox i workery vidí ostatní, stav a aktivitu.
 - ✅ 2. **Automatické předávání zpráv** — adresované zprávy a úkoly mezi agenty.
 - ✅ 3. **Potvrzování úkolů** — viděl → beru → hotovo, opakování, zrušení.
-- 🟡 4. **Automatické probuzení Codexu** — ✅ naostro 20. 10.: úkoly #288, #292,
-  #300 od Ady převzal worker sám do pár sekund, bez lidského promptu. Zbývá:
-  probuzení *živé interaktivní* Noxovy session (asyncRewake).
+- ✅ 4. **Automatické probuzení agentů** — naostro 20.–21. 10. obousměrně:
+  Adu budí `asyncRewake` hook (Stop + SessionStart), Noxe služba
+  `agent-lease-codex-wake` přes `codex queue` do pojmenované session. Po skončení
+  limitu Noxe budík sám pošťouchne k rozdělané práci (jednou za epizodu).
 - 🟡 5. **Automatické spuštění práce** — ✅ naostro: převezme, potvrdí, spustí
   `codex exec` read-only a vrátí čistou odpověď (opraveno: dřív celý přepis běhu).
   Zbývá: zápisový režim (se schválením) a průběžné hlášení dlouhé práce.
@@ -25,9 +26,10 @@ Stav k 20. 10. 2026 večer (ověřeno ostrými testy proti běžícím službám
 - 🟡 11. **Bridge pro skutečné AI agenty** — ✅ `codex exec` naostro (3 úkoly);
   `claude -p` čeká na konec limitu Ady; OpenRouter jen v testech.
 - ✅ 12. **Automatické testování výsledků** — 304 testů, ruff, CI na 3.11–3.13.
-- ✅ 13. **Vzájemné kontroly Ada ↔ Nox** — ručně ověřeno při 0.2.0 (Nox našel 6
-  reálných chyb, Ada opravila a přetestovala). Zbývá automatizovat smyčku
-  „najdi → vrať k opravě → přetestuj".
+- ✅ 13. **Vzájemné kontroly Ada ↔ Nox** — 20.–21. 10. běžely bez Michala:
+  Nox našel 6 nálezů (2 BLOCKER: dvojí provedení úkolu, souběh migrace), Ada 3
+  (mj. obejití filtru citací); každý opraven, přetestován a potvrzen druhým.
+  Pravidla autonomie Noxe: `~/.codex/AGENTS.md`.
 - ✅ 14. **Bezpečnostní audit** — 13 nálezů opraveno/zdokumentováno a zveřejněno,
   branch protection, Dependabot, private vulnerability reporting, Jev guard.
 - 🟡 15. **Windows 11 + WSL autostart** — broker a oba workery běží jako systemd
@@ -41,9 +43,10 @@ Stav k 20. 10. 2026 večer (ověřeno ostrými testy proti běžícím službám
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
-2. Ostrý test `claude -p` workeru, až Adě skončí limit (bod 11).
+2. Ostrý test `claude -p` workeru (bod 11); limit se teď v místnosti po resetu
+   ukazuje jako „recovering“, worker ho zkusí s dalším úkolem.
 3. Zapnout failover `AGENT_LEASE_FALLBACKS` a otestovat přesun úkolu (bod 7, část 2).
-4. asyncRewake živé Noxovy session (bod 4).
+4. Zapnout Jev (`AGENT_LEASE_JEV=1` + klíč) — bez něj je jedinou branou heuristika.
 
 ## Historie
 
