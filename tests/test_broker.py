@@ -231,3 +231,50 @@ def test_codex_wake_recovery_path_works_over_the_broker(broker, tmp_path, monkey
     remote.report_provider_state("codex-bridge", "limited", "test")
     remote.report_provider_state("codex-bridge", "available", "test")
     wake.step()  # dřív AttributeError: task_summary
+
+
+def test_open_store_with_explicit_socket_never_falls_back(tmp_path: Path, monkeypatch):
+    """Review Nox #438: vyžádaný broker (sandbox) nesmí potichu přejít na přímé SQLite."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "x.db"))
+    monkeypatch.setenv("AGENT_LEASE_SOCKET", str(tmp_path / "missing.sock"))
+    assert isinstance(open_store(), RemoteStore)
+
+
+def test_open_store_waits_for_a_restarting_broker(tmp_path: Path, monkeypatch):
+    """Socket existuje, broker zrovna neodpovídá (restart) → počkat, ne přejít na SQLite."""
+    import time
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.delenv("AGENT_LEASE_SOCKET", raising=False)
+    settings = Settings.from_env()
+    from agent_lease_mcp.broker import default_socket_path
+    sock = default_socket_path(settings)
+    first = serve(settings, sock)
+    first.server_close()  # zastaralý socket: soubor je, nikdo neposlouchá
+    servers = []
+
+    def restart():
+        time.sleep(0.5)
+        servers.append(serve(settings, sock))
+        servers[0].serve_forever()
+
+    threading.Thread(target=restart, daemon=True).start()
+    try:
+        assert isinstance(open_store(settings), RemoteStore)
+    finally:
+        if servers:
+            servers[0].shutdown()
+            servers[0].server_close()
+
+
+def test_open_store_falls_back_when_a_stale_socket_never_answers(tmp_path: Path, monkeypatch):
+    from agent_lease_mcp.broker import default_socket_path
+    from agent_lease_mcp.store import Store
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.delenv("AGENT_LEASE_SOCKET", raising=False)
+    settings = Settings.from_env()
+    server = serve(settings, default_socket_path(settings))
+    server.server_close()
+    assert default_socket_path(settings).exists()
+    assert isinstance(open_store(settings, restart_wait=0.3), Store)

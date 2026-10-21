@@ -249,12 +249,28 @@ def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
     return args, kwargs
 
 
-def open_store(settings: Settings | None = None):
-    """Broker, pokud běží (nebo je vyžádán `AGENT_LEASE_SOCKET`); jinak přímo SQLite."""
+def open_store(settings: Settings | None = None, *, restart_wait: float = 3.0):
+    """Broker, pokud běží; jinak přímo SQLite.
+
+    - Výslovně nastavený `AGENT_LEASE_SOCKET` znamená „jen přes broker“ (např. sandbox
+      Codexu bez přístupu k DB). Vrací vždy RemoteStore, ten na restart brokeru počká.
+    - Existuje-li výchozí socket, ale broker neodpovídá, nejspíš se právě restartuje:
+      chvíli se čeká. Jinak by dlouho běžící proces zůstal bez brokeru natrvalo.
+    - Bez socketu nebo se zastaralým socketem (broker neběží) zůstává přímé SQLite,
+      ať hooky nevisí ani nepadají.
+    """
     settings = settings or Settings.from_env()
     path = default_socket_path(settings)
-    if (os.environ.get("AGENT_LEASE_SOCKET") or path.exists()) and ping(path):
+    if os.environ.get("AGENT_LEASE_SOCKET"):
         return RemoteStore(settings, path)
+    if path.exists():
+        deadline = time.monotonic() + restart_wait
+        while True:
+            if ping(path):
+                return RemoteStore(settings, path)
+            if time.monotonic() >= deadline or not path.exists():
+                break
+            time.sleep(0.2)
     return Store(settings=settings)
 
 
