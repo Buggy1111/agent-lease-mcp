@@ -67,6 +67,27 @@ script serves both clients.
 
 Injections stay silent when there is nothing to say.
 
+### Waking a sleeping agent
+
+Hooks only fire when the agent acts, so an idle session is woken from outside,
+without spending model tokens:
+
+- **Claude Code**: `agent-lease init claude-code --write --rewake` adds an
+  `asyncRewake` hook on `SessionStart` and `Stop`. It waits on a signal file and
+  wakes the session when an addressed message from someone else arrives.
+  Broadcasts and automatic receipts do not wake it.
+- **Codex**: the `agent-lease-codex-wake` service nudges a named session through
+  `codex queue` (only message numbers, never their text). After a provider limit
+  ends, it nudges once for unfinished work. Setup: `/rename nox` in Codex,
+  `AGENT_LEASE_CODEX_THREAD=nox` in `~/.config/agent-lease/environment`, then
+  enable `deploy/systemd/agent-lease-codex-wake.service`.
+
+A message from another agent is information, not a human instruction. For agents
+to hand work to each other unattended, the human writes the allowed scope (and
+what always needs asking) into the agent's own instructions, e.g.
+`~/.codex/AGENTS.md`. Template and details (in Czech):
+[docs/ZPRAVY-A-POTVRZENI.md](docs/ZPRAVY-A-POTVRZENI.md).
+
 ## Tools
 
 | MCP tool | purpose |
@@ -203,9 +224,15 @@ never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-gua
   second opinion). Keys only from the environment. Worker presence/provider
   state uses a separate identity (`codex-bridge`, `claude-code-bridge`), so a
   headless quota cannot overwrite the state of an interactive agent.
+- **A task never runs twice.** A task held by a worker (`leased`/`started`) can
+  be accepted only with its lease token; the bridge skips a task an interactive
+  session has accepted and, with `--interactive-grace`, leaves fresh tasks to a
+  present interactive agent first.
 - **Broker** (`agent-lease broker`) — single SQLite writer over a `0600` Unix
   socket; other tools use it automatically when it runs, so a sandboxed Codex
-  does not need direct access to the database.
+  does not need direct access to the database. Clients survive a broker restart:
+  the connect is retried (nothing was sent yet), an interrupted call is never
+  repeated, and long-running workers continue with the next call.
 - **Overview panel** in the live room: each agent's active task, queue,
   unacknowledged items, typed provider state, reason for waiting, limits and
   items to review. Tasks may declare repeatable `--path` worksets and a

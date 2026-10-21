@@ -26,7 +26,8 @@
 - Schema migrations are serialised; receipts written by the old bridge are
   backfilled so retried tasks are not skipped.
 - Clients wait for a restarting broker instead of crashing the bridges and the
-  wake service.
+  wake service; a connection lost mid-call is reported as a connection error,
+  never repeated, and the worker loops continue with the next call.
 - Screening: a bare quoted pattern in a technical report is low risk; a quoted
   pattern carrying any further instruction stays high risk.
 - Receipts are recognised only in their exact generated shape; CLI writes
