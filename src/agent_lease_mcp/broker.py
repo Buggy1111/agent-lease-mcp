@@ -205,7 +205,10 @@ class RemoteStore:
         with self._connect() as s:
             s.sendall((json.dumps({"method": method, "args": encode(list(args)),
                                    "kwargs": encode(kwargs)}) + "\n").encode())
-            reply = json.loads(s.makefile().readline())
+            line = s.makefile().readline()
+        if not line:  # broker spadl po odeslání: výsledek neznámý, neopakovat
+            raise ConnectionResetError(f"broker closed the connection during {method}")
+        reply = json.loads(line)
         if reply["ok"]:
             return decode(reply["result"])
         exc = {"PermissionError": PermissionError, "ValueError": ValueError,

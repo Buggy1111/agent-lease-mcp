@@ -486,3 +486,22 @@ def test_jobs_show_whether_a_message_was_read_instead_of_pending_forever(store: 
     assert states() == {chat: "seen", task: "pending"}  # úkol má vlastní stavy
     store.accept(chat, "codex", "ok")
     assert states()[chat] == "accepted"
+
+
+def test_bridge_loop_survives_a_broker_outage(store: Store, monkeypatch, capsys):
+    """Review Nox #417: výpadek uprostřed volání nesmí shodit smyčku bridge."""
+    bridge = Bridge(store, "codex", command="true {prompt}")
+    calls = {"n": 0}
+
+    def flaky(poll):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionResetError("broker closed the connection during step")
+        raise KeyboardInterrupt  # konec testu
+
+    monkeypatch.setattr(bridge, "_tick", flaky)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    with pytest.raises(KeyboardInterrupt):
+        bridge.run_forever()
+    assert calls["n"] == 2
+    assert "broker unavailable" in capsys.readouterr().err

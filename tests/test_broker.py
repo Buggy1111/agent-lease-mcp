@@ -168,3 +168,23 @@ def test_remote_store_gives_up_when_broker_stays_down(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         remote.peers()
     assert time.monotonic() - started < 2
+
+
+def test_dropped_reply_is_a_connection_error_not_a_json_error(tmp_path: Path):
+    import socket as socketlib
+
+    sock = tmp_path / "drop.sock"
+    server = socketlib.socket(socketlib.AF_UNIX)
+    server.bind(str(sock))
+    server.listen(1)
+
+    def drop():
+        conn, _ = server.accept()
+        conn.recv(65536)
+        conn.close()  # broker spadl po přijetí požadavku
+
+    threading.Thread(target=drop, daemon=True).start()
+    remote = RemoteStore(Settings(tmp_path / "room.db", "codex", 1800), sock)
+    with pytest.raises(ConnectionResetError):
+        remote.peers()
+    server.close()

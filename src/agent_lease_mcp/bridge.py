@@ -339,13 +339,28 @@ class Bridge:
         return True
 
     def run_forever(self, poll: float = 1.0) -> None:
+        backoff = 1.0
         while True:
-            if not self.step():
-                # signál je levnější než DB; vyspíme se nejvýš `poll` s
-                before = self.store.signal_mtime(self.agent)
-                end = time.monotonic() + poll
-                while time.monotonic() < end and self.store.signal_mtime(self.agent) == before:
-                    time.sleep(0.1)
+            try:
+                self._tick(poll)
+                backoff = 1.0
+            except OSError as exc:
+                # Broker nedostupný déle, než čeká RemoteStore, nebo spadl uprostřed
+                # volání. Stejnou operaci neopakujeme (výsledek zápisu je neznámý);
+                # další kolo začne novým voláním. Rozběhnutý úkol pohlídá needs_review.
+                print(f"[agent-lease-bridge] broker unavailable: {exc}; retry in {backoff:.0f} s",
+                      file=sys.stderr)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+
+    def _tick(self, poll: float) -> None:
+        if self.step():
+            return
+        # signál je levnější než DB; vyspíme se nejvýš `poll` s
+        before = self.store.signal_mtime(self.agent)
+        end = time.monotonic() + poll
+        while time.monotonic() < end and self.store.signal_mtime(self.agent) == before:
+            time.sleep(0.1)
 
 
 def main(argv: list[str] | None = None) -> int:
