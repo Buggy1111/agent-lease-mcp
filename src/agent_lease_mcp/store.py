@@ -192,6 +192,9 @@ CREATE TABLE IF NOT EXISTS failover_activations (
 # Jak dlouho se nepotvrzená zpráva připomíná (pak už jen v `overdue`).
 ACCEPT_WINDOW_SECONDS = 3 * 86400
 
+# Poznámka, se kterou bridge přijímá úkol (migrace podle ní pozná staré bridge receipty).
+BRIDGE_ACCEPT_NOTE = "bridge took the task, starting a headless run (read-only)"
+
 
 class Store:
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
@@ -229,6 +232,14 @@ class Store:
         columns = {row["name"] for row in con.execute("PRAGMA table_info(receipts)")}
         if "by_lease" not in columns:
             con.execute("ALTER TABLE receipts ADD COLUMN by_lease INTEGER NOT NULL DEFAULT 0")
+            # Starší bridge přijímal úkoly bez by_lease. Bez backfillu by takový úkol po
+            # retry vypadal jako převzatý interaktivně a bridge by ho navždy přeskočil.
+            con.execute(
+                "UPDATE receipts SET by_lease=1 WHERE accepted_at IS NOT NULL AND note=? "
+                "AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id=receipts.message_id "
+                "AND d.recipient=receipts.recipient AND d.attempts>0)",
+                (BRIDGE_ACCEPT_NOTE,),
+            )
 
     @staticmethod
     def _migrate_messages(con: sqlite3.Connection) -> None:

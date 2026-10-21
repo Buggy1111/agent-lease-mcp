@@ -41,7 +41,7 @@ from .config import Settings
 from .hygiene import redact
 from .models import DeliveryState, MessageKind
 from .rate_limits import probe_codex_rate_limits
-from .store import Store
+from .store import BRIDGE_ACCEPT_NOTE, Store
 
 # `{prompt}` se nahradí jedním argumentem (bez shellu → žádná injekce přes text zprávy).
 DEFAULT_COMMANDS = {
@@ -264,9 +264,7 @@ class Bridge:
         mid = delivery.message_id
         # 1) odesílatel se hned dozví, že to někdo bere
         self.store.mark_seen(self.agent, [mid])
-        if not self.store.accept(mid, self.agent,
-                                 "bridge took the task, starting a headless run (read-only)",
-                                 lease_token=token):
+        if not self.store.accept(mid, self.agent, BRIDGE_ACCEPT_NOTE, lease_token=token):
             return True  # nemělo by nastat: lease je náš; radši nespouštět
         # 2) started PŘED spuštěním — pád tady končí v needs_review, ne v tichém opakování
         if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):

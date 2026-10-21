@@ -408,3 +408,28 @@ def test_interactive_accept_of_a_returned_task_blocks_the_bridge(store: Store):
                     "WHERE message_id=?", (mid,))
     assert store.accept(mid, "codex", "beru v okně") is True     # teď ho bere Nox
     assert store.lease_next("codex", skip_accepted=True) is None  # bridge už ne
+
+
+def test_migration_marks_old_bridge_receipts_as_worker_owned(store: Store, tmp_path: Path):
+    """Review Nox #391: starý receipt bridge (bez by_lease) nesmí po retry zablokovat bridge."""
+    import sqlite3
+
+    from agent_lease_mcp.store import BRIDGE_ACCEPT_NOTE
+
+    old = store.send("michal", "codex", "starý úkol bridge", kind="task")
+    lease = store.lease_next("codex", skip_accepted=True)
+    store.accept(old, "codex", BRIDGE_ACCEPT_NOTE, lease_token=lease.lease_token)
+    store.ack(old, "codex", DeliveryState.STARTED, lease_token=lease.lease_token)
+    store.ack(old, "codex", DeliveryState.FAILED, lease_token=lease.lease_token)
+    mine = store.send("michal", "codex", "úkol pro okno", kind="task")
+    store.accept(mine, "codex", BRIDGE_ACCEPT_NOTE)  # stejný text, ale bez pokusu workeru
+    with sqlite3.connect(store.db_path) as con:  # stará DB před sloupcem by_lease
+        con.execute("ALTER TABLE receipts DROP COLUMN by_lease")
+
+    migrated = Store(store.db_path, settings=Settings(store.db_path, "codex", 1800))
+    assert migrated.retry(old, "codex")
+    again = migrated.lease_next("codex", skip_accepted=True)
+    assert again is not None and again.message_id == old
+    with sqlite3.connect(store.db_path) as con:
+        flags = dict(con.execute("SELECT message_id, by_lease FROM receipts"))
+    assert flags == {old: 1, mine: 0}
