@@ -6,7 +6,7 @@ import stat
 import time
 from pathlib import Path
 
-from agent_lease_mcp.codex_wake import CodexWake, main
+from agent_lease_mcp.codex_wake import CodexWake, _poll_once, main
 from agent_lease_mcp.config import Settings
 from agent_lease_mcp.store import Store
 
@@ -120,6 +120,36 @@ def test_main_requires_named_thread(tmp_path: Path, monkeypatch, capsys):
     monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
     assert main(["--once"]) == 2
     assert "/rename" in capsys.readouterr().err
+
+
+def test_poll_survives_ambiguous_broker_disconnect_without_inline_retry():
+    class RestartingStore:
+        def __init__(self):
+            self.calls = 0
+
+        def signal_mtime(self, _recipient):
+            self.calls += 1
+            if self.calls == 1:
+                raise BrokenPipeError("broker restarted after connect")
+            return 42.0
+
+    class Wake:
+        store = RestartingStore()
+
+        def __init__(self):
+            self.steps = 0
+
+        def step(self):
+            self.steps += 1
+
+    wake = Wake()
+    seen, next_db, delay, error = _poll_once(wake, None, 0.0, 1.0, 0.0)
+    assert isinstance(error, BrokenPipeError)
+    assert (seen, next_db, delay, wake.store.calls, wake.steps) == (None, 0.0, 0.25, 1, 0)
+
+    seen, next_db, delay, error = _poll_once(wake, seen, next_db, 2.0, delay)
+    assert error is None
+    assert (seen, next_db, delay, wake.store.calls, wake.steps) == (42.0, 7.0, 0.0, 2, 1)
 
 
 def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkeypatch):

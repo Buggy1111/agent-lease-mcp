@@ -9,6 +9,7 @@ therefore watches the shared room and submits a short, content-free nudge via
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -21,6 +22,12 @@ from .lifecycle import wakes
 
 RECIPIENT = "codex"
 RECOVERY_WINDOW_SECONDS = 86400
+_TRANSPORT_ERRORS = (
+    ConnectionError,
+    FileNotFoundError,
+    TimeoutError,
+    json.JSONDecodeError,
+)
 
 
 def _atomic_write(path: Path, value: int) -> None:
@@ -248,6 +255,25 @@ class CodexWake:
         return True
 
 
+def _poll_once(
+    wake: CodexWake,
+    seen_signal: float | None,
+    next_db: float,
+    now: float,
+    transport_delay: float,
+) -> tuple[float | None, float, float, BaseException | None]:
+    """Poll once; never repeat an operation whose broker result is unknown."""
+    try:
+        signal = wake.store.signal_mtime(RECIPIENT)
+        if signal != seen_signal or now >= next_db:
+            seen_signal, next_db = signal, now + 5.0
+            wake.step()
+    except _TRANSPORT_ERRORS as exc:
+        delay = min(15.0, max(0.25, transport_delay * 2))
+        return seen_signal, next_db, delay, exc
+    return seen_signal, next_db, 0.0, None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent-lease-codex-wake")
     parser.add_argument("--once", action="store_true", help="check once and exit")
@@ -277,12 +303,26 @@ def main(argv: list[str] | None = None) -> int:
 
     seen_signal = None
     next_db = 0.0
+    transport_delay = 0.0
     while True:
+        if transport_delay:
+            time.sleep(transport_delay)
         now = time.monotonic()
-        signal = wake.store.signal_mtime(RECIPIENT)
-        if signal != seen_signal or now >= next_db:
-            seen_signal, next_db = signal, now + 5.0
-            wake.step()
+        seen_signal, next_db, transport_delay, error = _poll_once(
+            wake, seen_signal, next_db, now, transport_delay,
+        )
+        if error is not None:
+            # Po úspěšném connectu mohl broker požadavek už provést. Stejnou
+            # operaci proto neopakujeme uvnitř RemoteStore; pouze přežijeme
+            # výpadek a další iterace naváže novým spojením.
+            print(
+                f"[agent-lease-codex-wake] broker unavailable; retry in "
+                f"{transport_delay:g}s: {error}",
+                file=sys.stderr,
+            )
+            if args.once:
+                return 1
+            continue
         if args.once:
             return 0
         time.sleep(max(0.1, args.poll))
