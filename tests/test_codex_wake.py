@@ -128,7 +128,9 @@ def test_systemd_service_starts_the_broker_it_depends_on():
         / "deploy/systemd/agent-lease-codex-wake.service"
     ).read_text(encoding="utf-8")
     assert "After=agent-lease-broker.service" in unit
-    assert "Requires=agent-lease-broker.service" in unit
+    assert "Wants=agent-lease-broker.service" in unit
+    assert "Requisite=agent-lease-broker.service" in unit
+    assert "Requires=agent-lease-broker.service" not in unit
 
 
 def test_poll_survives_ambiguous_broker_disconnect_without_inline_retry():

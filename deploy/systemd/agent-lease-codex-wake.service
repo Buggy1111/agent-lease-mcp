@@ -1,7 +1,8 @@
 [Unit]
 Description=agent-lease wake bridge for an interactive Codex session
 After=agent-lease-broker.service
-Requires=agent-lease-broker.service
+Wants=agent-lease-broker.service
+Requisite=agent-lease-broker.service
 
 [Service]
 EnvironmentFile=-%h/.config/agent-lease/environment
