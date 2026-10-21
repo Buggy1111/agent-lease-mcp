@@ -97,25 +97,40 @@ _ACTION_AFTER_MENTION = re.compile(
 _QUOTES = (("`", "`"), ("“", "”"), ("„", "“"), ('"', '"'))
 
 
-def _inside_quote(text: str, start: int, end: int, opener: str, closer: str) -> bool:
+def _quote_bounds(
+    text: str, start: int, end: int, opener: str, closer: str,
+) -> tuple[int, int] | None:
     left = text.rfind(opener, max(0, start - 300), start)
     if left < 0:
-        return False
+        return None
     if opener == closer:
         # Inline citace nekříží řádek; lichý počet oddělovačů na aktuálním
         # řádku před shodou znamená „uvnitř". Tím nás nerozhodí starší code fence.
         line_start = text.rfind("\n", 0, start) + 1
         if text[line_start:start].count(opener) % 2 == 0:
-            return False
+            return None
     elif text.rfind(closer, left + len(opener), start) >= left:
-        return False
+        return None
     right = text.find(closer, end, min(len(text), end + 300))
-    return right >= end
+    return (left, right) if right >= end else None
 
 
 def _quoted_meta_mention(text: str, match: re.Match) -> bool:
-    quoted = any(_inside_quote(text, match.start(), match.end(), *pair) for pair in _QUOTES)
-    if not quoted:
+    quote = next(
+        ((pair, bounds) for pair in _QUOTES
+         if (bounds := _quote_bounds(text, match.start(), match.end(), *pair)) is not None),
+        None,
+    )
+    if quote is None:
+        return False
+    (opener, _closer), (left, right) = quote
+    quoted = text[left + len(opener):right]
+    relative_start = match.start() - left - len(opener)
+    relative_end = match.end() - left - len(opener)
+    remainder = quoted[:relative_start] + quoted[relative_end:]
+    # Nízké riziko patří jen HOLÉ citaci vzoru. Jakýkoli další příkaz uvnitř
+    # stejné citace znamená plné riziko, i kdyby okolí tvrdilo „example".
+    if not re.fullmatch(r"[\s.,;:!?…()\[\]{}—-]*", remainder):
         return False
     if _ACTION_AFTER_MENTION.search(text[match.end():match.end() + 120]):
         return False

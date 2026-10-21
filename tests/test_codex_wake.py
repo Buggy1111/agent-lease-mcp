@@ -129,6 +129,8 @@ def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkey
     task = store.send("michal", "codex", "continue after limit", kind="task")
     store.accept(task, "codex", "working in the interactive session")
     store.heartbeat("codex", status="implementing recovery")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()  # baseline před novou limitní epizodou
     for i in range(205):
         store.record("other", "provider-state", detail=f"available via old-{i}")
     store.report_provider_state("codex-bridge", "limited", "test")
@@ -136,8 +138,6 @@ def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkey
     with sqlite3.connect(store.db_path) as con:
         con.execute("UPDATE agents SET seen_at=? WHERE agent='codex'", (time.time() - 901,))
 
-    wake = CodexWake(store, "nox", tmp_path / "cursor")
-    wake.step()  # first start baselines the already delivered task
     assert wake.step() is True
     assert "Limit Codexu skončil" in log.read_text()
     before = log.read_text()
@@ -157,3 +157,22 @@ def test_provider_recovery_does_not_wake_active_or_finished_session(tmp_path: Pa
 
     assert wake.step() is False
     assert not log.exists()
+
+
+def test_first_start_baselines_an_old_recovery_episode(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    task = store.send("michal", "codex", "old unfinished work", kind="task")
+    store.accept(task, "codex", "working")
+    store.heartbeat("codex", status="old status")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    with sqlite3.connect(store.db_path) as con:
+        con.execute("UPDATE agents SET seen_at=? WHERE agent='codex'", (time.time() - 901,))
+
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    assert wake.step() is False
+    assert wake.step() is False
+    assert not log.exists()
+    assert (tmp_path / "cursor.recovery").exists()

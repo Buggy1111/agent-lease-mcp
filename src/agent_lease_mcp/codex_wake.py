@@ -117,7 +117,9 @@ class CodexWake:
         self.retry_seconds = retry_seconds
         self.cursor = _read_cursor(cursor_path)
         self.recovery_path = cursor_path.with_name(f"{cursor_path.name}.recovery")
-        self.recovery_episode = _read_cursor(self.recovery_path) or 0
+        saved_recovery = _read_cursor(self.recovery_path)
+        self.recovery_episode = saved_recovery or 0
+        self._recovery_baselined = saved_recovery is not None
         self._last_error = ""
         self._retry_at = 0.0
         self._provider_audit_since = 0
@@ -129,6 +131,7 @@ class CodexWake:
         if self.cursor is None:
             self.cursor = _high_water(self.store)
             _atomic_write(self.cursor_path, self.cursor)
+            self._current_recovery()  # první start baselinuje i staré recovery epizody
             return False
         if self.clock() < self._retry_at:
             return False
@@ -170,6 +173,11 @@ class CodexWake:
     def _current_recovery(self) -> dict | None:
         self._scan_provider_audit()
         episode = self._latest_recovery
+        if not self._recovery_baselined:
+            self.recovery_episode = int(episode["id"]) if episode else 0
+            _atomic_write(self.recovery_path, self.recovery_episode)
+            self._recovery_baselined = True
+            return None
         if not episode or int(episode["id"]) <= self.recovery_episode:
             return None
         provider = self.store.provider_state(episode["agent"])
