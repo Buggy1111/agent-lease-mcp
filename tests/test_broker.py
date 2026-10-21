@@ -129,3 +129,42 @@ def test_broker_refuses_human_privileges_from_socket_clients(tmp_path):
     from agent_lease_mcp.broker import _NEEDS_ACTOR, _NEEDS_VIEWER
 
     assert {"retry", "cancel"} <= _NEEDS_ACTOR and "jobs" in _NEEDS_VIEWER
+
+
+def test_remote_store_waits_for_a_restarting_broker(tmp_path: Path):
+    """Restart brokeru nesmí shodit bridge ani budík (ConnectionRefusedError)."""
+    import time
+
+    settings = Settings(tmp_path / "room.db", "codex", 1800)
+    sock = tmp_path / "b.sock"
+    first = serve(settings, sock)
+    threading.Thread(target=first.serve_forever, daemon=True).start()
+    remote = RemoteStore(settings, sock, connect_retry=5)
+    assert remote.peers() == []
+    first.shutdown()
+    first.server_close()
+    servers = []
+
+    def restart():
+        time.sleep(0.5)
+        servers.append(serve(settings, sock))
+        servers[0].serve_forever()
+
+    threading.Thread(target=restart, daemon=True).start()
+    try:
+        assert remote.peers() == []  # počká na nový broker místo pádu
+    finally:
+        if servers:
+            servers[0].shutdown()
+            servers[0].server_close()
+
+
+def test_remote_store_gives_up_when_broker_stays_down(tmp_path: Path):
+    import time
+
+    settings = Settings(tmp_path / "room.db", "codex", 1800)
+    remote = RemoteStore(settings, tmp_path / "missing.sock", connect_retry=0.3)
+    started = time.monotonic()
+    with pytest.raises(FileNotFoundError):
+        remote.peers()
+    assert time.monotonic() - started < 2

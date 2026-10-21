@@ -21,6 +21,7 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from enum import Enum
 from pathlib import Path
 
@@ -164,19 +165,44 @@ def ping(path: Path, timeout: float = 1.0) -> bool:
 class RemoteStore:
     """Má stejné rozhraní jako `Store`, ale každé volání jde přes broker."""
 
-    def __init__(self, settings: Settings, path: Path | None = None) -> None:
+    def __init__(self, settings: Settings, path: Path | None = None, *,
+                 connect_retry: float = 15.0) -> None:
         self.settings = settings
         self.path = path or default_socket_path(settings)
         self.db_path = settings.db_path
+        self.connect_retry = connect_retry
+
+    def _connect(self) -> socket.socket:
+        """Připojí se k brokeru; při jeho restartu chvíli počká.
+
+        Opakuje se jen samotné připojení. Dokud neprojde, nic se neodeslalo,
+        takže opakování nemůže zapsat nic dvakrát. Spadlé spojení po odeslání
+        se neopakuje (broker mohl zápis už provést).
+        """
+        deadline = time.monotonic() + self.connect_retry
+        delay = 0.1
+        while True:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(30)
+            try:
+                s.connect(str(self.path))
+                return s
+            except (ConnectionRefusedError, FileNotFoundError):
+                s.close()
+                if time.monotonic() + delay > deadline:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 2.0)
+            except BaseException:
+                s.close()
+                raise
 
     def _call(self, method: str, args, kwargs):
         # Path normalization must happen in the client process.  The broker is
         # a long-running systemd service with a different cwd; resolving a
         # relative path there can silently protect the wrong file.
         args, kwargs = _normalize_client_paths(method, args, kwargs)
-        with socket.socket(socket.AF_UNIX) as s:
-            s.settimeout(30)
-            s.connect(str(self.path))
+        with self._connect() as s:
             s.sendall((json.dumps({"method": method, "args": encode(list(args)),
                                    "kwargs": encode(kwargs)}) + "\n").encode())
             reply = json.loads(s.makefile().readline())
