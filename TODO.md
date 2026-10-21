@@ -25,7 +25,7 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
 - ✅ 10. **Obnova po pádu agenta** — stav úkolu se drží, `needs_review`, žádné dvojí provedení.
 - 🟡 11. **Bridge pro skutečné AI agenty** — ✅ `codex exec` naostro (3 úkoly);
   `claude -p` čeká na konec limitu Ady; OpenRouter jen v testech.
-- ✅ 12. **Automatické testování výsledků** — 304 testů, ruff, CI na 3.11–3.13.
+- ✅ 12. **Automatické testování výsledků** — plná sada pytest + ruff, CI na 3.11–3.13.
 - ✅ 13. **Vzájemné kontroly Ada ↔ Nox** — 20.–21. 10. běžely bez Michala:
   Nox našel 6 nálezů (2 BLOCKER: dvojí provedení úkolu, souběh migrace), Ada 3
   (mj. obejití filtru citací); každý opraven, přetestován a potvrzen druhým.
