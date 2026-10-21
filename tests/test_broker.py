@@ -188,3 +188,46 @@ def test_dropped_reply_is_a_connection_error_not_a_json_error(tmp_path: Path):
     with pytest.raises(ConnectionResetError):
         remote.peers()
     server.close()
+
+
+def test_every_store_method_used_through_the_broker_is_proxied():
+    """Regrese 21. 10.: codex-wake volal task_summary, broker ho neznal → pád ve smyčce."""
+    import re
+
+    import agent_lease_mcp
+    from agent_lease_mcp.broker import METHODS
+    from agent_lease_mcp.store import Store
+
+    store_methods = {m for m in dir(Store) if not m.startswith("_")}
+    package = Path(agent_lease_mcp.__file__).parent
+    missing = {}
+    for module in package.glob("*.py"):
+        source = module.read_text(encoding="utf-8")
+        if "open_store" not in source or module.name == "broker.py":
+            continue
+        used = set(re.findall(r"\b_?store\.(\w+)\(", source))
+        gaps = sorted(m for m in used if m in store_methods and m not in METHODS)
+        if gaps:
+            missing[module.name] = gaps
+    assert missing == {}
+
+
+def test_codex_wake_recovery_path_works_over_the_broker(broker, tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from agent_lease_mcp.codex_wake import CodexWake
+
+    settings, sock = broker
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake = bindir / "codex"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    remote = RemoteStore(settings, sock)
+    wake = CodexWake(remote, "nox", tmp_path / "cursor")
+    wake.step()  # baseline
+    remote.report_provider_state("codex-bridge", "limited", "test")
+    remote.report_provider_state("codex-bridge", "available", "test")
+    wake.step()  # dřív AttributeError: task_summary
