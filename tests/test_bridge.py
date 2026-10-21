@@ -458,3 +458,20 @@ def test_concurrent_open_of_old_schema_migrates_once(store: Store):
     for thread in threads:
         thread.join()
     assert errors == []
+
+
+def test_presence_stops_showing_limited_after_provider_reset(store: Store):
+    """Zaseklé „rate-limited“: reset od poskytovatele prošel, worker čeká na další úkol."""
+    store.heartbeat("claude-code-bridge", status="bridge: waiting")
+    store.report_provider_state("claude-code-bridge", "limited", "cli_error",
+                                resets_at=time.time() + 3600, reason="rate_limit_error")
+    peer = next(p for p in store.peers() if p["agent"] == "claude-code-bridge")
+    assert peer["presence"] == "rate-limited"
+    store.report_provider_state("claude-code-bridge", "limited", "cli_error",
+                                resets_at=time.time() - 60, reason="rate_limit_error")
+    peer = next(p for p in store.peers() if p["agent"] == "claude-code-bridge")
+    assert peer["presence"] == "recovering"
+    store.report_provider_state("claude-code-bridge", "limited", "cli_error",
+                                reason="unknown reset")  # bez resetu se nic nevymýšlí
+    peer = next(p for p in store.peers() if p["agent"] == "claude-code-bridge")
+    assert peer["presence"] == "rate-limited"

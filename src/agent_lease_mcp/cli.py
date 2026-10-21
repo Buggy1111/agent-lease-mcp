@@ -404,7 +404,10 @@ def main(argv: list[str] | None = None) -> int:
         for r in rows:
             print(f"{r['agent']:<14} {r['seconds_left'] // 60} min left  {r['reason']}")
         for r in store.provider_states():
-            print(f"{r['agent']:<14} provider={r['state']} via {r['source']}  {r['reason']}")
+            note = ""
+            if r["state"] == "limited" and r.get("resets_at") and r["resets_at"] <= time.time():
+                note = "  (reset passed — retried with the next task)"
+            print(f"{r['agent']:<14} provider={r['state']} via {r['source']}  {r['reason']}{note}")
         print("Fallback chains:", settings.fallbacks or "(not set: AGENT_LEASE_FALLBACKS)")
 
     elif args.cmd == "overdue":

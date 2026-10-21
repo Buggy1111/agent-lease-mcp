@@ -474,8 +474,11 @@ class Store:
                 "seen_seconds_ago": int(now - r["seen_at"]),
                 "active": r["seen_at"] >= now - stale_after,
                 "presence": (
-                    "rate-limited" if r["agent"] in limited or
-                    providers.get(r["agent"], {}).get("state") == "limited" else
+                    "rate-limited" if r["agent"] in limited else
+                    # Reset od poskytovatele už prošel: worker to zkusí s dalším úkolem,
+                    # do té doby nehlásit „rate-limited" navždy.
+                    "recovering" if _limit_reset_passed(providers.get(r["agent"]), now) else
+                    "rate-limited" if providers.get(r["agent"], {}).get("state") == "limited" else
                     "provider-unknown" if providers.get(r["agent"], {}).get("state") == "unknown"
                     else _presence_state(r["status"], now - r["seen_at"], stale_after)
                 ),
@@ -1493,6 +1496,11 @@ def _row_to_message(row: sqlite3.Row, now: float) -> dict:
         "accepted": bool(row["accepted_at"]) if "accepted_at" in keys else None,
         "accept_note": row["accept_note"] if "accept_note" in keys else "",
     }
+
+
+def _limit_reset_passed(provider: dict | None, now: float) -> bool:
+    return bool(provider and provider.get("state") == "limited"
+                and provider.get("resets_at") is not None and provider["resets_at"] <= now)
 
 
 def _presence_state(status: str, age: float, stale_after: int) -> str:
