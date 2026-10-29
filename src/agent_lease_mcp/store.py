@@ -315,7 +315,7 @@ class Store:
         pracovat, ale ty půlky mezitím drží a blokuje druhého. Částečný úspěch je
         horší než čistý neúspěch.
         """
-        ttl = max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
+        ttl = self._ttl(ttl_seconds)
         now = time.time()
         _check_agent(agent)
         if not paths or len(paths) > MAX_PATHS_PER_CLAIM:
@@ -336,16 +336,23 @@ class Store:
                 return ClaimResult(granted=[], conflicts=conflicts)
 
             for path in wanted:
-                con.execute(
-                    "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
-                    "VALUES(?,?,?,?,?) "
-                    "ON CONFLICT(path) DO UPDATE SET "
-                    "  agent=excluded.agent, purpose=excluded.purpose, "
-                    "  expires_at=excluded.expires_at",
-                    (path, agent, purpose, now, now + ttl),
-                )
-                self._record(con, agent, "claim", path, purpose)
+                self._upsert_claim(con, path, agent, purpose, now, ttl)
             return ClaimResult(granted=wanted, conflicts=[])
+
+    def _ttl(self, ttl_seconds: int | None = None) -> int:
+        """Délka nájmu se stropem: obří AGENT_LEASE_TTL nesmí blokovat roky (Nox, 17. 10.)."""
+        return max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
+
+    def _upsert_claim(self, con: sqlite3.Connection, path: str, agent: str, purpose: str,
+                      now: float, ttl: int) -> None:
+        """Zapíše (nebo převezme) nájem na cestu a zaznamená to do auditu."""
+        con.execute(
+            "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+            "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at",
+            (path, agent, purpose, now, now + ttl),
+        )
+        self._record(con, agent, "claim", path, purpose)
 
     def edit_gate(self, path: str, agent: str, purpose: str = "auto (edit)") -> Claim | None:
         """
@@ -359,9 +366,7 @@ class Store:
         _check_agent(agent)
         target = normalize_path(check_path(path))
         now = time.time()
-        # Stejný strop jako `claim()` — jinak by si agent s obří AGENT_LEASE_TTL
-        # vzal nájem na roky a po pádu by blokoval ostatní (Nox, review 17. 10.).
-        ttl = max(1, min(int(self.settings.default_ttl), MAX_TTL_SECONDS))
+        ttl = self._ttl()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self._prune(con, now)
@@ -382,13 +387,7 @@ class Store:
                     (now + ttl, agent, *[c.path for c in covering]),
                 )
             else:
-                con.execute(
-                    "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
-                    "VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
-                    "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at",
-                    (target, agent, purpose[:500], now, now + ttl),
-                )
-                self._record(con, agent, "claim", target, purpose[:500])
+                self._upsert_claim(con, target, agent, purpose[:500], now, ttl)
         return None
 
     def _conflicts(self, con: sqlite3.Connection, wanted: list[str], agent: str) -> list[Claim]:
