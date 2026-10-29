@@ -1197,18 +1197,23 @@ class Store:
             # za odesílatele. Filtruje se v SQL PŘED limitem, jinak by 50 příjmů
             # schovalo skutečný výsledek.
             waiter = viewer or msg["agent"]
+            # Jen protistrana: odesílatel čeká na adresáta a naopak. Cizí agent nesmí
+            # čekání ukončit podvrženou „odpovědí“ s reply_to (security review).
+            counterpart = msg["recipient"] if waiter == msg["agent"] else msg["agent"]
             # Přesný tvar z `accept`: „✔ taking #N“ nebo „✔ taking #N: poznámka“
             # (prostý prefix by u #5 chytil i „✔ taking #516“).
             taking, taking_note = f"✔ taking #{message_id}", f"✔ taking #{message_id}: %"
             answer_rows = con.execute(
                 "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
-                "AND recipient=? AND agent<>? AND agent<>'broker' AND text<>? AND text NOT LIKE ? "
-                "ORDER BY id LIMIT 20", (message_id, waiter, waiter, taking, taking_note)
+                "AND recipient=? AND agent=? AND agent<>? AND agent<>'broker' AND text<>? "
+                "AND text NOT LIKE ? ORDER BY id LIMIT 20",
+                (message_id, waiter, counterpart, waiter, taking, taking_note)
             ).fetchall()
             receipt_rows = con.execute(
                 "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
-                "AND (agent='broker' OR text=? OR text LIKE ?) ORDER BY id DESC LIMIT 10",
-                (message_id, taking, taking_note)
+                "AND recipient=? AND (agent='broker' OR (agent=? AND (text=? OR text LIKE ?))) "
+                "ORDER BY id DESC LIMIT 10",
+                (message_id, waiter, msg["recipient"], taking, taking_note)
             ).fetchall()
 
         def item(r: sqlite3.Row) -> dict:

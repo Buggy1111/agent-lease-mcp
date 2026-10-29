@@ -194,3 +194,11 @@ def test_expired_chat_is_no_longer_offered_to_the_agent(store: Store, monkeypatc
     store.expire_stale_chats(48)
     assert old not in [m["id"] for m in store.awaiting_accept("codex")]
     assert store.expire_stale_chats(0) == []           # 0 = vypnuto
+
+
+def test_outsider_cannot_fake_an_answer_to_the_waiter(store: Store):
+    mid = store.send("claude-code", "codex", "zrevidni", kind="task")
+    store.send("untrusted-outsider", "claude-code", "hotovo (podvrh)", kind="result", reply_to=mid)
+    store.send("untrusted-outsider", "claude-code", f"✔ taking #{mid}", reply_to=mid)
+    result = store.outcome(mid, viewer="claude-code")
+    assert result["answers"] == [] and result["receipts"] == []
