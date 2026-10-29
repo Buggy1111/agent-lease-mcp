@@ -206,6 +206,14 @@ ACCEPT_WINDOW_SECONDS = 3 * 86400
 BRIDGE_ACCEPT_NOTE = "bridge took the task, starting a headless run (read-only)"
 
 
+# Společné kousky čtení zpráv (Nox, rozbor #516). WHERE/ORDER/LIMIT zůstávají
+# u každé metody zvlášť; nesjednocovat LEFT a INNER JOIN.
+_MSG_COLS = "m.*, d.state AS delivery_state, d.attempts, d.last_error"
+_RECEIPT_COLS = "r.seen_at, r.accepted_at, r.note AS accept_note"
+_FROM_MSG = ("FROM messages m LEFT JOIN deliveries d "
+             "ON d.message_id=m.id AND d.recipient=m.recipient")
+_JOIN_RECEIPTS = "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient"
+
 class Store:
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
@@ -632,12 +640,8 @@ class Store:
                     fresh.append(mid)
                     if msg["agent"] != "broker":
                         snippet = " ".join(msg["text"].split())[:60]
-                        con.execute(
-                            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
-                            "VALUES('broker',?,?,?,?,?)",
-                            (f"✓ {recipient} saw #{mid} (“{snippet}”)", now,
-                             msg["agent"], MessageKind.RESULT.value, mid),
-                        )
+                        self._insert_event(con, "broker", msg["agent"],
+                                           f"✓ {recipient} saw #{mid} (“{snippet}”)", mid, now)
         for sender in senders:
             self._signal(sender)
         return fresh
@@ -686,12 +690,9 @@ class Store:
                 "seen_at=COALESCE(receipts.seen_at, excluded.seen_at)",
                 (message_id, recipient, now, now, note, by_lease),
             )
-            con.execute(
-                "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
-                "VALUES(?,?,?,?,?,?)",
-                (recipient, f"✔ taking #{message_id}" + (f": {note}" if note else ""), now,
-                 msg["agent"], MessageKind.RESULT.value, message_id),
-            )
+            self._insert_event(con, recipient, msg["agent"],
+                               f"✔ taking #{message_id}" + (f": {note}" if note else ""),
+                               message_id, now)
             self._record(con, recipient, "accept", "", f"#{message_id}")
         self._signal(msg["agent"])
         return True
@@ -862,9 +863,7 @@ class Store:
                         why = "unavailable"
                     note = f"↪ task #{r['id']} moved {src} → {target} ({src}: {why})"
                     for to in {r["agent"], human_name(self.db_path)}:
-                        con.execute(
-                            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
-                            "VALUES('broker',?,?,?,'result',?)", (note, now, to, r["id"]))
+                        self._insert_event(con, "broker", to, note, r["id"], now)
                     snippet = " ".join(r["text"].split())[:400]
                     # Zprávy od brokeru se nescreenují (věří se jim), takže cizí text
                     # do nich nesmí jít bez kontroly — jinak by přesun úkolu obešel
@@ -878,10 +877,7 @@ class Store:
                                 f"assigned by {r['agent']}: {snippet}")
                     # Nový příjemce dostane ZPRÁVU S NOVÝM ID: původní úkol má staré id,
                     # které může být za kurzorem cíle, a do jeho kontextu by se nikdy nevložilo.
-                    con.execute(
-                        "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
-                        "VALUES('broker',?,?,?,'result',?)",
-                        (handover, now, target, r["id"]))
+                    self._insert_event(con, "broker", target, handover, r["id"], now)
                     self._record(con, "broker", "failover", "", f"#{r['id']} {src}->{target}")
                     moves.append({"id": r["id"], "from": src, "to": target})
         for m in moves:
@@ -1088,11 +1084,7 @@ class Store:
         limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
-                "r.seen_at, r.accepted_at, r.note AS accept_note "
-                "FROM messages m LEFT JOIN deliveries d "
-                "ON d.message_id=m.id AND d.recipient=m.recipient "
-                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                f"SELECT {_MSG_COLS}, {_RECEIPT_COLS} {_FROM_MSG} {_JOIN_RECEIPTS} "
                 "WHERE m.id > ? ORDER BY m.id LIMIT ?", (since_id, limit)
             ).fetchall()
         return [_row_to_message(row, now) for row in rows]
@@ -1103,11 +1095,7 @@ class Store:
         limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error, "
-                "r.seen_at, r.accepted_at, r.note AS accept_note "
-                "FROM messages m LEFT JOIN deliveries d "
-                "ON d.message_id=m.id AND d.recipient=m.recipient "
-                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                f"SELECT {_MSG_COLS}, {_RECEIPT_COLS} {_FROM_MSG} {_JOIN_RECEIPTS} "
                 "WHERE m.id IN "
                 "(SELECT id FROM messages ORDER BY id DESC LIMIT ?) ORDER BY m.id",
                 (limit,),
@@ -1119,6 +1107,21 @@ class Store:
     def record(self, agent: str, action: str, path: str = "", detail: str = "") -> None:
         with self._connect() as con:
             self._record(con, agent, action, path, detail)
+
+    @staticmethod
+    def _insert_event(con: sqlite3.Connection, agent: str, recipient: str, text: str,
+                      reply_to: int, now: float) -> None:
+        """
+        Automatická zpráva (příjem, převzetí, přesun, vypršení) jako `result`.
+
+        Nevolá veřejné `send()`: to má vlastní transakci, zakládá doručení a jinou
+        kontrolu. Automatické zprávy doručení nemají (Nox, rozbor #516).
+        """
+        con.execute(
+            "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+            "VALUES(?,?,?,?,?,?)",
+            (agent, text, now, recipient, MessageKind.RESULT.value, reply_to),
+        )
 
     @staticmethod
     def _record(
@@ -1148,9 +1151,7 @@ class Store:
         limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
-                "FROM messages m LEFT JOIN deliveries d "
-                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                f"SELECT {_MSG_COLS} {_FROM_MSG} "
                 "WHERE m.id>? AND m.agent<>? AND m.recipient IN ('*', ?) "
                 "ORDER BY m.id LIMIT ?",
                 (self.cursor(agent), agent, agent, limit),
@@ -1245,9 +1246,7 @@ class Store:
         limit = _limit(limit)
         with self._connect() as con:
             rows = con.execute(
-                "SELECT m.*, d.state AS delivery_state, d.attempts, d.last_error "
-                "FROM messages m LEFT JOIN deliveries d "
-                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                f"SELECT {_MSG_COLS} {_FROM_MSG} "
                 "WHERE m.id>? AND m.recipient=? ORDER BY m.id LIMIT ?",
                 (since_id, recipient, limit),
             ).fetchall()
@@ -1490,11 +1489,7 @@ class Store:
                     snippet = " ".join(row["text"].split())[:60]
                     notice = (f"⌛ {row['recipient']} #{row['id']} nepřečetl do {hours} h, "
                               f"uzavřeno (“{snippet}”)")
-                    con.execute(
-                        "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
-                        "VALUES('broker',?,?,?,?,?)",
-                        (notice, now, row["agent"], MessageKind.RESULT.value, row["id"]),
-                    )
+                    self._insert_event(con, "broker", row["agent"], notice, row["id"], now)
                     notify.add(row["agent"])
             if rows:
                 self._record(con, "broker", "expire", "", f"{len(rows)} chat(s)")
