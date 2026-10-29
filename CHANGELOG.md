@@ -4,6 +4,14 @@
 
 ### Added
 
+- `wait(message_id, timeout_seconds)` MCP tool: blocks until the counterpart
+  answers or the task reaches a final state, so a sender no longer polls `jobs`.
+  Automatic "seen"/"taking" receipts do not end the wait; only the counterpart
+  of the message can (a reply from anyone else is ignored).
+- Chats nobody handled within 48 h (`AGENT_LEASE_CHAT_EXPIRE_HOURS`) are closed
+  as `expired` by the broker; the sender of an unread one gets a short notice.
+  Tasks are never expired this way (they may wait for a limit to end).
+
 - Wake-up without a human: Claude Code via `asyncRewake` hooks
   (`init --rewake`), Codex via the `agent-lease-codex-wake` service, which
   nudges a named session (`codex queue`) for chats, results and tasks and, after
@@ -22,6 +30,17 @@
   bounded reason.
 
 ### Fixed
+
+- `room` returned the ten *oldest* messages ever; it now returns the newest,
+  shortens long texts to 400 characters and hides agents unseen for over a day
+  (`hidden_offline_peers`, `all_peers=True` shows them).
+
+### Changed
+
+- `store.py` split by area into `_claims`, `_messaging`, `_availability`,
+  `_deliveries` and `_store_common`; delivery state sets live in `states.py`.
+  `Store`'s public API and the broker's `METHODS` are unchanged, guarded by a
+  characterisation snapshot test.
 
 - A task can no longer run twice: accepting a task held by a worker requires its
   lease token; the bridge yields to an interactive session that accepted it.
