@@ -1169,6 +1169,45 @@ class Store:
             ).fetchall()
         return [_row_to_job(r, now) for r in rows]
 
+    def outcome(self, message_id: int, *, viewer: str | None = None) -> dict:
+        """
+        Jak dopadla jedna zpráva/úkol: stav doručení a odpovědi na ni.
+
+        Pro `wait` — odesílatel čeká na výsledek bez ručního dotazování.
+        `answers` jsou skutečné odpovědi; automatické příjmy („✓ … saw“ od
+        brokeru a „✔ taking #…“ z `accept`) jsou zvlášť v `receipts`, aby
+        čekání neskončilo na pouhém „viděl jsem“. Vidí jen odesílatel a adresát.
+        """
+        now = time.time()
+        with self._connect() as con:
+            msg = con.execute(
+                "SELECT m.*, d.state, d.attempts, d.last_error, r.seen_at, r.accepted_at "
+                "FROM messages m LEFT JOIN deliveries d "
+                "ON d.message_id=m.id AND d.recipient=m.recipient "
+                "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
+                "WHERE m.id=?", (message_id,)
+            ).fetchone()
+            if not msg:
+                raise KeyError(f"message #{message_id} does not exist")
+            if viewer is not None and viewer not in (msg["agent"], msg["recipient"]):
+                raise PermissionError("only the sender or the recipient may wait on a message")
+            rows = con.execute(
+                "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
+                "ORDER BY id LIMIT 50", (message_id,)
+            ).fetchall()
+        answers, receipts = [], []
+        for r in rows:
+            item = {"id": r["id"], "agent": r["agent"], "kind": r["kind"], "text": r["text"],
+                    "seconds_ago": int(now - r["sent_at"])}
+            automatic = r["agent"] == "broker" or r["text"].startswith(f"✔ taking #{message_id}")
+            (receipts if automatic else answers).append(item)
+        state = _job_state(msg) if msg["state"] is not None else None
+        return {
+            "id": message_id, "kind": msg["kind"], "recipient": msg["recipient"],
+            "state": state, "final": state in _FINAL_STATES,
+            "last_error": msg["last_error"] or "", "answers": answers, "receipts": receipts,
+        }
+
     def addressed(self, recipient: str, *, since_id: int = 0, limit: int = 20) -> list[dict]:
         """Nové zprávy výslovně adresované agentovi; broadcast nikoho nebudí."""
         now = time.time()
@@ -1473,6 +1512,11 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
         claimed_at=row["claimed_at"],
         expires_at=row["expires_at"],
     )
+
+
+_FINAL_STATES = frozenset({
+    "succeeded", "failed", "needs_review", "cancelled", "expired", "dead_letter",
+})
 
 
 def _job_state(row: sqlite3.Row) -> str:

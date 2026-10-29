@@ -15,7 +15,7 @@ EXPECTED_TOOLS = {
     "accept",
     "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
     "cancel",
-    "inbox", "room", "history",
+    "inbox", "room", "history", "wait",
 }
 
 

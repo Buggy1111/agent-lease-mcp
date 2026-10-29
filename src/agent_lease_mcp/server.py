@@ -13,6 +13,7 @@ překládají argumenty na volání store. Vrstva navíc by tu byla jen na prokl
 from __future__ import annotations
 
 import os
+import time
 
 from fastmcp import FastMCP
 
@@ -207,21 +208,62 @@ def inbox(since_id: int = 0, limit: int = 50) -> dict:
     return {"messages": messages, "last_id": messages[-1]["id"] if messages else since_id}
 
 
+# Agent, kterého nikdo neviděl déle než den, v `room` jen zabírá místo v kontextu.
+ROOM_HIDE_OFFLINE_SECONDS = 24 * 3600
+ROOM_MESSAGES = 10
+ROOM_TEXT_CHARS = 400
+
+
+def _brief(message: dict) -> dict:
+    text = message.get("text") or ""
+    if len(text) <= ROOM_TEXT_CHARS:
+        return message
+    return {**message, "text": text[:ROOM_TEXT_CHARS] + "…", "truncated": True}
+
+
 @mcp.tool
-def room(status: str = "") -> dict:
+def room(status: str = "", all_peers: bool = False) -> dict:
     """
     Room state in one call: who is here, what is held, what is new.
 
     Call it when you start and after each step. `status` also announces what
     you are working on, so the other agent does not have to guess.
+    Shows the newest messages (long texts shortened; full text via `inbox`)
+    and hides agents unseen for over a day unless `all_peers` is true.
     """
     _store.heartbeat(_settings.agent, status=status or None, cwd=os.getcwd())
+    peers = _store.peers()
+    shown = peers if all_peers else [
+        p for p in peers
+        if p["active"] or p["seen_seconds_ago"] < ROOM_HIDE_OFFLINE_SECONDS
+    ]
     return {
         "me": _settings.agent,
-        "peers": _store.peers(),
+        "peers": shown,
+        "hidden_offline_peers": len(peers) - len(shown),
         "claims": [c.as_dict() for c in _store.claims()],
-        "recent_messages": _store.inbox(since_id=0, limit=10),
+        "recent_messages": [_brief(m) for m in _store.latest_messages(limit=ROOM_MESSAGES)],
     }
+
+
+@mcp.tool
+def wait(message_id: int, timeout_seconds: int = 120) -> dict:
+    """
+    Wait for the answer to a message or task you sent (or received), up to
+    `timeout_seconds` (max 600). Returns as soon as the task reaches a final
+    state or someone replies; automatic "seen"/"taking" receipts do not count.
+    Use it instead of polling `jobs` after `send`.
+    """
+    timeout = max(1, min(int(timeout_seconds), 600))
+    started = time.monotonic()
+    while True:
+        result = _store.outcome(message_id, viewer=_settings.agent)
+        waited = int(time.monotonic() - started)
+        if result["final"] or result["answers"]:
+            return {**result, "timed_out": False, "waited_seconds": waited}
+        if waited >= timeout:
+            return {**result, "timed_out": True, "waited_seconds": waited}
+        time.sleep(min(2.0, max(0.1, timeout - waited)))
 
 
 @mcp.tool
