@@ -1,0 +1,335 @@
+{
+ "inbox": [
+  {
+   "id": 1,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "task",
+   "text": "úkol",
+   "reply_to": null,
+   "state": "succeeded",
+   "attempts": 1,
+   "last_error": "",
+   "seen": true,
+   "accepted": true,
+   "accept_note": "beru"
+  },
+  {
+   "id": 2,
+   "agent": "broker",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "✓ codex saw #1 (“úkol”)",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 3,
+   "agent": "codex",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "✔ taking #1: beru",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "chat",
+   "text": "chat",
+   "reply_to": null,
+   "state": "pending",
+   "attempts": 0,
+   "last_error": "",
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 5,
+   "agent": "codex",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "výsledek",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 6,
+   "agent": "codex",
+   "recipient": "*",
+   "kind": "broadcast",
+   "text": "ahoj všem",
+   "reply_to": null,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  }
+ ],
+ "latest": [
+  {
+   "id": 1,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "task",
+   "text": "úkol",
+   "reply_to": null,
+   "state": "succeeded",
+   "attempts": 1,
+   "last_error": "",
+   "seen": true,
+   "accepted": true,
+   "accept_note": "beru"
+  },
+  {
+   "id": 2,
+   "agent": "broker",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "✓ codex saw #1 (“úkol”)",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 3,
+   "agent": "codex",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "✔ taking #1: beru",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "chat",
+   "text": "chat",
+   "reply_to": null,
+   "state": "pending",
+   "attempts": 0,
+   "last_error": "",
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 5,
+   "agent": "codex",
+   "recipient": "claude-code",
+   "kind": "result",
+   "text": "výsledek",
+   "reply_to": 1,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  },
+  {
+   "id": 6,
+   "agent": "codex",
+   "recipient": "*",
+   "kind": "broadcast",
+   "text": "ahoj všem",
+   "reply_to": null,
+   "state": null,
+   "attempts": null,
+   "last_error": null,
+   "seen": false,
+   "accepted": false,
+   "accept_note": null
+  }
+ ],
+ "undelivered": [
+  {
+   "id": 1,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "task",
+   "text": "úkol",
+   "reply_to": null,
+   "state": "succeeded",
+   "attempts": 1,
+   "last_error": "",
+   "seen": null,
+   "accepted": null,
+   "accept_note": ""
+  },
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "chat",
+   "text": "chat",
+   "reply_to": null,
+   "state": "pending",
+   "attempts": 0,
+   "last_error": "",
+   "seen": null,
+   "accepted": null,
+   "accept_note": ""
+  }
+ ],
+ "addressed": [
+  {
+   "id": 1,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "task",
+   "text": "úkol",
+   "reply_to": null,
+   "state": "succeeded",
+   "attempts": 1,
+   "last_error": "",
+   "seen": null,
+   "accepted": null,
+   "accept_note": ""
+  },
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "chat",
+   "text": "chat",
+   "reply_to": null,
+   "state": "pending",
+   "attempts": 0,
+   "last_error": "",
+   "seen": null,
+   "accepted": null,
+   "accept_note": ""
+  }
+ ],
+ "jobs": [
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "chat",
+   "text": "chat",
+   "state": "unread",
+   "attempts": 0,
+   "last_error": "",
+   "reply_to": null
+  },
+  {
+   "id": 1,
+   "agent": "claude-code",
+   "recipient": "codex",
+   "kind": "task",
+   "text": "úkol",
+   "state": "succeeded",
+   "attempts": 1,
+   "last_error": "",
+   "reply_to": null
+  }
+ ],
+ "awaiting": [
+  {
+   "id": 4,
+   "agent": "claude-code",
+   "kind": "chat",
+   "text": "chat",
+   "seen": false
+  }
+ ],
+ "outcome": {
+  "id": 1,
+  "kind": "task",
+  "recipient": "codex",
+  "state": "succeeded",
+  "final": true,
+  "last_error": "",
+  "answers": [
+   {
+    "id": 5,
+    "agent": "codex",
+    "kind": "result",
+    "text": "výsledek"
+   }
+  ],
+  "receipts": [
+   {
+    "id": 2,
+    "agent": "broker",
+    "kind": "result",
+    "text": "✓ codex saw #1 (“úkol”)"
+   },
+   {
+    "id": 3,
+    "agent": "codex",
+    "kind": "result",
+    "text": "✔ taking #1: beru"
+   }
+  ]
+ },
+ "outcome_ui": {
+  "id": 1,
+  "kind": "task",
+  "recipient": "codex",
+  "state": "succeeded",
+  "final": true,
+  "last_error": "",
+  "answers": [
+   {
+    "id": 5,
+    "agent": "codex",
+    "kind": "result",
+    "text": "výsledek"
+   }
+  ],
+  "receipts": [
+   {
+    "id": 2,
+    "agent": "broker",
+    "kind": "result",
+    "text": "✓ codex saw #1 (“úkol”)"
+   },
+   {
+    "id": 3,
+    "agent": "codex",
+    "kind": "result",
+    "text": "✔ taking #1: beru"
+   }
+  ]
+ },
+ "history": [
+  {
+   "agent": "codex",
+   "action": "accept",
+   "path": "",
+   "detail": "#1"
+  }
+ ]
+}

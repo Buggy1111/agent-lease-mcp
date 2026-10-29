@@ -39,6 +39,16 @@ from .hygiene import (
 )
 from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
 from .policy import covers, normalize_path
+from .states import (
+    ACK_TRANSITIONS,
+    HELD,
+    QUEUED,
+    RETRYABLE,
+    TERMINAL,
+    UNCANCELLABLE,
+    UNFINISHED_TASK,
+    sql_in,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS claims (
@@ -659,7 +669,7 @@ class Store:
                     "SELECT state, lease_token FROM deliveries WHERE message_id=? AND recipient=?",
                     (message_id, recipient),
                 ).fetchone()
-                held = d is not None and d["state"] in ("leased", "started")
+                held = d is not None and d["state"] in HELD
                 if held and not (lease_token and lease_token == d["lease_token"]):
                     return False  # drží ho worker — nepřebírat
                 by_lease = 1 if held else 0
@@ -916,7 +926,7 @@ class Store:
                 "SELECT d.recipient, d.state, d.message_id, m.text, m.agent AS sender, "
                 "m.sent_at, r.accepted_at FROM deliveries d JOIN messages m ON m.id=d.message_id "
                 "LEFT JOIN receipts r ON r.message_id=d.message_id AND r.recipient=d.recipient "
-                "WHERE d.state IN ('pending','leased','started','needs_review') "
+                f"WHERE d.state IN {sql_in(UNFINISHED_TASK)} "
                 "AND m.kind IN ('task','chat','control') ORDER BY d.message_id"
             ).fetchall()
             path_rows = con.execute(
@@ -1023,7 +1033,7 @@ class Store:
                 "r.seen_at, r.accepted_at FROM messages m "
                 "JOIN deliveries d ON d.message_id=m.id AND d.recipient=m.recipient "
                 "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
-                "WHERE m.kind IN ('chat','task','control') AND d.state IN ('pending','leased') "
+                f"WHERE m.kind IN ('chat','task','control') AND d.state IN {sql_in(QUEUED)} "
                 "AND r.accepted_at IS NULL AND m.sent_at <= ? ORDER BY m.id",
                 (now - seconds,),
             ).fetchall()
@@ -1041,7 +1051,7 @@ class Store:
             con.execute("BEGIN IMMEDIATE")
             cur = con.execute(
                 "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
-                "AND recipient=? AND lease_token=? AND state IN ('leased','started')",
+                f"AND recipient=? AND lease_token=? AND state IN {sql_in(HELD)}",
                 (time.time() + max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS)),
                  time.time(), message_id, recipient,
                  lease_token),
@@ -1058,7 +1068,7 @@ class Store:
                 "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient "
                 "LEFT JOIN screens sc ON sc.message_id=m.id "
                 "WHERE m.recipient=? AND m.agent<>? AND m.kind IN ('chat','task','control') "
-                "AND d.state IN ('pending','leased') AND (r.accepted_at IS NULL) "
+                f"AND d.state IN {sql_in(QUEUED)} AND (r.accepted_at IS NULL) "
                 # jen čerstvé: týdny staré úkoly z doby před potvrzováním nepřipomínat
                 "AND m.sent_at >= ? "
                 # informativní chat (Jev: akce < 30 %) se nepřipomíná; „viděl" stačí
@@ -1225,7 +1235,7 @@ class Store:
         state = _job_state(msg) if msg["state"] is not None else None
         return {
             "id": message_id, "kind": msg["kind"], "recipient": msg["recipient"],
-            "state": state, "final": state in _FINAL_STATES,
+            "state": state, "final": state in TERMINAL,
             "last_error": msg["last_error"] or "", "answers": answers, "receipts": receipts,
         }
 
@@ -1375,15 +1385,7 @@ class Store:
     ) -> bool:
         """Potvrdí pouze platný přechod vlastněného pracovního lease."""
         state_value = DeliveryState(state).value
-        terminal = {
-            DeliveryState.SUCCEEDED.value, DeliveryState.FAILED.value,
-            DeliveryState.NEEDS_REVIEW.value, DeliveryState.CANCELLED.value,
-            DeliveryState.EXPIRED.value, DeliveryState.DEAD_LETTER.value,
-        }
-        allowed = {
-            DeliveryState.LEASED.value: terminal | {DeliveryState.STARTED.value},
-            DeliveryState.STARTED.value: terminal,
-        }
+        terminal, allowed = TERMINAL, ACK_TRANSITIONS
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
@@ -1430,7 +1432,7 @@ class Store:
             cur = con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
                 "last_error='', updated_at=? WHERE message_id=? AND recipient=? "
-                "AND state IN ('pending','failed','needs_review','dead_letter')",
+                f"AND state IN {sql_in(RETRYABLE)}",
                 (time.time(), message_id, recipient),
             )
             if cur.rowcount:
@@ -1449,7 +1451,7 @@ class Store:
             cur = con.execute(
                 "UPDATE deliveries SET state='cancelled', lease_token=NULL, lease_until=NULL, "
                 "updated_at=? WHERE message_id=? AND recipient=? "
-                "AND state NOT IN ('succeeded','cancelled','expired')",
+                f"AND state NOT IN {sql_in(UNCANCELLABLE)}",
                 (time.time(), message_id, recipient),
             )
         return bool(cur.rowcount)
@@ -1521,7 +1523,7 @@ class Store:
                 r["id"] for r in con.execute(
                     "SELECT id FROM messages m WHERE sent_at < ? AND NOT (m.kind = 'task' "
                     "AND EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id = m.id AND "
-                    "d.state IN ('pending','leased','started','needs_review')))",
+                    f"d.state IN {sql_in(UNFINISHED_TASK)}))",
                     (cutoff,),
                 )
             ]
@@ -1579,11 +1581,6 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
         claimed_at=row["claimed_at"],
         expires_at=row["expires_at"],
     )
-
-
-_FINAL_STATES = frozenset({
-    "succeeded", "failed", "needs_review", "cancelled", "expired", "dead_letter",
-})
 
 
 def _job_state(row: sqlite3.Row) -> str:
