@@ -774,26 +774,7 @@ class Store:
 
     def failover_activation(self, agent: str, *, include_existing: bool = False) -> int:
         """Create once and return the durable lower task-id bound for failover."""
-        _check_agent(agent)
-        now = time.time()
-        with self._connect() as con:
-            con.execute("BEGIN IMMEDIATE")
-            row = con.execute(
-                "SELECT after_message_id FROM failover_activations WHERE agent=?", (agent,)
-            ).fetchone()
-            if row:
-                return int(row["after_message_id"])
-            after = 0
-            if not include_existing:
-                after = int(con.execute(
-                    "SELECT COALESCE(MAX(id), 0) FROM messages"
-                ).fetchone()[0])
-            con.execute(
-                "INSERT INTO failover_activations(agent, after_message_id, activated_at) "
-                "VALUES(?,?,?)", (agent, after, now),
-            )
-            self._record(con, agent, "failover-activate", "", f"after #{after}")
-            return after
+        return self._activate("failover_activations", "failover-activate", agent, include_existing)
 
     def failover_sweep(self, *, grace: int | None = None) -> list[dict]:
         """
@@ -1253,12 +1234,21 @@ class Store:
 
     def worker_activation(self, agent: str, *, include_existing: bool = False) -> int:
         """Create once and return the durable lower task-id bound for a worker."""
+        return self._activate("worker_activations", "worker-activate", agent, include_existing)
+
+    # Jen tyto dvě tabulky; jméno tabulky jde do SQL, proto pevný whitelist.
+    _ACTIVATION_TABLES = frozenset({"failover_activations", "worker_activations"})
+
+    def _activate(self, table: str, action: str, agent: str, include_existing: bool) -> int:
+        """Společné jádro worker/failover aktivace (Nox, rozbor #516)."""
+        if table not in self._ACTIVATION_TABLES:
+            raise ValueError(f"unknown activation table: {table}")
         _check_agent(agent)
         now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT after_message_id FROM worker_activations WHERE agent=?", (agent,)
+                f"SELECT after_message_id FROM {table} WHERE agent=?", (agent,)
             ).fetchone()
             if row:
                 return int(row["after_message_id"])
@@ -1268,10 +1258,10 @@ class Store:
                     "SELECT COALESCE(MAX(id), 0) FROM messages"
                 ).fetchone()[0])
             con.execute(
-                "INSERT INTO worker_activations(agent, after_message_id, activated_at) "
-                "VALUES(?,?,?)", (agent, after, now),
+                f"INSERT INTO {table}(agent, after_message_id, activated_at) VALUES(?,?,?)",
+                (agent, after, now),
             )
-            self._record(con, agent, "worker-activate", "", f"after #{after}")
+            self._record(con, agent, action, "", f"after #{after}")
             return after
 
     def activation_status(self, agent: str) -> dict:
