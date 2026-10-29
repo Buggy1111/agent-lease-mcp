@@ -298,6 +298,10 @@ def main(argv: list[str] | None = None) -> int:
                 store.failover_sweep()
             except Exception as exc:  # noqa: BLE001 — sweep nesmí shodit broker
                 print(f"failover_sweep: {exc}", file=sys.stderr)
+            try:
+                store.expire_stale_chats()
+            except Exception as exc:  # noqa: BLE001
+                print(f"expire_stale_chats: {exc}", file=sys.stderr)
 
     threading.Thread(target=sweeper, daemon=True).start()
     print(f"broker listening on {path or default_socket_path(settings)} (0600)", flush=True)

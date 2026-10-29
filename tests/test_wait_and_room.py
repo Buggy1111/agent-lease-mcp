@@ -122,3 +122,75 @@ def test_room_hides_long_gone_agents(server, monkeypatch):
     assert "codex" in names and "stary-agent" not in names
     assert state["hidden_offline_peers"] == 1
     assert "stary-agent" in {p["agent"] for p in server.room(all_peers=True)["peers"]}
+
+
+# ── review Nox #516 ──────────────────────────────────────────────────────────
+
+def test_foreign_or_own_reply_does_not_end_the_wait(store: Store):
+    mid = store.send("claude-code", "codex", "zrevidni", kind="task")
+    store.send("untrusted-outsider", "michal", "nesouvisí", reply_to=mid)  # pro někoho jiného
+    store.send("claude-code", "codex", "ještě doplním zadání", reply_to=mid)  # vlastní doplnění
+    assert store.outcome(mid, viewer="claude-code")["answers"] == []
+    store.send("codex", "claude-code", "výsledek", kind="result", reply_to=mid)
+    assert [a["text"] for a in store.outcome(mid, viewer="claude-code")["answers"]] == ["výsledek"]
+
+
+def test_recipient_waits_for_the_senders_follow_up(store: Store):
+    mid = store.send("claude-code", "codex", "zrevidni", kind="task")
+    store.send("codex", "claude-code", "dotaz: celé, nebo jen store?", reply_to=mid)
+    assert store.outcome(mid, viewer="codex")["answers"] == []
+    store.send("claude-code", "codex", "jen store", reply_to=mid)
+    assert [a["text"] for a in store.outcome(mid, viewer="codex")["answers"]] == ["jen store"]
+
+
+def test_answer_is_found_behind_many_receipts(store: Store):
+    mid = store.send("claude-code", "codex", "zrevidni", kind="task")
+    store.mark_seen("codex", [mid])
+    delivery = store.lease_next("codex")
+    store.accept(mid, "codex", "výsledek: hotovo (jen poznámka)", lease_token=delivery.lease_token)
+    for i in range(60):
+        store.send("broker", "claude-code", f"příjem {i}", kind="result", reply_to=mid)
+    store.send("codex", "claude-code", "skutečný výsledek", kind="result", reply_to=mid)
+    result = store.outcome(mid, viewer="claude-code")
+    assert [a["text"] for a in result["answers"]] == ["skutečný výsledek"]
+    assert len(result["receipts"]) == 10
+
+
+def test_accept_of_one_task_is_not_mistaken_for_another(store: Store):
+    for _ in range(4):
+        store.send("michal", "codex", "výplň", kind="chat")
+    mid = store.send("claude-code", "codex", "malé id", kind="task")
+    # ruční odpověď, která jen připomíná příjem jiného úkolu (#<mid>16)
+    store.send("codex", "claude-code", f"✔ taking #{mid}16 – to je jiný úkol", reply_to=mid)
+    assert len(store.outcome(mid, viewer="claude-code")["answers"]) == 1
+
+
+# ── staré nevyřízené chaty ───────────────────────────────────────────────────
+
+def test_old_unread_chat_expires_and_sender_is_told(store: Store, monkeypatch):
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() - 3 * 86400)
+    old = store.send("claude-code", "codex", "k webu Baller…")
+    seen = store.send("claude-code", "codex", "už viděno")
+    store.mark_seen("codex", [seen])
+    task = store.send("claude-code", "codex", "úkol čeká na limit", kind="task")
+    monkeypatch.setattr(time, "time", real)
+    fresh = store.send("claude-code", "codex", "čerstvé")
+
+    assert sorted(store.expire_stale_chats(48)) == sorted([old, seen])
+    states = {j["id"]: j["state"] for j in store.jobs("codex")}
+    assert states[old] == "expired" and states[seen] == "expired"
+    assert states[task] == "pending" and states[fresh] == "unread"
+    notices = [m for m in store.inbox() if m["text"].startswith("⌛")]
+    assert len(notices) == 1 and notices[0]["recipient"] == "claude-code"
+    assert store.expire_stale_chats(48) == []          # podruhé nic
+
+
+def test_expired_chat_is_no_longer_offered_to_the_agent(store: Store, monkeypatch):
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() - 3 * 86400)
+    old = store.send("claude-code", "codex", "staré")
+    monkeypatch.setattr(time, "time", real)
+    store.expire_stale_chats(48)
+    assert old not in [m["id"] for m in store.awaiting_accept("codex")]
+    assert store.expire_stale_chats(0) == []           # 0 = vypnuto

@@ -319,3 +319,19 @@ def test_services_requiring_the_broker_never_fall_back(tmp_path: Path, monkeypat
 def test_bridge_unit_requires_the_broker():
     unit = Path(__file__).parents[1] / "deploy" / "systemd" / "agent-lease-bridge@.service"
     assert "Environment=AGENT_LEASE_REQUIRE_BROKER=1" in unit.read_text()
+
+
+def test_outcome_over_the_broker_needs_a_viewer_and_respects_it(broker):
+    """wait() čte přes broker: bez viewera nic, cizí viewer nic, účastník ano."""
+    from agent_lease_mcp.broker import RemoteStore
+
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    mid = remote.send("claude-code", "codex", "zrevidni", kind="task")
+    with pytest.raises(PermissionError):
+        remote.outcome(mid)
+    with pytest.raises(PermissionError):
+        remote.outcome(mid, viewer=None)
+    with pytest.raises(PermissionError):
+        remote.outcome(mid, viewer="cizinec")
+    assert remote.outcome(mid, viewer="claude-code")["state"] == "pending"

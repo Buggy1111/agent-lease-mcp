@@ -84,6 +84,9 @@ class Settings:
     failover_grace: int = 60
     # Agent bez limitu, který jen dlouho nedal znamení (spí v `wait`), se předbíhat nesmí hned.
     offline_grace: int = 900
+    # Chat, který nikdo nevyřídil do N hodin, se uzavře (`expired`). Jinak visí navždy
+    # a agent ho po dnech „převezme“ bez souvislosti (Baller #496–498, 29. 10. 2026).
+    chat_expire_hours: int = 48
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -101,6 +104,7 @@ class Settings:
             fallbacks=parse_fallbacks(os.environ.get("AGENT_LEASE_FALLBACKS", "")),
             failover_grace=_int_env("AGENT_LEASE_FAILOVER_GRACE", 60),
             offline_grace=_int_env("AGENT_LEASE_OFFLINE_GRACE", 900),
+            chat_expire_hours=_int_env("AGENT_LEASE_CHAT_EXPIRE_HOURS", 48),
             fail_closed=os.environ.get("AGENT_LEASE_FAIL_CLOSED", "") in ("1", "true", "yes"),
         )
 

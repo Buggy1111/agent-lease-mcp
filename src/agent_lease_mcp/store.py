@@ -1191,16 +1191,32 @@ class Store:
                 raise KeyError(f"message #{message_id} does not exist")
             if viewer is not None and viewer not in (msg["agent"], msg["recipient"]):
                 raise PermissionError("only the sender or the recipient may wait on a message")
-            rows = con.execute(
+            # Odpověď = zpráva PRO toho, kdo čeká, od někoho jiného než on sám a ne
+            # automatický příjem (Nox, review #516: cizí zpráva s reply_to ani vlastní
+            # doplnění zadání nesmí čekání ukončit). Bez viewera (web UI) se čeká
+            # za odesílatele. Filtruje se v SQL PŘED limitem, jinak by 50 příjmů
+            # schovalo skutečný výsledek.
+            waiter = viewer or msg["agent"]
+            # Přesný tvar z `accept`: „✔ taking #N“ nebo „✔ taking #N: poznámka“
+            # (prostý prefix by u #5 chytil i „✔ taking #516“).
+            taking, taking_note = f"✔ taking #{message_id}", f"✔ taking #{message_id}: %"
+            answer_rows = con.execute(
                 "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
-                "ORDER BY id LIMIT 50", (message_id,)
+                "AND recipient=? AND agent<>? AND agent<>'broker' AND text<>? AND text NOT LIKE ? "
+                "ORDER BY id LIMIT 20", (message_id, waiter, waiter, taking, taking_note)
             ).fetchall()
-        answers, receipts = [], []
-        for r in rows:
-            item = {"id": r["id"], "agent": r["agent"], "kind": r["kind"], "text": r["text"],
+            receipt_rows = con.execute(
+                "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
+                "AND (agent='broker' OR text=? OR text LIKE ?) ORDER BY id DESC LIMIT 10",
+                (message_id, taking, taking_note)
+            ).fetchall()
+
+        def item(r: sqlite3.Row) -> dict:
+            return {"id": r["id"], "agent": r["agent"], "kind": r["kind"], "text": r["text"],
                     "seconds_ago": int(now - r["sent_at"])}
-            automatic = r["agent"] == "broker" or r["text"].startswith(f"✔ taking #{message_id}")
-            (receipts if automatic else answers).append(item)
+
+        answers = [item(r) for r in answer_rows]
+        receipts = [item(r) for r in reversed(receipt_rows)]
         state = _job_state(msg) if msg["state"] is not None else None
         return {
             "id": message_id, "kind": msg["kind"], "recipient": msg["recipient"],
@@ -1432,6 +1448,52 @@ class Store:
                 (time.time(), message_id, recipient),
             )
         return bool(cur.rowcount)
+
+    def expire_stale_chats(self, older_than_hours: int | None = None) -> list[int]:
+        """
+        Uzavře staré nevyřízené chaty (`pending` → `expired`).
+
+        Chat se nikdy neprovádí, takže jeho doručení by zůstalo `pending` až do
+        retence (30 dní) a agent by ho po dnech mohl „převzít“ bez souvislosti.
+        Úkoly (`task`) se nechávají: ve frontě čekají schválně, třeba na konec
+        limitu. Odesílatel nepřečteného chatu dostane krátké upozornění.
+        """
+        hours = self.settings.chat_expire_hours if older_than_hours is None else older_than_hours
+        if hours <= 0:
+            return []
+        now = time.time()
+        cutoff = now - hours * 3600
+        notify: set[str] = set()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            rows = con.execute(
+                "SELECT m.id, m.agent, m.recipient, m.text, r.seen_at, r.accepted_at "
+                "FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "LEFT JOIN receipts r ON r.message_id=d.message_id AND r.recipient=d.recipient "
+                "WHERE m.kind='chat' AND d.state='pending' AND m.sent_at < ?",
+                (cutoff,),
+            ).fetchall()
+            for row in rows:
+                con.execute(
+                    "UPDATE deliveries SET state='expired', last_error=?, updated_at=? "
+                    "WHERE message_id=? AND recipient=? AND state='pending'",
+                    (f"nevyřízeno do {hours} h", now, row["id"], row["recipient"]),
+                )
+                if not row["seen_at"] and row["agent"] != "broker":
+                    snippet = " ".join(row["text"].split())[:60]
+                    notice = (f"⌛ {row['recipient']} #{row['id']} nepřečetl do {hours} h, "
+                              f"uzavřeno (“{snippet}”)")
+                    con.execute(
+                        "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                        "VALUES('broker',?,?,?,?,?)",
+                        (notice, now, row["agent"], MessageKind.RESULT.value, row["id"]),
+                    )
+                    notify.add(row["agent"])
+            if rows:
+                self._record(con, "broker", "expire", "", f"{len(rows)} chat(s)")
+        for agent in notify:
+            self._signal(agent)
+        return [r["id"] for r in rows]
 
     def prune(self, older_than_days: int | None = None) -> dict[str, int]:
         """
