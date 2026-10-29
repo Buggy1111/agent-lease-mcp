@@ -202,3 +202,34 @@ def test_outsider_cannot_fake_an_answer_to_the_waiter(store: Store):
     store.send("untrusted-outsider", "claude-code", f"✔ taking #{mid}", reply_to=mid)
     result = store.outcome(mid, viewer="claude-code")
     assert result["answers"] == [] and result["receipts"] == []
+
+
+# ── review Nox #524 ──────────────────────────────────────────────────────────
+
+def test_scheduled_chat_does_not_expire_before_it_is_due(store: Store, monkeypatch):
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() - 3 * 86400)
+    mid = store.send("claude-code", "codex", "připomeň zítra", not_before=real() + 86400)
+    monkeypatch.setattr(time, "time", real)
+    assert store.expire_stale_chats(48) == []
+    # až uplyne celá lhůta od termínu doručení, vyprší
+    monkeypatch.setattr(time, "time", lambda: real() + 86400 + 49 * 3600)
+    assert store.expire_stale_chats(48) == [mid]
+
+
+def test_expired_chat_leaves_live_context_wake_and_accept(store: Store, monkeypatch):
+    from agent_lease_mcp.lifecycle import wakes
+
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() - 3 * 86400)
+    old = store.send("claude-code", "codex", "staré k Balleru")
+    monkeypatch.setattr(time, "time", real)
+    task = store.send("claude-code", "codex", "živý úkol", kind="task")
+    store.expire_stale_chats(48)
+
+    assert old not in [m["id"] for m in store.undelivered("codex")]
+    assert task in [m["id"] for m in store.undelivered("codex")]
+    batch = {m["id"]: m for m in store.addressed("codex")}
+    assert not wakes(batch[old], "codex")
+    assert wakes(batch[task], "codex")
+    assert store.accept(old, "codex", "beru") is False

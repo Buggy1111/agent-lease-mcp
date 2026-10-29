@@ -198,6 +198,11 @@ class MessagingMixin:
             if not msg or msg["recipient"] != recipient:
                 return False
             by_lease = 0
+            if msg["kind"] == MessageKind.CHAT.value and con.execute(
+                "SELECT 1 FROM deliveries WHERE message_id=? AND recipient=? AND state='expired'",
+                (message_id, recipient),
+            ).fetchone():
+                return False  # vypršený chat se už nepřebírá (Nox, review #524)
             if msg["kind"] == MessageKind.TASK.value:
                 d = con.execute(
                     "SELECT state, lease_token FROM deliveries WHERE message_id=? AND recipient=?",
@@ -311,6 +316,8 @@ class MessagingMixin:
             rows = con.execute(
                 f"SELECT {_MSG_COLS} {_FROM_MSG} "
                 "WHERE m.id>? AND m.agent<>? AND m.recipient IN ('*', ?) "
+                # Vypršený chat už do živého kontextu nepatří (Nox, review #524).
+                "AND NOT (m.kind='chat' AND COALESCE(d.state, '')='expired') "
                 "ORDER BY m.id LIMIT ?",
                 (self.cursor(agent), agent, agent, limit),
             ).fetchall()
@@ -431,7 +438,10 @@ class MessagingMixin:
                 "SELECT m.id, m.agent, m.recipient, m.text, r.seen_at, r.accepted_at "
                 "FROM deliveries d JOIN messages m ON m.id=d.message_id "
                 "LEFT JOIN receipts r ON r.message_id=d.message_id AND r.recipient=d.recipient "
-                "WHERE m.kind='chat' AND d.state='pending' AND m.sent_at < ?",
+                # Lhůta běží od chvíle, kdy zpráva smí být doručena (not_before), ne od
+                # odeslání — naplánovaný chat nesmí vypršet dřív (Nox, review #524).
+                "WHERE m.kind='chat' AND d.state='pending' "
+                "AND MAX(m.sent_at, COALESCE(m.not_before, 0)) < ?",
                 (cutoff,),
             ).fetchall()
             for row in rows:

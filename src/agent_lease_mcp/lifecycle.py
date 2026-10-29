@@ -158,7 +158,10 @@ def is_receipt(m: dict) -> bool:
 
 
 def wakes(m: dict, me: str) -> bool:
-    """Budí jen adresná zpráva od někoho jiného, která není příjemka. Broadcast ne."""
+    """Budí jen adresná zpráva od někoho jiného, která není příjemka. Broadcast ne.
+    Vypršený chat nebudí (Nox, review #524)."""
+    if m.get("kind") == "chat" and m.get("state") == "expired":
+        return False
     return m.get("recipient") == me and m.get("agent") != me and not is_receipt(m)
 
 
