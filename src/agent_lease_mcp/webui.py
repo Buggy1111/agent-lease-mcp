@@ -196,6 +196,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_retry()
             if parts.path == "/api/cancel":
                 return self._handle_cancel()
+            if parts.path == "/api/approve":
+                return self._handle_approve()
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
@@ -337,6 +339,23 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             if not store.cancel(message_id, recipient):
                 return self._reject(409, "task can no longer be cancelled or does not exist")
             self._json_response({"id": message_id, "state": "cancelled"})
+
+        def _handle_approve(self) -> None:
+            """Člověk schválí úkol z karantény (jen přihlášená lidská session)."""
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                message_id = int(data["id"])
+                recipient = str(data["to"]).strip()
+                reason = str(data.get("reason", "")).strip()
+            except (KeyError, TypeError, ValueError):
+                return self._reject(400, "approve needs a valid 'id' and 'to'")
+            if not recipient or not reason:
+                return self._reject(400, "approve needs 'id', 'to' and a reason")
+            if not store.approve_quarantine(message_id, recipient, web_agent, reason):
+                return self._reject(409, "only a task held back by quarantine can be approved")
+            self._json_response({"id": message_id, "state": "pending", "approved": True})
 
         def _handle_events(self, qs: dict[str, list[str]]) -> None:
             if not self._session_ok():
@@ -657,6 +676,18 @@ function renderMessage(m) {
       cancel.className = "btn-ghost"; cancel.textContent = "Cancel";
       cancel.onclick = () => control("cancel", m.id, m.recipient);
       actions.appendChild(cancel);
+    }
+    if (m.state === "needs_review" && (m.last_error || "").startsWith("quarantine")) {
+      const approve = document.createElement("button");
+      approve.className = "btn-ghost"; approve.textContent = "Approve & run once";
+      approve.onclick = () => {
+        const reason = prompt("Why is this held-back task safe to run? (logged)");
+        if (!reason) return;
+        fetch("/api/approve", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id: m.id, to: m.recipient, reason})})
+          .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
+      };
+      actions.appendChild(approve);
     }
     if (["failed", "needs_review", "dead_letter"].includes(m.state)) {
       const retry = document.createElement("button");

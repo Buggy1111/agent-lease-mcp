@@ -217,6 +217,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
             con.execute("BEGIN IMMEDIATE")
             self._migrate_messages(con)
             self._migrate_receipts(con)
+            self._migrate_screens(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
 
@@ -234,6 +235,20 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
                 "AND d.recipient=receipts.recipient AND d.attempts>0)",
                 (BRIDGE_ACCEPT_NOTE,),
             )
+
+        # `owner` = která interaktivní session (proces MCP serveru) úkol převzala.
+        # Dvě session stejného jména si tak jeden úkol nevezmou obě (audit #535 bod 2a).
+        if "owner" not in columns:
+            con.execute("ALTER TABLE receipts ADD COLUMN owner TEXT")
+
+    @staticmethod
+    def _migrate_screens(con: sqlite3.Connection) -> None:
+        """Lidské schválení karantény: kdo, kdy, proč a na jaký přesný text."""
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(screens)")}
+        for name, decl in (("approved_by", "TEXT"), ("approved_at", "REAL"),
+                           ("approved_hash", "TEXT"), ("approved_reason", "TEXT")):
+            if name not in columns:
+                con.execute(f"ALTER TABLE screens ADD COLUMN {name} {decl}")
 
     @staticmethod
     def _migrate_messages(con: sqlite3.Connection) -> None:

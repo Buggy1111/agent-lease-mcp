@@ -16,6 +16,7 @@ from .config import (
     MAX_TASK_LEASE_SECONDS,
     STALE_PEER_SECONDS,
 )
+from .hygiene import check_short
 from .models import Delivery, DeliveryState, MessageKind
 from .states import (
     ACK_TRANSITIONS,
@@ -115,7 +116,7 @@ class DeliveriesMixin:
 
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
-        skip_accepted: bool = False, defer_if_present: float = 0,
+        skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -152,8 +153,12 @@ class DeliveriesMixin:
                 "AND m.not_before<=? AND (m.expires_at IS NULL OR m.expires_at>?) "
                 "AND (? IS NULL OR m.sent_at<=?) "
                 "AND (? = 0 OR r.accepted_at IS NULL OR r.by_lease = 1) "
+                # interaktivní session nedostane úkol převzatý jinou session (audit #535 2a)
+                "AND (? IS NULL OR r.accepted_at IS NULL OR r.by_lease = 1 "
+                "     OR r.owner IS NULL OR r.owner = ?) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
-                (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted))),
+                (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted)),
+                 owner, owner),
             ).fetchall()
             row = None
             for candidate in rows:
@@ -224,6 +229,136 @@ class DeliveriesMixin:
                  message_id, recipient, current),
             )
         return bool(cur.rowcount)
+
+    def complete(self, message_id: int, recipient: str, lease_token: str,
+                 state: DeliveryState | str, result_text: str, *, error: str = "") -> bool:
+        """
+        Dokončení úkolu ATOMICKY: přechod stavu + zpráva s výsledkem v jedné transakci,
+        jen s platným (neprošlým) lease tokenem. Dřív se „Done“ posílalo před `ack`
+        a výsledek ack se ignoroval → po zrušení přišlo Done, pád mezi tím nechal
+        rozpor (audit #535 bod 2d). Opakované volání se stejným výsledkem je no-op.
+        """
+        state_value = DeliveryState(state).value
+        if state_value not in TERMINAL:
+            raise ValueError("complete() needs a final state")
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT d.state, d.lease_token, d.lease_until, m.agent AS sender "
+                "FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "WHERE d.message_id=? AND d.recipient=?", (message_id, recipient),
+            ).fetchone()
+            if not row:
+                return False
+            if row["state"] == state_value and row["lease_token"] is None:
+                return True  # už dokončeno (idempotentní)
+            if (row["state"] not in ACK_TRANSITIONS or not lease_token
+                    or row["lease_token"] != lease_token
+                    or (row["lease_until"] is not None and row["lease_until"] <= now)
+                    or state_value not in ACK_TRANSITIONS[row["state"]]):
+                return False
+            con.execute(
+                "UPDATE deliveries SET state=?, last_error=?, updated_at=?, lease_token=NULL, "
+                "lease_until=NULL WHERE message_id=? AND recipient=?",
+                (state_value, error, now, message_id, recipient),
+            )
+            con.execute(
+                "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
+                "VALUES(?,?,?,?,?,?)",
+                (recipient, result_text, now, row["sender"], MessageKind.RESULT.value, message_id),
+            )
+        self._signal(row["sender"])
+        return True
+
+    def holds(self, message_id: int, recipient: str, lease_token: str) -> bool:
+        """Levná kontrola vlastnictví: platný, neprošlý lease s tímto tokenem."""
+        with self._connect() as con:
+            row = con.execute(
+                f"SELECT 1 FROM deliveries WHERE message_id=? AND recipient=? AND lease_token=? "
+                f"AND state IN {sql_in(HELD)} AND lease_until>?",
+                (message_id, recipient, lease_token, time.time()),
+            ).fetchone()
+        return row is not None
+
+    def defer(self, message_id: int, recipient: str, lease_token: str, not_before: float,
+              notice: str, *, error: str = "") -> bool:
+        """
+        Bezpečné odložení po limitu poskytovatele: `started`/`leased` → `pending`
+        s `not_before` a zpráva odesílateli, ATOMICKY a jen s platným lease.
+        Dřív `ack(FAILED)` + `retry()` zvlášť: po propadlém lease ack selhal, ale
+        retry vrátil i `needs_review` úkol do fronty (Nox, review #540 bod 3).
+        Volat jen pro běh bez vedlejších efektů (read-only).
+        """
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT d.state, d.lease_token, d.lease_until, m.agent AS sender "
+                "FROM deliveries d JOIN messages m ON m.id=d.message_id "
+                "WHERE d.message_id=? AND d.recipient=?", (message_id, recipient),
+            ).fetchone()
+            if (not row or row["state"] not in HELD or row["lease_token"] != lease_token
+                    or row["lease_until"] is None or row["lease_until"] <= now):
+                return False
+            con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                "last_error=?, updated_at=? WHERE message_id=? AND recipient=?",
+                (error, now, message_id, recipient),
+            )
+            con.execute("UPDATE messages SET not_before=? WHERE id=?", (not_before, message_id))
+            self._insert_event(con, recipient, row["sender"], notice, message_id, now)
+        self._signal(row["sender"])
+        return True
+
+    @staticmethod
+    def _text_hash(text: str) -> str:
+        import hashlib
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def quarantine_approved(self, message_id: int, recipient: str, text: str) -> bool:
+        """Schválil člověk právě tento text úkolu k jednomu spuštění?"""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT approved_hash FROM screens WHERE message_id=? AND approved_at IS NOT NULL",
+                (message_id,),
+            ).fetchone()
+        return bool(row) and row["approved_hash"] == self._text_hash(text)
+
+    def approve_quarantine(self, message_id: int, recipient: str, approver: str,
+                           reason: str) -> bool:
+        """
+        LIDSKÉ schválení úkolu zadrženého karanténou + jeden nový pokus (Nox #540/6).
+        Jen úkol, který se kvůli karanténě NESPUSTIL (`needs_review` s chybou
+        „quarantine“), ne nejistý rozběhnutý běh. Schválení je vázané na přesný text
+        (hash) a auditované. Není v METHODS brokeru: agent si ho dát nemůže, volá ho
+        jen web UI s ověřenou lidskou session.
+        """
+        reason = check_short("reason", reason.strip()) or "approved"
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT d.state, d.last_error, m.text FROM deliveries d "
+                "JOIN messages m ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",
+                (message_id, recipient),
+            ).fetchone()
+            if (not row or row["state"] != "needs_review"
+                    or not (row["last_error"] or "").startswith("quarantine")):
+                return False
+            con.execute(
+                "UPDATE screens SET approved_by=?, approved_at=?, approved_hash=?, "
+                "approved_reason=? WHERE message_id=?",
+                (approver, now, self._text_hash(row["text"]), reason, message_id),
+            )
+            con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                "last_error='', updated_at=? WHERE message_id=? AND recipient=?",
+                (now, message_id, recipient),
+            )
+            self._record(con, approver, "approve-quarantine", "", f"#{message_id}: {reason}")
+        self._signal(recipient)
+        return True
 
     def _may_manage(self, con: sqlite3.Connection, message_id: int, recipient: str,
                     actor: str | None) -> bool:

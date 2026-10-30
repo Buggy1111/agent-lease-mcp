@@ -177,7 +177,7 @@ class MessagingMixin:
         return fresh
 
     def accept(self, message_id: int, recipient: str, note: str = "",
-               lease_token: str | None = None) -> bool:
+               lease_token: str | None = None, owner: str | None = None) -> bool:
         """
         Vědomé „beru to" od adresáta; odesílatel dostane zprávu s tím, co se bude dít.
 
@@ -211,7 +211,19 @@ class MessagingMixin:
                 held = d is not None and d["state"] in HELD
                 if held and not (lease_token and lease_token == d["lease_token"]):
                     return False  # drží ho worker — nepřebírat
+                # Bez lease jde převzít jen úkol, který ještě čeká; hotový, zrušený
+                # ani vypršený už ne (audit #535 bod 2a).
+                if not held and (d is None or d["state"] != "pending"):
+                    return False
                 by_lease = 1 if held else 0
+                # Úkol převzatý jinou session stejného jména nepatří téhle (2a).
+                prior = con.execute(
+                    "SELECT accepted_at, by_lease, owner FROM receipts "
+                    "WHERE message_id=? AND recipient=?", (message_id, recipient),
+                ).fetchone()
+                if (not by_lease and owner and prior and prior["accepted_at"]
+                        and not prior["by_lease"] and prior["owner"] and prior["owner"] != owner):
+                    return False
             row = con.execute(
                 "SELECT accepted_at, by_lease FROM receipts WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
@@ -219,11 +231,12 @@ class MessagingMixin:
             if row and row["accepted_at"] and (row["by_lease"] == by_lease or by_lease):
                 return True  # idempotentní
             con.execute(
-                "INSERT INTO receipts(message_id, recipient, seen_at, accepted_at, note, by_lease) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(message_id, recipient) DO UPDATE SET "
+                "INSERT INTO receipts(message_id, recipient, seen_at, accepted_at, note, by_lease, "
+                "owner) VALUES(?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient) DO UPDATE SET "
                 "accepted_at=excluded.accepted_at, note=excluded.note, by_lease=excluded.by_lease, "
+                "owner=COALESCE(excluded.owner, receipts.owner), "
                 "seen_at=COALESCE(receipts.seen_at, excluded.seen_at)",
-                (message_id, recipient, now, now, note, by_lease),
+                (message_id, recipient, now, now, note, by_lease, owner),
             )
             self._insert_event(con, recipient, msg["agent"],
                                f"✔ taking #{message_id}" + (f": {note}" if note else ""),
