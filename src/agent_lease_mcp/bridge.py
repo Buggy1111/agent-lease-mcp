@@ -526,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", ""),
                    help="e.g. anthropic/claude-sonnet-4.5 (only for --provider openrouter)")
     p.add_argument("--max-per-hour", type=int, default=12)
+    p.add_argument("--lease-seconds", type=int, default=120,
+                   help="task lease length; renewed while the command runs")
     p.add_argument("--timeout", type=float, default=1800)
     p.add_argument("--once", action="store_true", help="process one pass and exit")
     p.add_argument(
@@ -559,6 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     bridge = Bridge(store, args.agent, command, runner=runner,
                     read_only=True if args.provider == "openrouter" else None,
                     timeout=args.timeout, max_per_hour=args.max_per_hour,
+                    lease_seconds=args.lease_seconds,
                     after_message_id=after_message_id,
                     interactive_grace=args.interactive_grace,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)

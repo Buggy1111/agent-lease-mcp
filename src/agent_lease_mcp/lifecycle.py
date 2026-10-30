@@ -63,7 +63,13 @@ def screen_risk(store, m: dict) -> float:
         if t.risk is not None:
             risk = max(risk, t.risk)
         actionable = t.actionable
-    store.set_screen(m["id"], risk, actionable)
+    try:
+        # Cache smí zapsat jen důvěryhodný proces s přímým přístupem k DB; přes broker
+        # to agent nesmí (předvyplněním by obešel Jev — security review). Bez cache
+        # se zpráva posoudí znovu, nic se neobejde.
+        store.set_screen(m["id"], risk, actionable)
+    except (AttributeError, PermissionError):
+        pass
     if risk >= jev.RISK_THRESHOLD:
         store.send("broker", human_name(store.db_path),
                    f"⚠ Message #{m['id']} from {m['agent']} held back (risk {risk:.0%}).",

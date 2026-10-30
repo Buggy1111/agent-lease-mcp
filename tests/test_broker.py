@@ -206,7 +206,11 @@ def test_every_store_method_used_through_the_broker_is_proxied():
         if "open_store" not in source or module.name == "broker.py":
             continue
         used = set(re.findall(r"\b_?store\.(\w+)\(", source))
-        gaps = sorted(m for m in used if m in store_methods and m not in METHODS)
+        # Záměrně jen pro důvěryhodný přímý přístup k DB (agent je přes broker nesmí):
+        # volající je na jejich nedostupnost připravený (try/except).
+        local_only = {"set_screen"}
+        gaps = sorted(m for m in used if m in store_methods and m not in METHODS
+                      and m not in local_only)
         if gaps:
             missing[module.name] = gaps
     assert missing == {}
@@ -335,3 +339,9 @@ def test_outcome_over_the_broker_needs_a_viewer_and_respects_it(broker):
     with pytest.raises(PermissionError):
         remote.outcome(mid, viewer="cizinec")
     assert remote.outcome(mid, viewer="claude-code")["state"] == "pending"
+
+
+def test_agents_cannot_write_screening_results_through_the_broker():
+    from agent_lease_mcp.broker import METHODS
+    assert "set_screen" not in METHODS and "approve_quarantine" not in METHODS
+    assert "resume" not in METHODS

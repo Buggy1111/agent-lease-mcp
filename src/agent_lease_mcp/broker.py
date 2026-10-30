@@ -35,7 +35,7 @@ METHODS = frozenset({
     "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
     "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "prune", "mark_seen",
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
-    "failover_activation", "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
+    "failover_activation", "failover_sweep", "get_screen", "overdue", "extend_lease", "signal_mtime",
     "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
     "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "paused", "pause",
     "checkpoint", "get_checkpoint", "backup_now",
