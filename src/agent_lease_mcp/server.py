@@ -12,7 +12,9 @@ překládají argumenty na volání store. Vrstva navíc by tu byla jen na prokl
 
 from __future__ import annotations
 
+import hashlib
 import os
+import subprocess
 import time
 import uuid
 
@@ -116,6 +118,19 @@ def jobs(recipient: str | None = None, limit: int = 50) -> dict:
     }
 
 
+def _checkpoint_view(message_id: int) -> dict | None:
+    cp = _store.get_checkpoint(message_id, _settings.agent)
+    if not cp:
+        return None
+    head, dirty = _workspace_state()
+    return {
+        "attempt": cp["attempt"], "step_done": cp["step_done"], "next_step": cp["next_step"],
+        "evidence": cp["evidence"],
+        # jiná pracovní kopie = nenavazovat naslepo, nejdřív ověřit (A6)
+        "workspace_matches": cp["git_head"] == head and cp["dirty"] == dirty,
+    }
+
+
 @mcp.tool
 def next_task(lease_seconds: int = 60) -> dict:
     """
@@ -139,7 +154,8 @@ def next_task(lease_seconds: int = 60) -> dict:
             "lease_token": delivery.lease_token,
             "lease_until": delivery.lease_until,
             "reply_to": delivery.reply_to,
-        }
+        },
+        "checkpoint": _checkpoint_view(delivery.message_id),
     }
 
 
@@ -256,6 +272,7 @@ def room(status: str = "", all_peers: bool = False) -> dict:
         "peers": shown,
         "hidden_offline_peers": len(peers) - len(shown),
         "claims": [c.as_dict() for c in _store.claims()],
+        "paused": _store.paused(),
         "recent_messages": [_brief(m) for m in _store.latest_messages(limit=ROOM_MESSAGES)],
     }
 
@@ -278,6 +295,46 @@ def wait(message_id: int, timeout_seconds: int = 120) -> dict:
         if waited >= timeout:
             return {**result, "timed_out": True, "waited_seconds": waited}
         time.sleep(min(2.0, max(0.1, timeout - waited)))
+
+
+def _workspace_state() -> tuple[str, str]:
+    """git HEAD a otisk rozpracovaných souborů v pracovním adresáři (prázdné mimo git)."""
+    def run(*argv: str) -> str:
+        try:
+            return subprocess.run(["git", *argv], capture_output=True, text=True, timeout=10, check=False,
+                                  cwd=os.getcwd()).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    head = run("rev-parse", "HEAD")
+    status = run("status", "--porcelain")
+    dirty = hashlib.sha256(status.encode()).hexdigest()[:16] if status else ""
+    return head, dirty
+
+
+@mcp.tool
+def checkpoint(message_id: int, lease_token: str, step_done: str, next_step: str = "",
+               evidence: str = "") -> dict:
+    """
+    Save progress on a task you hold, BEFORE you might stop (limit, long step).
+    After a crash or limit the next attempt sees what is done and continues
+    instead of redoing it. `evidence` = test results, commit, paths. The git
+    HEAD and the state of uncommitted files are recorded automatically.
+    """
+    head, dirty = _workspace_state()
+    ok = _store.checkpoint(message_id, _settings.agent, lease_token, step_done, next_step,
+                           head, dirty, evidence)
+    return {"ok": ok, "id": message_id, "git_head": head}
+
+
+@mcp.tool
+def emergency_stop(reason: str = "") -> dict:
+    """
+    Stop all autonomous execution NOW: no new task starts and running bridge
+    workers stop within seconds (their tasks go to needs_review). Only the human
+    can resume (web UI). Use it when something is going wrong.
+    """
+    _store.pause(_settings.agent, reason)
+    return {"paused": True, "by": _settings.agent}
 
 
 @mcp.tool

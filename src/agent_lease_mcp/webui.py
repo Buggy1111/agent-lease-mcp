@@ -198,6 +198,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_cancel()
             if parts.path == "/api/approve":
                 return self._handle_approve()
+            if parts.path in ("/api/pause", "/api/resume"):
+                return self._handle_pause(parts.path.endswith("pause"))
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
@@ -254,6 +256,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "peers": store.peers(),
                 "claims": [c.as_dict() for c in store.claims()],
                 "board": store.board(),
+                "paused": store.paused(),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -356,6 +359,18 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             if not store.approve_quarantine(message_id, recipient, web_agent, reason):
                 return self._reject(409, "only a task held back by quarantine can be approved")
             self._json_response({"id": message_id, "state": "pending", "approved": True})
+
+        def _handle_pause(self, stop: bool) -> None:
+            """Nouzové zastavení / obnovení. Obnovit smí jen člověk – proto jen tady."""
+            data = self._read_json()
+            if data is None:
+                return
+            reason = str(data.get("reason", "")).strip()[:500]
+            if stop:
+                store.pause(web_agent, reason)
+            else:
+                store.resume(web_agent, reason)
+            self._json_response({"paused": stop})
 
         def _handle_events(self, qs: dict[str, list[str]]) -> None:
             if not self._session_ok():
@@ -584,6 +599,7 @@ PAGE_HTML = """<!doctype html>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
   <div class="section"><h3>Presence</h3><div id="peers"></div></div>
+  <div class="section"><h3>Emergency stop</h3><div id="pause"></div></div>
   <div class="section"><h3>Overview</h3><div id="board"></div></div>
   <div class="section"><h3>Leases</h3><div id="claims"></div></div>
 </div>
@@ -704,6 +720,26 @@ function limitTime(t) {
   return new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
 }
 
+function renderPause(p) {
+  const el = document.getElementById("pause");
+  el.innerHTML = "";
+  const b = document.createElement("button");
+  if (p) {
+    el.insertAdjacentHTML("beforeend",
+      `<div class="state failed">⏸ STOPPED by ${esc(p.by)}${p.reason ? ": " + esc(p.reason) : ""}</div>`);
+    b.className = "btn-ghost"; b.textContent = "Resume autonomous work";
+    b.onclick = () => { if (confirm("Resume autonomous execution?")) pauseCall("resume", ""); };
+  } else {
+    b.className = "btn-ghost"; b.textContent = "🛑 Stop all autonomous work";
+    b.onclick = () => { const r = prompt("Why stop? (logged)", "emergency stop"); if (r !== null) pauseCall("pause", r); };
+  }
+  el.appendChild(b);
+}
+function pauseCall(action, reason) {
+  fetch("/api/" + action, {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({reason})}).then(r => { if (!r.ok) r.text().then(t => alert(t)); else location.reload(); });
+}
+
 function renderBoard(rows) {
   const el = document.getElementById("board");
   el.innerHTML = (rows || []).map(b => {
@@ -725,6 +761,7 @@ function renderBoard(rows) {
 function renderRoom(r) {
   (r.messages || []).forEach(renderMessage);
   renderBoard(r.board);
+  renderPause(r.paused);
   peersEl.innerHTML = (r.peers || []).map(p => `
     <div class="peer">
       <div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}

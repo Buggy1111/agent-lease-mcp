@@ -37,7 +37,8 @@ METHODS = frozenset({
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_activation", "failover_sweep", "get_screen", "set_screen", "overdue", "extend_lease", "signal_mtime",
     "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
-    "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved",
+    "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "paused", "pause",
+    "checkpoint", "get_checkpoint", "backup",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
@@ -290,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     store = server.RequestHandlerClass.store
 
+    last_backup = [0.0]
+
     def sweeper() -> None:
         import time as _t
         while True:
@@ -298,6 +301,14 @@ def main(argv: list[str] | None = None) -> int:
                 store.failover_sweep()
             except Exception as exc:  # noqa: BLE001 — sweep nesmí shodit broker
                 print(f"failover_sweep: {exc}", file=sys.stderr)
+            try:
+                if _t.time() - last_backup[0] > 86400:
+                    last_backup[0] = _t.time()
+                    result = store.backup()
+                    if "ok" not in (result["integrity"], result["backup_integrity"]):
+                        print(f"backup integrity: {result}", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                print(f"backup: {exc}", file=sys.stderr)
             try:
                 store.reconcile()
             except Exception as exc:  # noqa: BLE001

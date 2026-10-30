@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import uuid
+from pathlib import Path
 
 from ._store_common import (
     _check_agent,
@@ -16,7 +17,7 @@ from .config import (
     MAX_TASK_LEASE_SECONDS,
     STALE_PEER_SECONDS,
 )
-from .hygiene import check_short
+from .hygiene import check_short, check_text, redact
 from .models import Delivery, DeliveryState, MessageKind
 from .states import (
     ACK_TRANSITIONS,
@@ -135,6 +136,9 @@ class DeliveriesMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             self._expire_leases(con, now, recipient)
+            # nouzové zastavení se kontroluje v TÉŽE transakci jako převzetí (A10)
+            if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
+                return None
             newest = None  # None = bez odkladu
             if defer_if_present > 0:
                 seen = con.execute(
@@ -271,8 +275,116 @@ class DeliveriesMixin:
         self._signal(row["sender"])
         return True
 
+    # ── nouzové zastavení (fáze A10) ─────────────────────────────────────────
+
+    def paused(self) -> dict | None:
+        """Je autonomní provádění pozastavené? Vrací kdo/kdy/proč, jinak None."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT value, changed_by, changed_at, reason FROM control WHERE key='paused'"
+            ).fetchone()
+        if not row or row["value"] != "1":
+            return None
+        return {"by": row["changed_by"], "at": row["changed_at"], "reason": row["reason"]}
+
+    def pause(self, by: str, reason: str = "") -> None:
+        """Zastavit: žádný nový start (kontroluje lease_next v téže transakci) a
+        běžící workery se do pár sekund zastaví (holds() vrátí False). Smí kdokoli —
+        zastavení je bezpečný směr."""
+        reason = check_short("reason", reason)
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "INSERT INTO control(key, value, changed_by, changed_at, reason) "
+                "VALUES('paused','1',?,?,?) ON CONFLICT(key) DO UPDATE SET value='1', "
+                "changed_by=excluded.changed_by, changed_at=excluded.changed_at, "
+                "reason=excluded.reason", (by, now, reason),
+            )
+            self._record(con, by, "pause", "", reason)
+
+    def resume(self, by: str, reason: str = "") -> None:
+        """Obnovit provádění. NENÍ v METHODS brokeru: jen člověk (web UI / přímý přístup)."""
+        reason = check_short("reason", reason)
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "INSERT INTO control(key, value, changed_by, changed_at, reason) "
+                "VALUES('paused','0',?,?,?) ON CONFLICT(key) DO UPDATE SET value='0', "
+                "changed_by=excluded.changed_by, changed_at=excluded.changed_at, "
+                "reason=excluded.reason", (by, now, reason),
+            )
+            self._record(con, by, "resume", "", reason)
+
+    # ── checkpoint (fáze A6) ─────────────────────────────────────────────────
+
+    def checkpoint(self, message_id: int, recipient: str, lease_token: str, step_done: str,
+                   next_step: str = "", git_head: str = "", dirty: str = "",
+                   evidence: str = "") -> bool:
+        """Uloží postup úkolu. Jen vlastník platného lease (cizí/starý token nic nepřepíše)."""
+        for label, value in (("step_done", step_done), ("next_step", next_step),
+                             ("evidence", evidence)):
+            check_short(label, value) if label != "evidence" else check_text(value)
+        now = time.time()
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                f"SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
+                f"AND lease_token=? AND state IN {sql_in(HELD)} AND lease_until>?",
+                (message_id, recipient, lease_token, now),
+            ).fetchone()
+            if not row:
+                return False
+            con.execute(
+                "INSERT INTO checkpoints(message_id, recipient, attempt, step_done, next_step, "
+                "git_head, dirty, evidence, updated_at) VALUES(?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(message_id, recipient) DO UPDATE SET attempt=excluded.attempt, "
+                "step_done=excluded.step_done, next_step=excluded.next_step, "
+                "git_head=excluded.git_head, dirty=excluded.dirty, evidence=excluded.evidence, "
+                "updated_at=excluded.updated_at",
+                (message_id, recipient, row["attempts"], redact(step_done), redact(next_step),
+                 git_head, dirty, redact(evidence), now),
+            )
+        return True
+
+    def get_checkpoint(self, message_id: int, recipient: str) -> dict | None:
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT * FROM checkpoints WHERE message_id=? AND recipient=?",
+                (message_id, recipient),
+            ).fetchone()
+        return dict(row) if row else None
+
+    # ── ověřená záloha databáze (náhrada za opravenou SQLite, fáze A8) ────────
+
+    def backup(self, directory: Path | None = None, keep: int = 7) -> dict:
+        """
+        Konzistentní kopie DB přes SQLite backup API + `integrity_check`. Nasazená
+        SQLite 3.50.4 má známou chybu WAL-reset a opravená verze zatím není pro
+        Python k dispozici; ověřená denní záloha dává cestu zpět po poškození.
+        """
+        directory = directory or (self.db_path.parent / "backups")
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target = directory / f"room-{time.strftime('%Y%m%d-%H%M%S')}.db"
+        with self._connect() as con:
+            ok = con.execute("PRAGMA integrity_check").fetchone()[0]
+            dst = sqlite3.connect(target)
+            try:
+                con.backup(dst)
+                copy_ok = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            finally:
+                dst.close()
+        target.chmod(0o600)
+        for old in sorted(directory.glob("room-*.db"))[:-keep]:
+            old.unlink(missing_ok=True)
+        return {"path": str(target), "integrity": ok, "backup_integrity": copy_ok}
+
     def holds(self, message_id: int, recipient: str, lease_token: str) -> bool:
-        """Levná kontrola vlastnictví: platný, neprošlý lease s tímto tokenem."""
+        """Levná kontrola vlastnictví: platný, neprošlý lease s tímto tokenem.
+        Při nouzovém zastavení vrací False → bridge běh zastaví."""
+        if self.paused():
+            return False
         with self._connect() as con:
             row = con.execute(
                 f"SELECT 1 FROM deliveries WHERE message_id=? AND recipient=? AND lease_token=? "
@@ -317,13 +429,20 @@ class DeliveriesMixin:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def quarantine_approved(self, message_id: int, recipient: str, text: str) -> bool:
-        """Schválil člověk právě tento text úkolu k jednomu spuštění?"""
+        """
+        Schválil člověk právě tento text, pro tohoto adresáta a pro TENTO pokus?
+        Schválení platí na jeden běh: pokus musí být první po schválení.
+        """
         with self._connect() as con:
             row = con.execute(
-                "SELECT approved_hash FROM screens WHERE message_id=? AND approved_at IS NOT NULL",
-                (message_id,),
+                "SELECT s.approved_hash, s.approved_recipient, s.approved_attempt, d.attempts "
+                "FROM screens s JOIN deliveries d ON d.message_id=s.message_id AND d.recipient=? "
+                "WHERE s.message_id=? AND s.approved_at IS NOT NULL",
+                (recipient, message_id),
             ).fetchone()
-        return bool(row) and row["approved_hash"] == self._text_hash(text)
+        return (bool(row) and row["approved_recipient"] == recipient
+                and row["approved_hash"] == self._text_hash(text)
+                and row["attempts"] == (row["approved_attempt"] or 0) + 1)
 
     def approve_quarantine(self, message_id: int, recipient: str, approver: str,
                            reason: str) -> bool:
@@ -339,7 +458,7 @@ class DeliveriesMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT d.state, d.last_error, m.text FROM deliveries d "
+                "SELECT d.state, d.last_error, d.attempts, m.text FROM deliveries d "
                 "JOIN messages m ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",
                 (message_id, recipient),
             ).fetchone()
@@ -348,8 +467,9 @@ class DeliveriesMixin:
                 return False
             con.execute(
                 "UPDATE screens SET approved_by=?, approved_at=?, approved_hash=?, "
-                "approved_reason=? WHERE message_id=?",
-                (approver, now, self._text_hash(row["text"]), reason, message_id),
+                "approved_reason=?, approved_recipient=?, approved_attempt=? WHERE message_id=?",
+                (approver, now, self._text_hash(row["text"]), reason, recipient,
+                 row["attempts"], message_id),
             )
             con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "

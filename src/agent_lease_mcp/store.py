@@ -178,6 +178,30 @@ CREATE TABLE IF NOT EXISTS worker_activations (
 -- Stejná pojistka pro první zapnutí failoveru. Bez explicitní aktivace zůstává
 -- staré chování kvůli zpětné kompatibilitě; instalační postup nastaví hranici
 -- před zapnutím řetězců, aby nerozeslal historický backlog.
+-- Globální řízení: `paused` = nouzové zastavení autonomního provádění (fáze A10).
+CREATE TABLE IF NOT EXISTS control (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    changed_by TEXT NOT NULL,
+    changed_at REAL NOT NULL,
+    reason     TEXT NOT NULL DEFAULT ''
+);
+
+-- Checkpoint rozpracovaného úkolu (fáze A6): kam se došlo, co dál a v jakém stavu
+-- byla pracovní kopie. Obnova nejdřív ověří shodu, jinak člověk.
+CREATE TABLE IF NOT EXISTS checkpoints (
+    message_id  INTEGER NOT NULL,
+    recipient   TEXT NOT NULL,
+    attempt     INTEGER NOT NULL,
+    step_done   TEXT NOT NULL,
+    next_step   TEXT NOT NULL DEFAULT '',
+    git_head    TEXT NOT NULL DEFAULT '',
+    dirty       TEXT NOT NULL DEFAULT '',
+    evidence    TEXT NOT NULL DEFAULT '',
+    updated_at  REAL NOT NULL,
+    PRIMARY KEY(message_id, recipient)
+);
+
 CREATE TABLE IF NOT EXISTS failover_activations (
     agent             TEXT PRIMARY KEY,
     after_message_id  INTEGER NOT NULL,
@@ -246,7 +270,8 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
         """Lidské schválení karantény: kdo, kdy, proč a na jaký přesný text."""
         columns = {row["name"] for row in con.execute("PRAGMA table_info(screens)")}
         for name, decl in (("approved_by", "TEXT"), ("approved_at", "REAL"),
-                           ("approved_hash", "TEXT"), ("approved_reason", "TEXT")):
+                           ("approved_hash", "TEXT"), ("approved_reason", "TEXT"),
+                           ("approved_recipient", "TEXT"), ("approved_attempt", "INTEGER")):
             if name not in columns:
                 con.execute(f"ALTER TABLE screens ADD COLUMN {name} {decl}")
 

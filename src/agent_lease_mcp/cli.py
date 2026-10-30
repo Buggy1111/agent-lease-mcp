@@ -173,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     p_failover_activate.add_argument("agents", nargs="+")
     p_failover_activate.add_argument("--include-existing", action="store_true")
 
+    p_stop = sub.add_parser("stop", help="EMERGENCY STOP: no new starts, running workers stop "
+                            "(resume only in the web UI)")
+    p_stop.add_argument("--reason", default="")
+    sub.add_parser("backup", help="consistent, integrity-checked copy of the room DB")
+
     p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
     p_prune.add_argument("--days", type=int, default=None)
 
@@ -418,6 +423,16 @@ def main(argv: list[str] | None = None) -> int:
         if not late:
             print("Nothing has waited longer than the limit.")
         return 1 if late else 0
+
+    elif args.cmd == "stop":
+        store.pause(me, args.reason)
+        print("⏸ Autonomous execution stopped. Running workers stop within seconds; "
+              "their tasks go to needs_review. Resume: web UI (human).")
+
+    elif args.cmd == "backup":
+        result = store.backup()
+        print(f"{result['path']} — integrity: {result['integrity']} / copy: "
+              f"{result['backup_integrity']}")
 
     elif args.cmd == "prune":
         removed = store.prune(args.days)
