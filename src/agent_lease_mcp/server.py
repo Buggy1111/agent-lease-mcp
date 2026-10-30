@@ -12,14 +12,13 @@ překládají argumenty na volání store. Vrstva navíc by tu byla jen na prokl
 
 from __future__ import annotations
 
-import hashlib
 import os
-import subprocess
 import time
 import uuid
 
 from fastmcp import FastMCP
 
+from . import workspace
 from .broker import open_store
 from .config import Settings
 from .hygiene import check_text, redact
@@ -127,7 +126,7 @@ def _checkpoint_view(message_id: int) -> dict | None:
         "attempt": cp["attempt"], "step_done": cp["step_done"], "next_step": cp["next_step"],
         "evidence": cp["evidence"],
         # jiná pracovní kopie = nenavazovat naslepo, nejdřív ověřit (A6)
-        "workspace_matches": cp["git_head"] == head and cp["dirty"] == dirty,
+        "workspace_matches": workspace.matches(cp, head, dirty),
     }
 
 
@@ -298,17 +297,8 @@ def wait(message_id: int, timeout_seconds: int = 120) -> dict:
 
 
 def _workspace_state() -> tuple[str, str]:
-    """git HEAD a otisk rozpracovaných souborů v pracovním adresáři (prázdné mimo git)."""
-    def run(*argv: str) -> str:
-        try:
-            return subprocess.run(["git", *argv], capture_output=True, text=True, timeout=10, check=False,
-                                  cwd=os.getcwd()).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            return ""
-    head = run("rev-parse", "HEAD")
-    status = run("status", "--porcelain")
-    dirty = hashlib.sha256(status.encode()).hexdigest()[:16] if status else ""
-    return head, dirty
+    """git HEAD a otisk obsahu rozpracovaných změn (viz workspace.py)."""
+    return workspace.workspace_state(os.getcwd())
 
 
 @mcp.tool

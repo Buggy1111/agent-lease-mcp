@@ -220,6 +220,10 @@ class DeliveriesMixin:
                 return True
             if state_value not in allowed.get(current, set()):
                 return False
+            # během nouzového zastavení nic nového nezačne (#550/1)
+            if state_value == "started" and con.execute(
+                    "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
+                return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
             clear_lease = state_value in terminal
@@ -365,19 +369,31 @@ class DeliveriesMixin:
         """
         directory = directory or (self.db_path.parent / "backups")
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        target = directory / f"room-{time.strftime('%Y%m%d-%H%M%S')}.db"
+        stamp = time.strftime("%Y%m%d-%H%M%S") + f"-{uuid.uuid4().hex[:6]}"
+        tmp = directory / f".room-{stamp}.tmp"
+        target = directory / f"room-{stamp}.db"
         with self._connect() as con:
-            ok = con.execute("PRAGMA integrity_check").fetchone()[0]
-            dst = sqlite3.connect(target)
+            ok = self._integrity(con)
+            dst = sqlite3.connect(tmp)
             try:
                 con.backup(dst)
-                copy_ok = dst.execute("PRAGMA integrity_check").fetchone()[0]
+                copy_ok = self._integrity(dst)
             finally:
                 dst.close()
-        target.chmod(0o600)
+        tmp.chmod(0o600)
+        if ok != "ok" or copy_ok != "ok":
+            # neplatná kopie se nezveřejní a nevytlačí poslední platné (#550/7)
+            bad = directory / f"invalid-{stamp}.db"
+            tmp.rename(bad)
+            return {"path": str(bad), "integrity": ok, "backup_integrity": copy_ok}
+        tmp.rename(target)                     # atomické zveřejnění
         for old in sorted(directory.glob("room-*.db"))[:-keep]:
             old.unlink(missing_ok=True)
         return {"path": str(target), "integrity": ok, "backup_integrity": copy_ok}
+
+    @staticmethod
+    def _integrity(con: sqlite3.Connection) -> str:
+        return con.execute("PRAGMA integrity_check").fetchone()[0]
 
     def backup_now(self) -> dict:
         """Záloha bez parametrů pro broker: pevný adresář a rotace (cesta nejde podstrčit)."""
@@ -553,7 +569,9 @@ class DeliveriesMixin:
             cur = con.execute(
                 "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
                 f"AND recipient=? AND lease_token=? AND state IN {sql_in(HELD)} "
-                "AND lease_until>?",  # prošlý lease nejde oživit (audit #535 bod 2b)
+                "AND lease_until>? "  # prošlý lease nejde oživit (audit #535 bod 2b)
+                # při nouzovém zastavení se lease neprodlouží → worker zastaví (#550/1)
+                "AND NOT EXISTS (SELECT 1 FROM control WHERE key='paused' AND value='1')",
                 (time.time() + max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS)),
                  time.time(), message_id, recipient,
                  lease_token, time.time()),

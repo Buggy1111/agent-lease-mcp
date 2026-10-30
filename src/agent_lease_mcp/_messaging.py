@@ -222,7 +222,9 @@ class MessagingMixin:
                     return False
                 # převzetí bez lease jen s identitou session (Nox #545/1) a jen úkolu,
                 # který už smí běžet a nevypršel
-                if not held and (not owner or msg["not_before"] > now
+                paused = con.execute(
+                    "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone()
+                if not held and (not owner or paused or msg["not_before"] > now
                                  or (msg["expires_at"] is not None and msg["expires_at"] <= now)):
                     return False
                 by_lease = 1 if held else 0

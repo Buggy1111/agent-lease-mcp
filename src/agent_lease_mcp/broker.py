@@ -305,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
                 if _t.time() - last_backup[0] > 86400:
                     last_backup[0] = _t.time()
                     result = store.backup()
-                    if "ok" not in (result["integrity"], result["backup_integrity"]):
+                    if result["integrity"] != "ok" or result["backup_integrity"] != "ok":
                         print(f"backup integrity: {result}", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001
                 print(f"backup: {exc}", file=sys.stderr)

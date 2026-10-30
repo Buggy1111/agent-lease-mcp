@@ -191,6 +191,9 @@ class AvailabilityMixin:
         moves: list[dict] = []
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            # nouzové zastavení zmrazí i přesouvání úkolů (#550)
+            if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
+                return []
             for src, chain in chains.items():
                 if can_run(src):
                     continue  # zdroj je v pořádku

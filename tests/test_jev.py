@@ -91,7 +91,7 @@ def test_bad_result_goes_to_needs_review(store: Store, fake_jev):
     replies, _ = fake_jev
     replies["answers"] = {"probability": 0.1, "confidence": 0.9}
     mid = store.send("michal", "codex", "napiš test", kind="task")
-    b = Bridge(store, "codex", "", runner=lambda p: RunResult(True, "Nemohu to udělat."))
+    b = Bridge(store, "codex", "", runner=lambda p: RunResult(True, "Nemohu to udělat."), read_only=True)
     b.step()
     assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "needs_review"
 
@@ -100,7 +100,7 @@ def test_good_result_succeeds(store: Store, fake_jev):
     replies, _ = fake_jev
     replies["answers"] = {"probability": 0.95, "confidence": 0.9}
     mid = store.send("michal", "codex", "napiš test", kind="task")
-    Bridge(store, "codex", "", runner=lambda p: RunResult(True, "def test_x(): ...")).step()
+    Bridge(store, "codex", "", runner=lambda p: RunResult(True, "def test_x(): ..."), read_only=True).step()
     assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "succeeded"
 
 

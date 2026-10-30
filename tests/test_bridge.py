@@ -766,7 +766,7 @@ def test_checkpoint_needs_a_valid_lease_and_reaches_the_next_attempt(store: Stor
         seen.append(prompt)
         return RunResult(True, "hotovo")
 
-    Bridge(store, "codex", "", runner=runner).step()
+    Bridge(store, "codex", "", runner=runner, read_only=True).step()
     assert "krok 1 hotový" in seen[0] and "Next step: krok 2" in seen[0]
 
 
@@ -783,3 +783,74 @@ def test_backup_is_consistent_and_rotated(store: Store, tmp_path: Path):
 def test_writing_callable_runner_is_refused(store: Store):
     with pytest.raises(ValueError):
         Bridge(store, "kimi", "", runner=lambda p: RunResult(True, "x"), read_only=False)
+
+
+# ── review Nox #550 ──────────────────────────────────────────────────────────
+
+def test_pause_blocks_start_extend_and_interactive_accept(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    d = store.lease_next("codex", lease_seconds=60)
+    store.pause("michal", "stop")
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token) is False
+    assert store.extend_lease(mid, "codex", d.lease_token, 60) is False
+    other = store.send("michal", "codex", "jiný", kind="task")
+    assert store.accept(other, "codex", "beru", owner="session-A") is False
+    assert store.failover_sweep() == []
+
+
+def test_paused_before_start_ends_in_review_not_started(store: Store, tmp_path: Path):
+    marker = tmp_path / "ran"
+    cmd = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    bridge = Bridge(store, "codex", cmd)
+    real_accept = store.accept
+
+    def accept_then_pause(*a, **kw):
+        ok = real_accept(*a, **kw)
+        store.pause("michal", "stop")
+        return ok
+
+    store.accept = accept_then_pause
+    bridge.step()
+    assert not marker.exists()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] != "started"
+
+
+def test_runner_needs_an_explicit_read_only_declaration(store: Store):
+    with pytest.raises(ValueError):
+        Bridge(store, "kimi", "", runner=lambda p: RunResult(True, "x"))
+
+
+def test_invalid_backup_never_replaces_the_last_valid_one(store: Store, tmp_path: Path,
+                                                          monkeypatch):
+    good = store.backup(tmp_path / "b", keep=1)
+    assert good["backup_integrity"] == "ok"
+    calls = [0]
+    real = Store._integrity
+
+    def flaky(con):
+        calls[0] += 1
+        return real(con) if calls[0] % 2 else "corrupt"   # zdroj ok, kopie „poškozená“
+
+    monkeypatch.setattr(Store, "_integrity", staticmethod(flaky))
+    bad = store.backup(tmp_path / "b", keep=1)
+    assert bad["backup_integrity"] == "corrupt" and "invalid-" in bad["path"]
+    assert Path(good["path"]).exists()
+
+
+def test_workspace_fingerprint_sees_content_not_just_status(tmp_path: Path):
+    import subprocess as sp
+
+    from agent_lease_mcp import workspace
+
+    sp.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    sp.run(["git", "-c", "user.email=a@b", "-c", "user.name=t", "commit", "-q",
+            "--allow-empty", "-m", "x"], cwd=tmp_path, check=True)
+    (tmp_path / "f.txt").write_text("verze 1")
+    h1 = workspace.workspace_state(tmp_path)
+    (tmp_path / "f.txt").write_text("verze 2")
+    h2 = workspace.workspace_state(tmp_path)
+    assert h1[0] == h2[0] and h1[1] != h2[1]
+    assert workspace.workspace_state(tmp_path / "neni") == (workspace.UNKNOWN, workspace.UNKNOWN)
+    assert not workspace.matches({"git_head": "unknown", "dirty": "unknown"}, "unknown", "unknown")
