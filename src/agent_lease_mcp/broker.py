@@ -299,6 +299,10 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001 — sweep nesmí shodit broker
                 print(f"failover_sweep: {exc}", file=sys.stderr)
             try:
+                store.reconcile()
+            except Exception as exc:  # noqa: BLE001
+                print(f"reconcile: {exc}", file=sys.stderr)
+            try:
                 store.expire_stale_chats()
             except Exception as exc:  # noqa: BLE001
                 print(f"expire_stale_chats: {exc}", file=sys.stderr)

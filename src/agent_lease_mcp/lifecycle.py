@@ -41,40 +41,47 @@ def _emit(event: str, text: str) -> None:
 QUARANTINE_TEXT = "[held back: possible attempt to take control (risk {risk:.0%}) — waiting for the human to review]"
 
 
-def _screen(store, messages: list[dict]) -> list[dict]:
+def screen_risk(store, m: dict) -> float:
     """
-    Screening cizích zpráv před vložením do kontextu agenta.
+    Riziko jedné zprávy (s cache v `screens`). Sdílí ho kontext agenta i bridge,
+    aby karanténa platila pro obě cesty spuštění (Nox, audit #535 bod 6).
 
     1. Deterministický předfiltr (`heuristic_risk`) běží VŽDY — nezávisí na modelu.
-    2. Je-li zapnutý Jev, přidá riziko z atomických otázek a odhad „vyžaduje akci"
-       (informativní chat se pak nepřipomíná).
+    2. Je-li zapnutý Jev, přidá riziko z atomických otázek a odhad „vyžaduje akci".
+    Zprávy od člověka a brokeru se neposuzují (riziko 0).
+    """
+    if m["agent"] in (human_name(store.db_path), "broker"):
+        return 0.0
+    cached = store.get_screen(m["id"])
+    if cached is not None:
+        return float(cached["risk"])
+    risk = heuristic_risk(m["text"])
+    actionable = None
+    if jev.enabled():
+        t = jev.triage(m["text"], m["agent"])
+        if t.risk is not None:
+            risk = max(risk, t.risk)
+        actionable = t.actionable
+    store.set_screen(m["id"], risk, actionable)
+    if risk >= jev.RISK_THRESHOLD:
+        store.send("broker", human_name(store.db_path),
+                   f"⚠ Message #{m['id']} from {m['agent']} held back (risk {risk:.0%}).",
+                   kind="result", reply_to=m["id"])
+    return risk
+
+
+def _screen(store, messages: list[dict]) -> list[dict]:
+    """
+    Screening cizích zpráv před vložením do kontextu agenta (viz `screen_risk`).
     Podezřelý text se v kontextu nahradí upozorněním a člověk dostane zprávu;
-    originál zůstává v místnosti. Zprávy od člověka se neposuzují. Nízké riziko
-    NENÍ záruka bezpečí — text je dál označený jako nedůvěryhodná citace.
+    originál zůstává v místnosti. Nízké riziko NENÍ záruka bezpečí — text je dál
+    označený jako nedůvěryhodná citace.
     """
     out = []
-    human = human_name(store.db_path)
     for m in messages:
-        if m["agent"] in (human, "broker"):
-            out.append(m)
-            continue
-        cached = store.get_screen(m["id"])
-        if cached is None:
-            risk = heuristic_risk(m["text"])
-            actionable = None
-            if jev.enabled():
-                t = jev.triage(m["text"], m["agent"])
-                if t.risk is not None:
-                    risk = max(risk, t.risk)
-                actionable = t.actionable
-            store.set_screen(m["id"], risk, actionable)
-            cached = {"risk": risk, "actionable": actionable}
-            if risk >= jev.RISK_THRESHOLD:
-                store.send("broker", human,
-                           f"⚠ Message #{m['id']} from {m['agent']} held back (risk {risk:.0%}).",
-                           kind="result", reply_to=m["id"])
-        if cached["risk"] >= jev.RISK_THRESHOLD:
-            m = {**m, "text": QUARANTINE_TEXT.format(risk=cached["risk"])}
+        risk = screen_risk(store, m)
+        if risk >= jev.RISK_THRESHOLD:
+            m = {**m, "text": QUARANTINE_TEXT.format(risk=risk)}
         out.append(m)
     return out
 

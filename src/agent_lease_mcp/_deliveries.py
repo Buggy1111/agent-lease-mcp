@@ -76,6 +76,43 @@ class DeliveriesMixin:
             "failover_after_message_id": int(failover["after_message_id"]) if failover else None,
         }
 
+    @staticmethod
+    def _expire_leases(con: sqlite3.Connection, now: float, recipient: str | None = None) -> int:
+        """
+        Prošlé lease a termíny: `leased` → `pending` (nic nespuštěno), `started` →
+        `needs_review` (nevíme, co proběhlo — nikdy tiché opakování), prošlý
+        `expires_at` → `expired`. Bez `recipient` pro všechny (reconciliace brokeru).
+        """
+        who, args = ("", ()) if recipient is None else (" AND recipient=?", (recipient,))
+        changed = con.execute(
+            "UPDATE deliveries SET state='expired', lease_token=NULL, lease_until=NULL, "
+            f"updated_at=? WHERE state='pending'{who} AND message_id IN "
+            "(SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)",
+            (now, *args, now),
+        ).rowcount
+        changed += con.execute(
+            "UPDATE deliveries SET state='needs_review', lease_token=NULL, lease_until=NULL, "
+            "last_error='worker lease expired after start', updated_at=? "
+            f"WHERE state='started'{who} AND lease_until<=?",
+            (now, *args, now),
+        ).rowcount
+        changed += con.execute(
+            "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+            f"updated_at=? WHERE state='leased'{who} AND lease_until<=?",
+            (now, *args, now),
+        ).rowcount
+        return changed
+
+    def reconcile(self) -> int:
+        """
+        Pravidelný úklid fronty pro VŠECHNY adresáty (volá broker sweeper).
+        Dřív se prošlé lease uklízely jen v `lease_next` adresáta — agent v limitu
+        tak nechal přerušený `started` viset (Nox, audit #535 bod 1).
+        """
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            return self._expire_leases(con, time.time())
+
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0,
@@ -96,23 +133,7 @@ class DeliveriesMixin:
         token = uuid.uuid4().hex
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
-            con.execute(
-                "UPDATE deliveries SET state='expired', lease_token=NULL, lease_until=NULL, "
-                "updated_at=? WHERE recipient=? AND state='pending' AND message_id IN "
-                "(SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)",
-                (now, recipient, now),
-            )
-            con.execute(
-                "UPDATE deliveries SET state='needs_review', lease_token=NULL, lease_until=NULL, "
-                "last_error='worker lease expired after start', updated_at=? "
-                "WHERE recipient=? AND state='started' AND lease_until<=?",
-                (now, recipient, now),
-            )
-            con.execute(
-                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
-                "updated_at=? WHERE recipient=? AND state='leased' AND lease_until<=?",
-                (now, recipient, now),
-            )
+            self._expire_leases(con, now, recipient)
             newest = None  # None = bez odkladu
             if defer_if_present > 0:
                 seen = con.execute(
@@ -174,13 +195,18 @@ class DeliveriesMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT state, lease_token FROM deliveries "
+                "SELECT state, lease_token, lease_until FROM deliveries "
                 "WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
             ).fetchone()
             if not row:
                 return False
             current = row["state"]
+            # Prošlý lease už nepatří volajícímu: nesmí ho oživit ani dokončit, i když
+            # ho úklid ještě nestihl přepnout (Nox, audit #535 bod 2b).
+            if (current in HELD and row["lease_until"] is not None
+                    and row["lease_until"] <= time.time()):
+                return False
             # Opakované potvrzení téhož finálního výsledku je bezpečně idempotentní.
             if current in terminal and state_value == current:
                 return True
@@ -268,10 +294,11 @@ class DeliveriesMixin:
             con.execute("BEGIN IMMEDIATE")
             cur = con.execute(
                 "UPDATE deliveries SET lease_until=?, updated_at=? WHERE message_id=? "
-                f"AND recipient=? AND lease_token=? AND state IN {sql_in(HELD)}",
+                f"AND recipient=? AND lease_token=? AND state IN {sql_in(HELD)} "
+                "AND lease_until>?",  # prošlý lease nejde oživit (audit #535 bod 2b)
                 (time.time() + max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS)),
                  time.time(), message_id, recipient,
-                 lease_token),
+                 lease_token, time.time()),
             )
         return bool(cur.rowcount)
 

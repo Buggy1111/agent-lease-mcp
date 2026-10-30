@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ from . import jev
 from .broker import open_store
 from .config import Settings
 from .hygiene import redact
+from .lifecycle import screen_risk
 from .models import DeliveryState, MessageKind
 from .rate_limits import probe_codex_rate_limits
 from .store import BRIDGE_ACCEPT_NOTE, Store
@@ -79,6 +81,9 @@ class RunResult:
     output: str
     rate_limited: bool = False
     retry_after: float | None = None
+    # Běh zastaven, protože worker přišel o lease (vypršel, zrušen): výsledek
+    # se nesmí ohlásit ani potvrdit (Nox, audit #535 bod 2b/2d).
+    aborted: bool = False
 
 
 def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
@@ -124,9 +129,11 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None)
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     try:
+        # Vlastní skupina procesů: ukončuje se celá, i s potomky (`codex exec` spouští
+        # další procesy). Dřív timeout zabil jen přímý proces (audit #535 bod 1).
         proc = subprocess.Popen(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True,
+            text=True, start_new_session=True,
         )
     except OSError as exc:
         return RunResult(False, f"cannot start {argv[0]}: {exc}")
@@ -136,19 +143,53 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None)
         target=lambda: chunks.append(proc.stdout.read() if proc.stdout else ""), daemon=True
     )
     reader.start()
-    while proc.poll() is None:
-        if time.monotonic() - started > timeout:
-            proc.kill()
-            reader.join(2)
-            return RunResult(False, f"timed out after {int(timeout)} s")
-        if on_tick:
-            on_tick()
-        time.sleep(0.2)
+    try:
+        while proc.poll() is None:
+            if time.monotonic() - started > timeout:
+                _kill_group(proc)
+                reader.join(2)
+                return RunResult(False, f"timed out after {int(timeout)} s")
+            # on_tick vrátí False = worker přišel o lease → okamžitě zastavit.
+            if on_tick and on_tick() is False:
+                _kill_group(proc)
+                reader.join(2)
+                return RunResult(False, "stopped: the task lease was lost or cancelled",
+                                 aborted=True)
+            time.sleep(0.2)
+    finally:
+        # Výjimka (třeba výpadek brokeru v on_tick) nesmí nechat proces běžet,
+        # zatímco bridge začne další kolo (audit #535 bod 1). Uklidí i potomky.
+        _kill_group(proc)
     reader.join(5)
     output = "".join(chunks).strip()
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output))
     return RunResult(proc.returncode == 0, output[-4000:])
+
+
+def _kill_group(proc: subprocess.Popen, grace: float = 3.0) -> None:
+    """SIGTERM celé skupině, po `grace` s SIGKILL. Bezpečné i pro už skončený proces."""
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        pgid = None
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 2.0)):
+        if pgid is not None:
+            try:
+                os.killpg(pgid, sig)
+            except (ProcessLookupError, PermissionError):
+                pgid = None
+        try:
+            proc.wait(timeout=wait)
+        except subprocess.TimeoutExpired:
+            continue
+        if pgid is None:
+            return
+        # vedoucí skončil; potomci ve skupině mohou žít dál → i ty dorazit
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return
 
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -192,8 +233,12 @@ class Bridge:
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
                  after_message_id: int = 0, provider_probe=None,
                  provider_probe_interval: float = 60, worker_identity: str | None = None,
-                 interactive_grace: float = 300) -> None:
+                 interactive_grace: float = 300, read_only: bool | None = None) -> None:
         self.store, self.agent, self.command = store, agent, command
+        # Read-only běh nic nemění, takže ho po limitu jde bezpečně spustit znovu.
+        # Vlastní příkaz může zapisovat → po limitu needs_review (audit #535 bod 2c).
+        self.read_only = (command in DEFAULT_COMMANDS.values() or runner is not None
+                          if read_only is None else read_only)
         # Interaktivní session stejného jména má přednost: přijatý task nikdy,
         # čerstvý task až po `interactive_grace` s, pokud je adresát přítomný.
         self.interactive_grace = max(0.0, float(interactive_grace))
@@ -262,6 +307,17 @@ class Bridge:
             return False
         token = delivery.lease_token or ""
         mid = delivery.message_id
+        # 0) karanténa platí i pro autonomní spuštění, ne jen pro kontext agenta
+        #    (audit #535 bod 6: úkol s rizikem 1.0 se dřív spustil).
+        risk = screen_risk(self.store, {"id": mid, "agent": delivery.sender, "text": delivery.text})
+        if risk >= jev.RISK_THRESHOLD:
+            self.store.ack(mid, self.agent, DeliveryState.NEEDS_REVIEW, lease_token=token,
+                           error=f"quarantine: risk {risk:.0%}, not started")
+            self.store.send(self.agent, delivery.sender,
+                            f"Task #{mid} held back (risk {risk:.0%}); not started, "
+                            "waiting for the human to review.",
+                            kind=MessageKind.RESULT, reply_to=mid)
+            return True
         # 1) odesílatel se hned dozví, že to někdo bere
         self.store.mark_seen(self.agent, [mid])
         if not self.store.accept(mid, self.agent, BRIDGE_ACCEPT_NOTE, lease_token=token):
@@ -276,17 +332,25 @@ class Bridge:
         )
         last = [0.0]
 
-        def tick() -> None:
+        def tick() -> bool:
+            """Prodlouží lease; False = lease ztracen (vypršel, zrušen) → zastavit běh."""
             if time.monotonic() - last[0] > self.lease_seconds / 3:
                 last[0] = time.monotonic()
-                self.store.extend_lease(mid, self.agent, token, self.lease_seconds)
+                if not self.store.extend_lease(mid, self.agent, token, self.lease_seconds):
+                    return False
                 self.store.heartbeat(self.worker_identity)
+            return True
 
         if self.runner is not None:
             tick()
             result = self.runner(prompt)
         else:
             result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
+        if result.aborted:
+            # Lease už není náš (zrušení, vypršení): žádné „Done“, žádný ack.
+            self.store.heartbeat(self.worker_identity,
+                                 status=f"bridge: task #{mid} stopped (lease lost)")
+            return True
         body = redact(result.output) or "(no output)"
         if result.ok and jev.enabled():
             # Ověření výstupu: nesedí-li na zadání, nepovažuj ho za hotový, ať se na něj
@@ -311,11 +375,17 @@ class Bridge:
             self.store.ack(mid, self.agent, DeliveryState.SUCCEEDED, lease_token=token)
         elif result.rate_limited:
             until = time.time() + result.retry_after if result.retry_after else None
-            self.store.ack(mid, self.agent, DeliveryState.FAILED, lease_token=token,
-                           error=(f"rate limit, provider reset after {int(result.retry_after)} s"
-                                  if result.retry_after else
-                                  "rate limit, provider supplied no reset time"))
-            self.store.retry(mid, self.agent, not_before=until or 0, actor=self.agent)
+            reason = (f"rate limit, provider reset after {int(result.retry_after)} s"
+                      if result.retry_after else "rate limit, provider supplied no reset time")
+            if self.read_only:
+                # read-only běh nic nezměnil → opakování po resetu je bezpečné
+                self.store.ack(mid, self.agent, DeliveryState.FAILED, lease_token=token,
+                               error=reason)
+                self.store.retry(mid, self.agent, not_before=until or 0, actor=self.agent)
+            else:
+                # zapisující běh mohl část práce udělat → nikdy slepé opakování (audit #535 2c)
+                self.store.ack(mid, self.agent, DeliveryState.NEEDS_REVIEW, lease_token=token,
+                               error=reason + "; started with write access, not retried")
             self.store.heartbeat(self.worker_identity, status=f"bridge: {self.agent} rate-limited")
             # Chybějící reset se nesmí vydávat za údaj poskytovatele. Lokální
             # backoff patří jen k tasku; provider state má resets_at=None.
