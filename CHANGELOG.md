@@ -4,6 +4,19 @@
 
 ### Added
 
+- Phase A ("exactly once, hours unattended", reviewed by Codex in four rounds):
+  session-owned task acceptance; lease deadline checks everywhere; atomic
+  `complete()` (state + result in one transaction) and `defer()` after a provider
+  limit; worker process groups killed and confirmed; broker-side `reconcile()`;
+  quarantine enforced for the bridge with a human-only approval (web,
+  bound to text, recipient and one attempt); emergency stop (`emergency_stop`
+  MCP tool, `agent-lease stop`, web; resume only in the web UI); task
+  `checkpoint()` with a content fingerprint of the workspace; verified daily DB
+  backup (`agent-lease backup`) while a fixed SQLite is not available for Python.
+- `tests/chaos/run_chaos.py`: isolated chaos test (killed workers and broker,
+  cancels, competing sessions, pause) checking one effect per task, no orphan
+  processes, nothing stuck, no false "Done", DB integrity.
+
 - `wait(message_id, timeout_seconds)` MCP tool: blocks until the counterpart
   answers or the task reaches a final state, so a sender no longer polls `jobs`.
   Automatic "seen"/"taking" receipts do not end the wait; only the counterpart

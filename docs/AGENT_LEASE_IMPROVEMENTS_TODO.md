@@ -186,3 +186,37 @@ Návrh viz [AGENT_LEASE_MODULAR_SYSTEM.md](AGENT_LEASE_MODULAR_SYSTEM.md).
 Navazující dokumenty: [roadmapa](AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) ·
 [technická doporučení](AGENT_LEASE_TECHNICAL_RECOMMENDATIONS.md) ·
 [modulární systém](AGENT_LEASE_MODULAR_SYSTEM.md) · [konkurence](AGENT_LEASE_COMPETITOR_ANALYSIS.md)
+
+---
+
+## Stav po fázi A (30. 10. 2026)
+
+Michal schválil fázi A; implementovala Ada, každou dávku reviewoval Nox (#540, #545, #550, #555),
+celkem 20 nálezů z review opraveno, testy 380 → 409, chaos test v izolované DB.
+
+| # | Bod | Stav | Kde |
+|---|---|---|---|
+| A1 | Jeden vlastník: převzetí úkolu jen s identitou session, ne hotový/vypršený, ne během pauzy | ✅ | `_messaging.accept`, `lease_next(owner)`, `server._SESSION` |
+| A2 | Deadline v `ack`/`extend_lease`/`complete`/`defer`, čas až po zámku | ✅ | `_deliveries.py` |
+| A3 | Po limitu: read-only běh se odloží atomicky (`defer`), zapisující → `needs_review` | ✅ | `bridge.py`, `Store.defer` |
+| A4 | Atomické dokončení: stav + výsledek v jedné transakci, idempotentní | ✅ | `Store.complete`, MCP `ack(result=…)` |
+| A5 | Skupina procesů: zabití i potomků, potvrzení zániku, nepotvrzeno → `needs_review` | ✅ | `bridge._kill_group`, `_run` |
+| A6 | Checkpoint s otiskem obsahu pracovní kopie; obnova jen při shodě | ✅ | `Store.checkpoint`, `workspace.py`, MCP `checkpoint` |
+| A7 | Reconciliace všech adresátů v brokeru | ✅ | `Store.reconcile` |
+| A8 | Opravená SQLite | ⚠️ náhrada | opravená verze pro Python zatím není (3.50.4 v uv 3.13/3.14 i sqlean, pysqlite3 3.51.1 < 3.51.3); místo toho denní ověřená záloha `Store.backup` (integrity_check, atomické zveřejnění, rotace) |
+| A9 | Karanténa i pro bridge; agent ji nevypne (`set_screen` mimo broker, heuristika vždy) | ✅ | `lifecycle.screen_risk`, `bridge.py` |
+| A10 | Nouzové zastavení: MCP `emergency_stop`, CLI `agent-lease stop`, web; obnovit jen člověk ve webu | ✅ | `Store.pause/resume`, `webui.py` |
+| A11 | Ověření restartu Windows/WSL | ⏳ | ruční test u Michala (restart PC → `agent-lease doctor`) |
+| — | Schválení karantény člověkem (web, hash textu, adresát, jediný pokus, audit) | ✅ | `Store.approve_quarantine`, `/api/approve` |
+
+### Známé omezení: agent pod stejným uživatelem
+
+Agent s přístupem k shellu běží pod stejným OS uživatelem jako Michal. Může si proto přečíst
+token webového rozhraní (`webui.token`) a schválit karanténu nebo obnovit pauzu, případně zapsat
+přímo do SQLite. **Žádný tajný token ani PIN to v rámci stejného uživatele nezastaví** (agent by
+přepsal i soubor s PINem). Shodli se na tom Ada i Nox (#545, #550).
+
+Skutečná hranice je jen oddělení na úrovni OS: agenti pod jiným uživatelem / v sandboxu bez zápisu
+do `~/.agent-lease/`. Do té doby platí: ochrany v agent-lease chrání před **omylem a prompt
+injection přes API** (broker, MCP), ne před agentem, který se úmyslně rozhodne je obejít shellem.
+Bridge běží read-only (Codex sandbox), takže se to týká jen interaktivních session.
