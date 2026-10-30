@@ -16,6 +16,7 @@ from ._store_common import (
 from .config import (
     MAX_TASK_LEASE_SECONDS,
     STALE_PEER_SECONDS,
+    human_name,
 )
 from .hygiene import check_short, check_text, heuristic_risk, redact
 from .models import Delivery, DeliveryState, MessageKind
@@ -118,6 +119,7 @@ class DeliveriesMixin:
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
+        start: bool = False,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -131,10 +133,10 @@ class DeliveriesMixin:
         """
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         after_message_id = max(0, int(after_message_id))
-        now = time.time()
         token = uuid.uuid4().hex
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # lock wait must not shorten a new lease or revive expired tasks
             self._expire_leases(con, now, recipient)
             # nouzové zastavení se kontroluje v TÉŽE transakci jako převzetí (A10)
             if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
@@ -169,21 +171,40 @@ class DeliveriesMixin:
                     "SELECT path FROM task_paths WHERE message_id=? ORDER BY path",
                     (candidate["id"],),
                 ).fetchall()]
-                if not paths or not self._conflicts(con, paths, recipient):
-                    row = candidate
-                    break
+                if paths and self._conflicts(con, paths, recipient):
+                    continue
+                risk = self._quarantined(con, candidate["id"], recipient)
+                if risk:
+                    # karanténa: nespustit, rovnou k člověku (všechny cesty, Nox #555/3)
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (f"quarantine: risk {risk:.0%}, not started", now, candidate["id"],
+                         recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} held back (risk {risk:.0%}); "
+                                       "not started, waiting for the human to review.",
+                                       candidate["id"], now)
+                    continue
+                row = candidate
+                break
             if row is None:
                 return None
+            # start=True (interaktivní next_task): rovnou started — kdo úkol dostane,
+            # může ho začít dělat, a pád pak nesmí úkol vrátit do fronty (Nox #555/2)
             con.execute(
-                "UPDATE deliveries SET state='leased', attempts=attempts+1, "
+                "UPDATE deliveries SET state=?, attempts=attempts+1, "
                 "lease_token=?, lease_until=?, updated_at=? "
                 "WHERE message_id=? AND recipient=? AND state='pending'",
-                (token, now + max(1, lease_seconds), now, row["id"], recipient),
+                ("started" if start else "leased", token, now + max(1, lease_seconds), now,
+                 row["id"], recipient),
             )
             return Delivery(
                 message_id=row["id"], sender=row["agent"], recipient=recipient,
                 kind=MessageKind(row["kind"]), text=row["text"],
-                state=DeliveryState.LEASED, attempts=row["attempts"] + 1,
+                state=DeliveryState.STARTED if start else DeliveryState.LEASED,
+                attempts=row["attempts"] + 1,
                 lease_token=token, lease_until=now + max(1, lease_seconds),
                 reply_to=row["reply_to"],
             )
@@ -399,6 +420,34 @@ class DeliveriesMixin:
         """Záloha bez parametrů pro broker: pevný adresář a rotace (cesta nejde podstrčit)."""
         return self.backup()
 
+    QUARANTINE_RISK = 0.7   # stejné jako jev.RISK_THRESHOLD
+
+    def _quarantined(self, con: sqlite3.Connection, message_id: int, recipient: str,
+                     *, next_attempt: bool = True) -> float:
+        """
+        Riziko úkolu, pokud je v karanténě a NENÍ schválený pro tento pokus; jinak 0.
+        Riziko = max(uložený screening, deterministická heuristika); zprávy člověka
+        a brokeru se neposuzují. Sdílí lease_next i accept (Nox #555/3).
+        """
+        row = con.execute(
+            "SELECT m.agent, m.text, d.attempts, s.risk, s.approved_hash, "
+            "s.approved_recipient, s.approved_attempt FROM messages m "
+            "JOIN deliveries d ON d.message_id=m.id AND d.recipient=? "
+            "LEFT JOIN screens s ON s.message_id=m.id WHERE m.id=?",
+            (recipient, message_id),
+        ).fetchone()
+        if not row or row["agent"] in (human_name(self.db_path), "broker"):
+            return 0.0
+        risk = max(float(row["risk"] or 0.0), heuristic_risk(row["text"]))
+        if risk < self.QUARANTINE_RISK:
+            return 0.0
+        attempt = row["attempts"] + (1 if next_attempt else 0)
+        if (row["approved_hash"] == self._text_hash(row["text"])
+                and row["approved_recipient"] == recipient
+                and attempt == (row["approved_attempt"] or 0) + 1):
+            return 0.0
+        return risk
+
     def holds(self, message_id: int, recipient: str, lease_token: str) -> bool:
         """Levná kontrola vlastnictví: platný, neprošlý lease s tímto tokenem.
         Při nouzovém zastavení vrací False → bridge běh zastaví."""
@@ -484,11 +533,17 @@ class DeliveriesMixin:
             if (not row or row["state"] != "needs_review"
                     or not (row["last_error"] or "").startswith("quarantine")):
                 return False
+            # řádek screeningu nemusí existovat (karanténa z heuristiky v lease_next)
             con.execute(
-                "UPDATE screens SET approved_by=?, approved_at=?, approved_hash=?, "
-                "approved_reason=?, approved_recipient=?, approved_attempt=? WHERE message_id=?",
-                (approver, now, self._text_hash(row["text"]), reason, recipient,
-                 row["attempts"], message_id),
+                "INSERT INTO screens(message_id, risk, actionable, at, approved_by, approved_at, "
+                "approved_hash, approved_reason, approved_recipient, approved_attempt) "
+                "VALUES(?,?,NULL,?,?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET "
+                "approved_by=excluded.approved_by, approved_at=excluded.approved_at, "
+                "approved_hash=excluded.approved_hash, approved_reason=excluded.approved_reason, "
+                "approved_recipient=excluded.approved_recipient, "
+                "approved_attempt=excluded.approved_attempt",
+                (message_id, heuristic_risk(row["text"]), now, approver, now,
+                 self._text_hash(row["text"]), reason, recipient, row["attempts"]),
             )
             con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
@@ -513,6 +568,15 @@ class DeliveriesMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             if not self._may_manage(con, message_id, recipient, actor):
+                return False
+            # A failed or dead-letter attempt may also have produced an effect.
+            # Only a human can decide whether any terminal failure is safe to retry.
+            state = con.execute("SELECT state FROM deliveries WHERE message_id=? AND recipient=?",
+                                (message_id, recipient)).fetchone()
+            # (jméno člověka jako `actor` nestačí — agent by ho přes broker podvrhl;
+            #  člověk je jen ověřená session webu, actor=None)
+            if state and state["state"] in {"needs_review", "failed", "dead_letter"} \
+                    and actor is not None:
                 return False
             cur = con.execute(
                 "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "

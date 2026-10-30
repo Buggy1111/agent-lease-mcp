@@ -19,6 +19,7 @@ Záruky (viz akceptační kritéria):
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -123,7 +124,8 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> 
             except OSError:
                 final = ""
             if final:
-                return RunResult(True, final[-4000:])
+                # zachovat cleanup_failed a ostatní příznaky (Nox #555/1)
+                return dataclasses.replace(result, output=final[-4000:])
         return result
 
 
@@ -133,9 +135,11 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None)
     try:
         # Vlastní skupina procesů: ukončuje se celá, i s potomky (`codex exec` spouští
         # další procesy). Dřív timeout zabil jen přímý proces (audit #535 bod 1).
+        parent_pid = os.getpid()
         proc = subprocess.Popen(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, start_new_session=True,
+            preexec_fn=lambda: _die_with_parent(parent_pid),  # noqa: PLW1509
         )
     except OSError as exc:
         return RunResult(False, f"cannot start {argv[0]}: {exc}")
@@ -170,6 +174,30 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None)
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
                          cleanup_failed=not gone)
     return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone)
+
+
+def _resolve_prctl():
+    try:
+        import ctypes
+        return ctypes.CDLL("libc.so.6", use_errno=True).prctl
+    except (OSError, AttributeError):
+        return None
+
+
+# Vyřešit v rodiči: v potomkovi po fork() se nesmí nic importovat (zámky jiných vláken).
+_PRCTL = _resolve_prctl()
+
+
+def _die_with_parent(parent_pid: int) -> None:
+    """
+    Linux: přímý potomek dostane SIGKILL, když bridge zemře (SIGKILL bridge přeskočí
+    `finally`, Nox #555/5). Vnuky v nasazení zabije systemd (KillMode=control-group
+    při restartu služby); mimo systemd je hranicí jen tohle. V potomkovi jen jedno
+    volání předem vyřešené funkce, žádný import ani alokace zámků.
+    """
+    if _PRCTL is not None and (_PRCTL(1, int(signal.SIGKILL)) != 0
+                               or os.getppid() != parent_pid):
+        os._exit(127)  # cannot establish protection or parent already died
 
 
 def _kill_group(proc: subprocess.Popen, grace: float = 3.0) -> bool:
@@ -354,11 +382,10 @@ class Bridge:
             return True
         # 1) odesílatel se hned dozví, že to někdo bere
         self.store.mark_seen(self.agent, [mid])
+        # 2) accept s tokenem úkol rovnou zahájí (started) — pád odteď končí v
+        #    needs_review, nikdy v tichém opakování (Nox #555/2)
         if not self.store.accept(mid, self.agent, BRIDGE_ACCEPT_NOTE, lease_token=token):
-            return True  # nemělo by nastat: lease je náš; radši nespouštět
-        # 2) started PŘED spuštěním — pád tady končí v needs_review, ne v tichém opakování
-        if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):
-            return True
+            return True  # lease už není náš / pauza → nespouštět
         self._starts.append(time.time())
         self.store.heartbeat(self.worker_identity, status=f"bridge: {self.agent} task #{mid}")
         prompt = PROMPT_TEMPLATE.format(

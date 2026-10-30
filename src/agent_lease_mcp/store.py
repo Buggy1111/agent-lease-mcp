@@ -304,8 +304,15 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
         con = sqlite3.connect(self.db_path, timeout=10, check_same_thread=False)
         con.row_factory = sqlite3.Row
         try:
-            con.execute("PRAGMA journal_mode=WAL")
             con.execute("PRAGMA busy_timeout=5000")
+            # Never switch a live database while an older client might change it
+            # back to WAL. The explicit offline migration requires stopped clients.
+            mode = con.execute("PRAGMA journal_mode").fetchone()[0]
+            if mode.lower() != "delete":
+                raise sqlite3.OperationalError(
+                    f"unsafe journal mode {mode}; stop all clients and run "
+                    "python -m agent_lease_mcp.sqlite_migrate --all-clients-stopped DATABASE"
+                )
             yield con
             con.commit()
         finally:

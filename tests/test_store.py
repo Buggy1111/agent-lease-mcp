@@ -402,6 +402,27 @@ def test_database_files_are_owner_only(tmp_path):
             assert stat.S_IMODE(f.stat().st_mode) & 0o077 == 0, f"{f.name} je čitelná pro ostatní"
 
 
+def test_existing_wal_database_moves_to_safe_journal_mode_when_offline(tmp_path):
+    import sqlite3
+
+    from agent_lease_mcp.sqlite_migrate import migrate
+
+    db = tmp_path / "room.db"
+    with sqlite3.connect(db) as con:
+        assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        con.execute("CREATE TABLE previous (id INTEGER)")
+        con.execute("INSERT INTO previous VALUES (42)")
+    con.close()
+    with pytest.raises(sqlite3.OperationalError, match="stop all clients"):
+        Store(db)
+    migrate(db)
+    store = Store(db)
+    with store._connect() as con:
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert con.execute("SELECT id FROM previous").fetchone()[0] == 42
+        assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
 def test_existing_permissive_database_is_tightened(tmp_path):
     import os
     import stat

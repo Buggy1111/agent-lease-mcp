@@ -216,14 +216,20 @@ class MessagingMixin:
                 # prošlý lease už nepatří nikomu (Nox #545/2)
                 if held and (d["lease_until"] is None or d["lease_until"] <= now):
                     return False
+                paused = con.execute(
+                    "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone()
+                if held and paused:
+                    return False
+                # karanténa platí pro VŠECHNY cesty převzetí, ne jen bridge (Nox #555/3)
+                # držený lease = pokus už započítaný; jinak se počítá příští pokus
+                if self._quarantined(con, message_id, recipient, next_attempt=not held):
+                    return False
                 # Bez lease jde převzít jen úkol, který ještě čeká; hotový, zrušený
                 # ani vypršený už ne (audit #535 bod 2a).
                 if not held and (d is None or d["state"] != "pending"):
                     return False
                 # převzetí bez lease jen s identitou session (Nox #545/1) a jen úkolu,
                 # který už smí běžet a nevypršel
-                paused = con.execute(
-                    "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone()
                 if not held and (not owner or paused or msg["not_before"] > now
                                  or (msg["expires_at"] is not None and msg["expires_at"] <= now)):
                     return False
@@ -237,6 +243,13 @@ class MessagingMixin:
                 if (not by_lease and prior and prior["accepted_at"] and not prior["by_lease"]
                         and prior["owner"] != owner):
                     return False
+            # Transition even on an idempotent receipt from an earlier lease.
+            if msg["kind"] == MessageKind.TASK.value and by_lease and d["state"] == "leased":
+                con.execute(
+                    "UPDATE deliveries SET state='started', updated_at=? "
+                    "WHERE message_id=? AND recipient=? AND state='leased'",
+                    (now, message_id, recipient),
+                )
             row = con.execute(
                 "SELECT accepted_at, by_lease FROM receipts WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
