@@ -17,7 +17,7 @@ from .config import (
     MAX_TASK_LEASE_SECONDS,
     STALE_PEER_SECONDS,
 )
-from .hygiene import check_short, check_text, redact
+from .hygiene import check_short, check_text, heuristic_risk, redact
 from .models import Delivery, DeliveryState, MessageKind
 from .states import (
     ACK_TRANSITIONS,
@@ -158,8 +158,7 @@ class DeliveriesMixin:
                 "AND (? IS NULL OR m.sent_at<=?) "
                 "AND (? = 0 OR r.accepted_at IS NULL OR r.by_lease = 1) "
                 # interaktivní session nedostane úkol převzatý jinou session (audit #535 2a)
-                "AND (? IS NULL OR r.accepted_at IS NULL OR r.by_lease = 1 "
-                "     OR r.owner IS NULL OR r.owner = ?) "
+                "AND (? IS NULL OR r.accepted_at IS NULL OR r.by_lease = 1 OR r.owner = ?) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
                 (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted)),
                  owner, owner),
@@ -245,9 +244,9 @@ class DeliveriesMixin:
         state_value = DeliveryState(state).value
         if state_value not in TERMINAL:
             raise ValueError("complete() needs a final state")
-        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
                 "SELECT d.state, d.lease_token, d.lease_until, m.agent AS sender "
                 "FROM deliveries d JOIN messages m ON m.id=d.message_id "
@@ -326,9 +325,9 @@ class DeliveriesMixin:
         for label, value in (("step_done", step_done), ("next_step", next_step),
                              ("evidence", evidence)):
             check_short(label, value) if label != "evidence" else check_text(value)
-        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
                 f"SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
                 f"AND lease_token=? AND state IN {sql_in(HELD)} AND lease_until>?",
@@ -380,6 +379,10 @@ class DeliveriesMixin:
             old.unlink(missing_ok=True)
         return {"path": str(target), "integrity": ok, "backup_integrity": copy_ok}
 
+    def backup_now(self) -> dict:
+        """Záloha bez parametrů pro broker: pevný adresář a rotace (cesta nejde podstrčit)."""
+        return self.backup()
+
     def holds(self, message_id: int, recipient: str, lease_token: str) -> bool:
         """Levná kontrola vlastnictví: platný, neprošlý lease s tímto tokenem.
         Při nouzovém zastavení vrací False → bridge běh zastaví."""
@@ -402,9 +405,9 @@ class DeliveriesMixin:
         retry vrátil i `needs_review` úkol do fronty (Nox, review #540 bod 3).
         Volat jen pro běh bez vedlejších efektů (read-only).
         """
-        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
                 "SELECT d.state, d.lease_token, d.lease_until, m.agent AS sender "
                 "FROM deliveries d JOIN messages m ON m.id=d.message_id "
@@ -454,9 +457,9 @@ class DeliveriesMixin:
         jen web UI s ověřenou lidskou session.
         """
         reason = check_short("reason", reason.strip()) or "approved"
-        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
                 "SELECT d.state, d.last_error, d.attempts, m.text FROM deliveries d "
                 "JOIN messages m ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",
@@ -574,6 +577,21 @@ class DeliveriesMixin:
         return {"risk": float(row["risk"]), "actionable": row["actionable"]} if row else None
 
     def set_screen(self, message_id: int, risk: float, actionable: float | None = None) -> None:
+        """
+        Uloží výsledek screeningu. Riziko jde jen NAHORU a nikdy pod deterministickou
+        heuristiku textu: agent přes broker nesmí karanténu „vypnout“ zápisem risk=0
+        (Nox #545/3). Schválení zůstává jen lidské (approve_quarantine).
+        """
         with self._connect() as con:
-            con.execute("INSERT OR REPLACE INTO screens(message_id, risk, actionable, at) "
-                        "VALUES(?,?,?,?)", (message_id, risk, actionable, time.time()))
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT text FROM messages WHERE id=?", (message_id,)).fetchone()
+            floor = heuristic_risk(row["text"]) if row else 0.0
+            prev = con.execute("SELECT risk FROM screens WHERE message_id=?",
+                               (message_id,)).fetchone()
+            risk = max(float(risk), floor, float(prev["risk"]) if prev else 0.0)
+            con.execute(
+                "INSERT INTO screens(message_id, risk, actionable, at) VALUES(?,?,?,?) "
+                "ON CONFLICT(message_id) DO UPDATE SET risk=excluded.risk, "
+                "actionable=excluded.actionable, at=excluded.at",
+                (message_id, risk, actionable, time.time()),
+            )

@@ -272,7 +272,7 @@ def test_lease_next_can_ignore_tasks_before_activation(store: Store):
 def test_task_summary_separates_receipt_from_execution(store: Store):
     unaccepted = store.send("michal", "codex", "one", kind="task")
     accepted = store.send("michal", "codex", "two", kind="task")
-    store.accept(accepted, "codex")
+    store.accept(accepted, "codex", owner="s1")
 
     assert store.task_summary("codex") == {
         "pending": 2,

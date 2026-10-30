@@ -189,11 +189,12 @@ class MessagingMixin:
         do fronty a worker ho smí vzít znovu (`lease_next(skip_accepted=True)`).
         """
         note = redact(check_short("note", note))
-        now = time.time()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
+            now = time.time()  # až po zámku: čekání na zámek nesmí prodloužit lease
             msg = con.execute(
-                "SELECT agent, recipient, kind FROM messages WHERE id=?", (message_id,)
+                "SELECT agent, recipient, kind, not_before, expires_at FROM messages WHERE id=?",
+                (message_id,)
             ).fetchone()
             if not msg or msg["recipient"] != recipient:
                 return False
@@ -205,15 +206,24 @@ class MessagingMixin:
                 return False  # vypršený chat se už nepřebírá (Nox, review #524)
             if msg["kind"] == MessageKind.TASK.value:
                 d = con.execute(
-                    "SELECT state, lease_token FROM deliveries WHERE message_id=? AND recipient=?",
+                    "SELECT state, lease_token, lease_until FROM deliveries "
+                    "WHERE message_id=? AND recipient=?",
                     (message_id, recipient),
                 ).fetchone()
                 held = d is not None and d["state"] in HELD
                 if held and not (lease_token and lease_token == d["lease_token"]):
                     return False  # drží ho worker — nepřebírat
+                # prošlý lease už nepatří nikomu (Nox #545/2)
+                if held and (d["lease_until"] is None or d["lease_until"] <= now):
+                    return False
                 # Bez lease jde převzít jen úkol, který ještě čeká; hotový, zrušený
                 # ani vypršený už ne (audit #535 bod 2a).
                 if not held and (d is None or d["state"] != "pending"):
+                    return False
+                # převzetí bez lease jen s identitou session (Nox #545/1) a jen úkolu,
+                # který už smí běžet a nevypršel
+                if not held and (not owner or msg["not_before"] > now
+                                 or (msg["expires_at"] is not None and msg["expires_at"] <= now)):
                     return False
                 by_lease = 1 if held else 0
                 # Úkol převzatý jinou session stejného jména nepatří téhle (2a).
@@ -221,8 +231,9 @@ class MessagingMixin:
                     "SELECT accepted_at, by_lease, owner FROM receipts "
                     "WHERE message_id=? AND recipient=?", (message_id, recipient),
                 ).fetchone()
-                if (not by_lease and owner and prior and prior["accepted_at"]
-                        and not prior["by_lease"] and prior["owner"] and prior["owner"] != owner):
+                # i staré přijetí bez owneru je cizí (fail-closed, Nox #545/1)
+                if (not by_lease and prior and prior["accepted_at"] and not prior["by_lease"]
+                        and prior["owner"] != owner):
                     return False
             row = con.execute(
                 "SELECT accepted_at, by_lease FROM receipts WHERE message_id=? AND recipient=?",
@@ -394,9 +405,11 @@ class MessagingMixin:
             taking, taking_note = f"✔ taking #{message_id}", f"✔ taking #{message_id}: %"
             answer_rows = con.execute(
                 "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "
-                "AND recipient=? AND agent=? AND agent<>? AND agent<>'broker' AND text<>? "
-                "AND text NOT LIKE ? ORDER BY id LIMIT 20",
-                (message_id, waiter, counterpart, waiter, taking, taking_note)
+                # protistrana nebo její bridge worker (`codex` → `codex-bridge`)
+                "AND recipient=? AND agent IN (?, ?) AND agent<>? AND agent<>'broker' "
+                "AND text<>? AND text NOT LIKE ? ORDER BY id LIMIT 20",
+                (message_id, waiter, counterpart, f"{counterpart}-bridge", waiter, taking,
+                 taking_note)
             ).fetchall()
             receipt_rows = con.execute(
                 "SELECT id, agent, kind, text, sent_at FROM messages WHERE reply_to=? "

@@ -54,7 +54,8 @@ def screen_risk(store, m: dict) -> float:
         return 0.0
     cached = store.get_screen(m["id"])
     if cached is not None:
-        return float(cached["risk"])
+        # heuristika se počítá vždy: podvržená cache s nízkým rizikem nic neobejde (#545/3)
+        return max(float(cached["risk"]), heuristic_risk(m["text"]))
     risk = heuristic_risk(m["text"])
     actionable = None
     if jev.enabled():

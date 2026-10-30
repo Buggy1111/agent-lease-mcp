@@ -55,7 +55,7 @@ def test_chat_task_and_real_result_are_batched_but_receipts_are_skipped(
     task = store.send("claude-code", "codex", "headless work", kind="task")
     source = store.send("codex", "claude-code", "question", kind="chat")
     store.mark_seen("claude-code", [source])
-    store.accept(source, "claude-code")
+    store.accept(source, "claude-code", owner="s1")
     receipt_ids = {
         message["id"] for message in store.addressed("codex")
         if message["text"].startswith(("✓ ", "✔ taking #"))
@@ -96,7 +96,7 @@ def test_receipts_advance_without_calling_codex(tmp_path: Path, monkeypatch):
     wake.step()
     source = store.send("codex", "claude-code", "question", kind="chat")
     store.mark_seen("claude-code", [source])
-    store.accept(source, "claude-code")
+    store.accept(source, "claude-code", owner="s1")
     last = store.addressed("codex")[-1]["id"]
 
     assert wake.step() is False
@@ -170,7 +170,7 @@ def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkey
     bindir, log = _fake_codex(tmp_path)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     task = store.send("michal", "codex", "continue after limit", kind="task")
-    store.accept(task, "codex", "working in the interactive session")
+    store.accept(task, "codex", "working in the interactive session", owner="s1")
     store.heartbeat("codex", status="implementing recovery")
     wake = CodexWake(store, "nox", tmp_path / "cursor")
     wake.step()  # baseline před novou limitní epizodou
@@ -207,7 +207,7 @@ def test_first_start_baselines_an_old_recovery_episode(tmp_path: Path, monkeypat
     bindir, log = _fake_codex(tmp_path)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     task = store.send("michal", "codex", "old unfinished work", kind="task")
-    store.accept(task, "codex", "working")
+    store.accept(task, "codex", "working", owner="s1")
     store.heartbeat("codex", status="old status")
     store.report_provider_state("codex-bridge", "limited", "test")
     store.report_provider_state("codex-bridge", "available", "test")

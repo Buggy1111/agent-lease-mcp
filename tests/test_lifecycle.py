@@ -217,7 +217,7 @@ class TestRewake:
         store = self._store(db)
         mid = store.send("claude-code", "codex", "otázka", kind="chat")
         store.mark_seen("codex", [mid])          # broker → claude-code „✓ codex saw"
-        store.accept(mid, "codex", "beru")       # codex → claude-code „✔ taking"
+        store.accept(mid, "codex", "beru", owner="s1")       # codex → claude-code „✔ taking"
         store.say("codex", "všem ahoj")
         assert self._wait(store)[0] == 124
 

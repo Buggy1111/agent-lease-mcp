@@ -172,7 +172,7 @@ def test_overdue_lists_unaccepted(store: Store):
     assert store.overdue(0)[0]["problem"] == "not delivered"
     store.mark_seen("codex", [mid])
     assert store.overdue(0)[0]["problem"] == "seen, not acknowledged"
-    store.accept(mid, "codex")
+    store.accept(mid, "codex", owner="s1")
     assert store.overdue(0) == []
 
 
@@ -197,7 +197,7 @@ def test_doctor_json_separates_delivery_from_worker(tmp_path: Path, monkeypatch,
     store = Store(db)
     mid = store.send("michal", "codex", "diagnostic task", kind="task")
     store.mark_seen("codex", [mid])
-    store.accept(mid, "codex", "queued manually")
+    store.accept(mid, "codex", "queued manually", owner="s1")
 
     from agent_lease_mcp.doctor import run_doctor
     code = run_doctor(json_output=True)
@@ -341,7 +341,7 @@ def test_bridge_never_takes_a_task_the_interactive_agent_accepted(store: Store, 
     """20. 10. 2026: Nox přijal task v okně a bridge ho mohl spustit podruhé."""
     mid = store.send("michal", "codex", "udělej X", kind="task")
     store.mark_seen("codex", [mid])
-    store.accept(mid, "codex", "beru v okně")
+    store.accept(mid, "codex", "beru v okně", owner="s1")
 
     bridge = Bridge(store, "codex", fake(tmp_path, "print('ok')"), interactive_grace=0)
     assert bridge.step() is False
@@ -373,7 +373,7 @@ def test_bridge_takes_a_task_at_once_when_nobody_is_present(store: Store, tmp_pa
 def test_interactive_lease_still_gets_its_own_accepted_task(store: Store):
     """MCP `next_task` interaktivní session nesmí přijatý task přeskočit."""
     mid = store.send("michal", "codex", "úkol", kind="task")
-    store.accept(mid, "codex", "beru")
+    store.accept(mid, "codex", "beru", owner="s1")
     assert store.lease_next("codex").message_id == mid
 
 
@@ -382,10 +382,10 @@ def test_interactive_accept_after_bridge_lease_is_refused(store: Store, tmp_path
     mid = store.send("michal", "codex", "úkol", kind="task")
     lease = store.lease_next("codex", skip_accepted=True)
     assert lease.message_id == mid
-    assert store.accept(mid, "codex", "beru v okně") is False          # drží ho worker
+    assert store.accept(mid, "codex", "beru v okně", owner="s1") is False          # drží ho worker
     assert store.accept(mid, "codex", "bridge", lease_token=lease.lease_token) is True
     assert store.ack(mid, "codex", DeliveryState.STARTED, lease_token=lease.lease_token)
-    assert store.accept(mid, "codex", "beru v okně") is False          # pořád ne
+    assert store.accept(mid, "codex", "beru v okně", owner="s1") is False          # pořád ne
 
 
 def test_bridge_may_retake_its_own_task_after_lease_expiry(store: Store, monkeypatch):
@@ -407,7 +407,7 @@ def test_interactive_accept_of_a_returned_task_blocks_the_bridge(store: Store):
     with sqlite3.connect(store.db_path) as con:  # lease vypršel → task zpět ve frontě
         con.execute("UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL "
                     "WHERE message_id=?", (mid,))
-    assert store.accept(mid, "codex", "beru v okně") is True     # teď ho bere Nox
+    assert store.accept(mid, "codex", "beru v okně", owner="s1") is True     # teď ho bere Nox
     assert store.lease_next("codex", skip_accepted=True) is None  # bridge už ne
 
 
@@ -423,7 +423,7 @@ def test_migration_marks_old_bridge_receipts_as_worker_owned(store: Store, tmp_p
     store.ack(old, "codex", DeliveryState.STARTED, lease_token=lease.lease_token)
     store.ack(old, "codex", DeliveryState.FAILED, lease_token=lease.lease_token)
     mine = store.send("michal", "codex", "úkol pro okno", kind="task")
-    store.accept(mine, "codex", BRIDGE_ACCEPT_NOTE)  # stejný text, ale bez pokusu workeru
+    store.accept(mine, "codex", BRIDGE_ACCEPT_NOTE, owner="s1")  # stejný text, ale bez pokusu workeru
     with sqlite3.connect(store.db_path) as con:  # stará DB před sloupcem by_lease
         con.execute("ALTER TABLE receipts DROP COLUMN by_lease")
 
@@ -485,7 +485,7 @@ def test_jobs_show_whether_a_message_was_read_instead_of_pending_forever(store: 
     assert states() == {chat: "unread", task: "pending"}
     store.mark_seen("codex", [chat, task])
     assert states() == {chat: "seen", task: "pending"}  # úkol má vlastní stavy
-    store.accept(chat, "codex", "ok")
+    store.accept(chat, "codex", "ok", owner="s1")
     assert states()[chat] == "accepted"
 
 
@@ -678,7 +678,7 @@ def test_finished_task_cannot_be_accepted(store: Store):
     mid = store.send("michal", "codex", "úkol", kind="task")
     d = store.lease_next("codex")
     store.complete(mid, "codex", d.lease_token, "succeeded", "hotovo")
-    assert store.accept(mid, "codex", "beru") is False
+    assert store.accept(mid, "codex", "beru", owner="s1") is False
 
 
 def test_human_approval_releases_a_quarantined_task_once(store: Store, tmp_path: Path):
@@ -778,3 +778,8 @@ def test_backup_is_consistent_and_rotated(store: Store, tmp_path: Path):
     assert result["integrity"] == "ok" and result["backup_integrity"] == "ok"
     assert len(list((tmp_path / "b").glob("room-*.db"))) == 2
     assert oct(Path(result["path"]).stat().st_mode & 0o777) == "0o600"
+
+
+def test_writing_callable_runner_is_refused(store: Store):
+    with pytest.raises(ValueError):
+        Bridge(store, "kimi", "", runner=lambda p: RunResult(True, "x"), read_only=False)

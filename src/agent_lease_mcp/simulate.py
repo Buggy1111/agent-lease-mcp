@@ -41,7 +41,7 @@ def run_simulation(out=print) -> bool:
              any("saw" in m["text"] for m in st.inbox() if m["recipient"] == human))
         step("the acknowledgement reminder is shown", bool(st.awaiting_accept("codex")))
         out("3) Codex acknowledges")
-        st.accept(mid, "codex", "will fix the test")
+        st.accept(mid, "codex", "will fix the test", owner="simulation")
         step(f"{human} sees “taking”",
              any(m["text"].startswith("✔ taking") for m in st.inbox() if m["recipient"] == human))
         step("the reminder stopped", not st.awaiting_accept("codex"))

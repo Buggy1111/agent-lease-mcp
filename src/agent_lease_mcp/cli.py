@@ -367,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(0.2)
 
     elif args.cmd == "accept":
-        if not store.accept(args.message_id, me, args.note, lease_token=args.token):  # jen za sebe
+        if not store.accept(args.message_id, me, args.note, lease_token=args.token,
+                            owner=os.environ.get("AGENT_LEASE_SESSION") or f"cli-{os.getppid()}"):  # jen za sebe
             print("Not acknowledged: no such message, not addressed to you, or a worker "
                   "(bridge) already holds this task — do not run it.", file=sys.stderr)
             return 1
@@ -430,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
               "their tasks go to needs_review. Resume: web UI (human).")
 
     elif args.cmd == "backup":
-        result = store.backup()
+        result = store.backup_now()
         print(f"{result['path']} — integrity: {result['integrity']} / copy: "
               f"{result['backup_integrity']}")
 

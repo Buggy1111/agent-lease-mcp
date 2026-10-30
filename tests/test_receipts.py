@@ -41,8 +41,8 @@ def test_receipts_do_not_ping_pong(store: Store):
 
 def test_accept_tells_sender_what_happens_and_is_idempotent(store: Store):
     mid = store.send("michal", "codex", "oprav build", kind="task")
-    assert store.accept(mid, "codex", "opravím build a pustím testy")
-    assert store.accept(mid, "codex", "jiný text")  # nepřepíše, nezdvojí
+    assert store.accept(mid, "codex", "opravím build a pustím testy", owner="s1")
+    assert store.accept(mid, "codex", "jiný text", owner="s1")  # nepřepíše, nezdvojí
     replies = [m for m in store.inbox() if m["agent"] == "codex" and m["reply_to"] == mid]
     assert len(replies) == 1 and "opravím build" in replies[0]["text"]
     row = next(m for m in store.inbox() if m["id"] == mid)
@@ -51,7 +51,7 @@ def test_accept_tells_sender_what_happens_and_is_idempotent(store: Store):
 
 def test_accept_refuses_foreign_message(store: Store):
     mid = store.send("michal", "claude-code", "ahoj", kind="chat")
-    assert not store.accept(mid, "codex")
+    assert not store.accept(mid, "codex", owner="s1")
 
 
 def test_unaccepted_message_is_nagged_until_accepted(store: Store):
@@ -61,7 +61,7 @@ def test_unaccepted_message_is_nagged_until_accepted(store: Store):
     assert [a["id"] for a in awaiting] == [mid] and awaiting[0]["seen"]
     text = prompt_update("codex", [], [], awaiting)
     assert "WAITING FOR YOUR ACKNOWLEDGEMENT" in text and "accept" in text
-    store.accept(mid, "codex", "beru")
+    store.accept(mid, "codex", "beru", owner="s1")
     assert store.awaiting_accept("codex") == []
     assert prompt_update("codex", [], [], store.awaiting_accept("codex")) == ""
 

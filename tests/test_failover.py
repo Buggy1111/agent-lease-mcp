@@ -45,7 +45,7 @@ def test_skips_limited_fallback_and_uses_next(store: Store):
 
 def test_typed_provider_limit_moves_only_unstarted_work(store: Store):
     accepted = store.send("michal", "codex", "already accepted", kind="task")
-    store.accept(accepted, "codex", "working")
+    store.accept(accepted, "codex", "working", owner="s1")
     pending = store.send("michal", "codex", "new work", kind="task")
 
     store.report_provider_state("codex", "limited", "codex_app_server",
@@ -101,7 +101,7 @@ def test_started_work_is_never_moved(store: Store):
 
 def test_accepted_pending_work_is_never_moved(store: Store):
     mid = store.send("michal", "codex", "already taken", kind="task")
-    store.accept(mid, "codex", "working interactively")
+    store.accept(mid, "codex", "working interactively", owner="s1")
 
     store.report_limit("codex", time.time() + 3600)
 
