@@ -60,9 +60,12 @@ systemd-run --user --scope --property=Delegate=yes \
   "$PWD/.venv/bin/python" "$PWD/tests/chaos/probe_cgroup.py"
 ```
 
-Bez delegace skript skončí bez spuštění procesů; tímto způsobem byl bezpečně
-ověřen pouze jeho odmítavý režim. Úspěšný experiment by sám o sobě neznamenal,
-že je produkční dohled implementován nebo připraven k nasazení.
+Bez delegace skript skončí bez spuštění procesů. Po výslovném Michalově souhlasu
+proběhl také izolovaný test v dočasné uživatelské scope s `Delegate=yes`:
+`cgroup.kill` ukončil umělý hlavní proces i jeho potomka po `setsid`; scope
+pak byla ve stavu `inactive/dead`. Test nepoužil živou databázi ani existující
+služby. Experiment potvrzuje dostupnost mechanismu v této konfiguraci, nikoli
+implementaci nezávislého dohledu nebo připravenost k nasazení.
 
 ## Nutné ověření před označením za hotové
 

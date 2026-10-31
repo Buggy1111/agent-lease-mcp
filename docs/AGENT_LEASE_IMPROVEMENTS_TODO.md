@@ -252,6 +252,11 @@ po review #555 zůstaly další problémy k opravě a ověření.
 | A11 | Ověření restartu Windows/WSL | ⏳ | ruční test u Michala (restart PC → `agent-lease doctor`) |
 | — | Schválení karantény člověkem (web, hash textu, adresát, jediný pokus, audit) | ✅ | `Store.approve_quarantine`, `/api/approve` |
 
+Izolovaný cgroup experiment po Michalově souhlasu prošel: v dočasné systemd scope
+`cgroup.kill` ukončil i potomka, který opustil procesovou skupinu. Scope skončila.
+Produkční dohled, jeho obnova při pádu a potřebné úpravy služby dosud nejsou
+implementované ani nasazené; viz [návrh](PHASE_A_PROCESS_SUPERVISION.md).
+
 ### Známé omezení: agent pod stejným uživatelem
 
 Agent s přístupem k shellu běží pod stejným OS uživatelem jako Michal. Může si proto přečíst
