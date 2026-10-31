@@ -1,6 +1,6 @@
 # Fáze A: zastavení potomků po pádu bridge
 
-Stav: návrh k implementaci a ověření, nikoli existující záruka. Při ukončení
+Stav: volitelná cgroup izolace je rozpracovaná, nejde o úplnou záruku. Při ukončení
 bridge pomocí SIGKILL se jeho `finally` neprovede. Dohled `process_guard` díky
 `PR_SET_PDEATHSIG` ukončí běžnou procesovou skupinu, ale skupina nezachytí
 potomka, který zavolá `setsid`; nezávislý dohled také může sám havarovat.
@@ -35,7 +35,20 @@ procesů původního pokusu a rozhodnout o jeho možných účincích. Obnovení
 cgroup níže zatím není implementováno; soubor nemažte pouze proto, abyste
 obešli zablokování. Funkce nezaručuje odstranění potomků při pádu bridge.
 
-## Navržené řešení pro Linux s cgroup v2
+## Rozpracované řešení pro Linux s cgroup v2
+
+Bridge má volitelný režim `--cgroup`: ve vlastní delegované cgroup pro každý
+příkaz ověří dostupnost ovládání před spuštěním a po běhu volá `cgroup.kill`
+a kontroluje `populated 0`. Strážce volá `cgroup.kill` také při smrti bridge.
+Není-li delegace dostupná, příkaz se nespustí. Režim není dosud zapnutý ve
+službách a nezajišťuje nezávislý úklid po současném pádu bridge a strážce;
+trvalá pojistka proto zůstává nutná. Proces se stejným uživatelem a oprávněním
+ke správě nadřazené cgroup může izolaci obejít.
+
+V dočasné delegované scope byl reálný bridge s umělým příkazem ověřen při
+normálním dokončení i po `SIGKILL` bridge: oddělený potomek byl ukončen.
+Experiment `tests/chaos/probe_cgroup_bridge.py` nepoužívá živé workery ani
+databázi. To samo nedokazuje připravenost k nasazení.
 
 1. Každý pokus spustit ve vlastní cgroup pod službou s delegovanou podskupinou.
    Než se spustí cizí kód, musí být proces do podskupiny zařazen; při chybě
@@ -55,8 +68,8 @@ obešli zablokování. Funkce nezaručuje odstranění potomků při pádu bridg
    se autonomní režim nesmí tvářit, že poskytuje stejnou garanci.
 
 Toto prostředí má cgroup v2, ale aktuální proces nemá právo vytvářet cgroup
-v aktuálním stromu. Integrace vyžaduje nastavení a nasazení služby; to zatím
-nebylo provedeno. Současný dohled nad procesovou skupinou chrání jen částečně.
+v aktuálním stromu. Zapnutí vyžaduje nastavení a nasazení služby; to zatím
+nebylo provedeno. Výchozí dohled nad procesovou skupinou chrání jen částečně.
 
 Pro izolovaný experiment je potřeba samostatná dočasná uživatelská služba
 s delegovanou cgroup, například s tímto nastavením v její `[Service]` sekci:
@@ -67,8 +80,8 @@ Delegate=yes
 
 Experiment musí používat výhradně novou testovací databázi a umělé workery;
 nemá měnit ani restartovat stávající služby. Skutečné nasazení by vyžadovalo
-samostatné posouzení a souhlas. Samotné `Delegate=yes` opravu neimplementuje:
-je nutné doplnit správu cgroup a nezávislé obnovení úklidu podle bodů výše.
+samostatné posouzení a souhlas. Samotné `Delegate=yes` nestačí: pro autonomní
+obnovu je stále nutné doplnit nezávislé obnovení úklidu podle bodů výše.
 
 Připravený zkušební skript `tests/chaos/probe_cgroup.py` nepoužívá databázi ani
 živé workery: v nové podskupině vytvoří umělého potomka, ten zavolá `setsid`,

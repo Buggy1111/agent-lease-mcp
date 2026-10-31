@@ -677,6 +677,76 @@ def test_fence_write_failure_does_not_launch_command(store, tmp_path, monkeypatc
     assert bridge.step() is False
 
 
+def test_required_cgroup_failure_does_not_launch_command(tmp_path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    marker = tmp_path / "command-ran"
+
+    def fail_cgroup():
+        raise PermissionError("delegation unavailable")
+
+    monkeypatch.setattr(br, "CommandCgroup", fail_cgroup)
+    result = br.run_command(fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')"),
+                            "x", timeout=5, use_cgroup=True)
+    assert not result.ok and not marker.exists()
+    assert "cgroup" in result.output
+
+
+def test_unconfirmed_cgroup_cleanup_cannot_report_success(monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    class UncertainGroup:
+        def cleanup(self):
+            return False
+
+    monkeypatch.setattr(br, "CommandCgroup", UncertainGroup)
+    monkeypatch.setattr(br, "_run", lambda *args, **kwargs: RunResult(True, "done"))
+    result = br.run_command("unused", "x", timeout=5, use_cgroup=True)
+    assert not result.ok and result.cleanup_failed
+
+
+def test_cgroup_membership_write_failure_cannot_launch_worker(tmp_path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    class RejectMembership:
+        def __init__(self):
+            self.procs_fd = os.open("/dev/full", os.O_WRONLY)
+            self.guard_kill_fd = os.open("/dev/null", os.O_WRONLY)
+
+        def cleanup(self):
+            os.close(self.procs_fd)
+            os.close(self.guard_kill_fd)
+            return True
+
+    monkeypatch.setattr(br, "CommandCgroup", RejectMembership)
+    marker = tmp_path / "command-ran"
+    command = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
+    result = br.run_command(command, "x", timeout=5, use_cgroup=True)
+    assert not result.ok and not marker.exists()
+
+
+def test_gate_error_after_launch_preserves_uncertain_cleanup(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+
+    import agent_lease_mcp.bridge as br
+
+    original_kill = br._kill_group
+
+    def unconfirmed(proc, *args, **kwargs):
+        original_kill(proc, *args, **kwargs)
+        return False
+
+    @contextmanager
+    def failing_gate():
+        yield
+        raise OSError("gate release failed")
+
+    monkeypatch.setattr(br, "_kill_group", unconfirmed)
+    result = br.run_command(fake(tmp_path, "import time; time.sleep(30)"), "x",
+                            timeout=10, gate=failing_gate)
+    assert not result.ok and result.cleanup_failed
+
+
 # ── review Nox #540 + fáze A dávka 2 ─────────────────────────────────────────
 
 def test_children_are_killed_even_when_the_leader_exits_first(tmp_path: Path):

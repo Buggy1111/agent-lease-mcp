@@ -41,6 +41,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jev, workspace
 from .broker import open_store
+from .cgroup import CommandCgroup
 from .config import Settings
 from .hygiene import heuristic_risk, redact
 from .launch_gate import launch_gate
@@ -119,11 +120,22 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 
 
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
-                gate=None, can_launch=None) -> RunResult:
+                gate=None, can_launch=None, use_cgroup: bool = False) -> RunResult:
     with tempfile.TemporaryDirectory(prefix="agent-lease-run-") as tmp:
         last = os.path.join(tmp, "last-message.txt")
-        result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
-                      gate=gate, can_launch=can_launch)
+        try:
+            group = CommandCgroup() if use_cgroup else None
+        except (OSError, ValueError) as exc:
+            return RunResult(False, f"cannot create delegated command cgroup: {exc}")
+        try:
+            result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
+                          gate=gate, can_launch=can_launch, group=group)
+        except BaseException:
+            if group is not None:
+                group.cleanup()
+            raise
+        if group is not None and not group.cleanup():
+            result = dataclasses.replace(result, ok=False, cleanup_failed=True)
         if result.ok and "{last_message}" in template:
             try:
                 final = Path(last).read_text(encoding="utf-8").strip()
@@ -136,11 +148,12 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
 
 
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
-         gate=None, can_launch=None) -> RunResult:
+         gate=None, can_launch=None, group: CommandCgroup | None = None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     if _PRCTL is None:
         return RunResult(False, "cannot start: Linux parent-death supervision unavailable")
+    proc = None
     try:
         # Vlastní skupina procesů: ukončuje se celá, i s potomky (`codex exec` spouští
         # další procesy). Dřív timeout zabil jen přímý proces (audit #535 bod 1).
@@ -150,13 +163,25 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                 return RunResult(False, "stopped before launch: task paused or lease lost",
                                  aborted=True)
             read_fd, write_fd = os.pipe()
+            guard_args = ([f"--cgroup-kill-fd={group.guard_kill_fd}"] if group else [])
+            pass_fds = (write_fd, group.procs_fd, group.guard_kill_fd) if group else (write_fd,)
+
+            def setup_child() -> None:
+                _die_with_parent(parent_pid)
+                if group is not None:
+                    try:
+                        if os.write(group.procs_fd, b"0") != 1:
+                            os._exit(127)
+                    except OSError:
+                        os._exit(127)
+
             try:
                 proc = subprocess.Popen(
                     [sys.executable, "-m", "agent_lease_mcp.process_guard",
-                     f"--ready-fd={write_fd}", *argv],
+                     f"--ready-fd={write_fd}", *guard_args, *argv],
                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, start_new_session=True, pass_fds=(write_fd,),
-                    preexec_fn=lambda: _die_with_parent(parent_pid),  # noqa: PLW1509
+                    text=True, start_new_session=True, pass_fds=pass_fds,
+                    preexec_fn=setup_child,  # noqa: PLW1509
                 )
             except BaseException:
                 os.close(read_fd)
@@ -180,7 +205,9 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                 gone = _kill_group(proc)
                 return RunResult(False, "cannot confirm command launch", cleanup_failed=not gone)
     except OSError as exc:
-        return RunResult(False, f"cannot start {argv[0] if argv else '<empty command>'}: {exc}")
+        gone = _kill_group(proc) if proc is not None else True
+        return RunResult(False, f"cannot start {argv[0] if argv else '<empty command>'}: {exc}",
+                         cleanup_failed=not gone)
     started = time.monotonic()
     chunks: list[str] = []
     reader = threading.Thread(
@@ -333,7 +360,8 @@ class Bridge:
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
                  after_message_id: int = 0, provider_probe=None,
                  provider_probe_interval: float = 60, worker_identity: str | None = None,
-                 interactive_grace: float = 300, read_only: bool | None = None) -> None:
+                 interactive_grace: float = 300, read_only: bool | None = None,
+                 use_cgroup: bool = False) -> None:
         self.store, self.agent, self.command = store, agent, command
         # Read-only běh nic nemění, takže ho po limitu jde bezpečně spustit znovu.
         # Vlastní příkaz může zapisovat → po limitu needs_review (audit #535 bod 2c).
@@ -352,6 +380,7 @@ class Bridge:
         self.interactive_grace = max(0.0, float(interactive_grace))
         self.worker_identity = worker_identity or f"{agent}-bridge"
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
+        self.use_cgroup = use_cgroup
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
         self.after_message_id = max(0, int(after_message_id))
         self.provider_probe = provider_probe
@@ -513,7 +542,8 @@ class Bridge:
             try:
                 result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
-                                     can_launch=lambda: self.store.holds(mid, self.agent, token))
+                                     can_launch=lambda: self.store.holds(mid, self.agent, token),
+                                     use_cgroup=self.use_cgroup)
             except BaseException:
                 # Even an unexpected exception cannot prove the command is gone.
                 self._cleanup_blocked = True
@@ -659,6 +689,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--lease-seconds", type=int, default=120,
                    help="task lease length; renewed while the command runs")
     p.add_argument("--timeout", type=float, default=1800)
+    p.add_argument("--cgroup", action="store_true",
+                   help="require a delegated cgroup v2 for each CLI command")
     p.add_argument("--once", action="store_true", help="process one pass and exit")
     p.add_argument(
         "--include-existing", action="store_true",
@@ -694,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
                     lease_seconds=args.lease_seconds,
                     after_message_id=after_message_id,
                     interactive_grace=args.interactive_grace,
+                    use_cgroup=args.cgroup,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()

@@ -11,16 +11,25 @@ import signal
 import subprocess
 import sys
 
+_cgroup_kill_fd = None
 
 def _stop_group(_signum, _frame) -> None:
+    if _cgroup_kill_fd is not None:
+        try:
+            os.write(_cgroup_kill_fd, b"1")
+        except OSError:
+            pass  # fall back to the process group if cgroup cleanup fails
     os.killpg(os.getpgrp(), signal.SIGKILL)
 
 
 def main() -> int:
+    global _cgroup_kill_fd
     args = sys.argv[1:]
     ready_fd = None
     if args and args[0].startswith("--ready-fd="):
         ready_fd = int(args.pop(0).split("=", 1)[1])
+    if args and args[0].startswith("--cgroup-kill-fd="):
+        _cgroup_kill_fd = int(args.pop(0).split("=", 1)[1])
     if not args:
         print("process guard requires a command", file=sys.stderr)
         return 2
