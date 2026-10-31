@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Security
+
+- Require FastMCP 3.4.10 or later in the 3.x series to address
+  GHSA-7xgj-8392-5q4r; add an in-process authorization regression test.
+
 ### Added
 
 - Phase A safety work (not yet complete; see process supervision limitations):
@@ -17,6 +22,10 @@
   cancels, competing sessions, pause) checking effects, recorded process IDs,
   stuck leases, false "Done" messages, and database integrity. It does not yet
   prove that every escaped descendant is terminated.
+- Opt-in delegated cgroup containment and restart recovery for bridge commands,
+  guarded by a persistent fence and verified group identity. This remains
+  incomplete for process cleanup before a replacement bridge starts and is not
+  enabled in deployed services. See `docs/PHASE_A_PROCESS_SUPERVISION.md`.
 
 - `wait(message_id, timeout_seconds)` MCP tool: blocks until the counterpart
   answers or the task reaches a final state, so a sender no longer polls `jobs`.

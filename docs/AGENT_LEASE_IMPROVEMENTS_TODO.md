@@ -191,8 +191,19 @@ Navazující dokumenty: [roadmapa](AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) ·
 
 ## Stav po fázi A (30. 10. 2026)
 
-**Aktualizace po review #555:** fáze A zatím není uzavřená. Probíhá oprava a ověřování;
-dosavadní výsledky nedokládají požadovaný osmihodinový chaos test ani restart Windows/WSL.
+**Aktualizace 31. 10.:** izolovaný osmihodinový chaos test staršího snapshotu
+prošel (10 721 úkolů, bez dvojitých účinků, falešných Done a přeživších
+sledovaných procesů). Novější snapshot s volitelnou cgroup izolací a obnovou
+prošel samostatným třicetiminutovým během (513 úkolů, 242 pádů workerů,
+50 pádů brokeru, bez čekajících úkolů po dojezdu). Tyto běhy ještě nepoužívaly
+opravené FastMCP 3.4.10, které se ověřuje zvlášť. Reálná obnova po současném
+pádu bridge a strážce prošla v samostatné delegované testovací scope. Úklid se
+v tomto případě provádí až při spuštění náhradního bridge ve stejné delegované
+cgroup; jinak zůstane pojistka k prověření. Fáze A není nasazena ani uzavřena;
+restart Windows/WSL a záruky vůči externím účinkům zůstávají samostatné otázky.
+
+**Historická aktualizace po review #555:** fáze A tehdy nebyla uzavřená; výsledky
+v té době nedokládaly osmihodinový chaos test ani restart Windows/WSL.
 Při SIGKILL bridge dohled ukončuje jeho běžnou procesovou skupinu, ale není doloženo
 ukončení potomků, kteří z ní odejdou, ani úklid po pádu samotného dohledu. MCP `inbox`,
 `room`, `jobs` a odpovědi `wait` nyní skrývají text se známým rizikem; přímý přístup

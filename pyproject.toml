@@ -19,7 +19,7 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = [
-    "fastmcp>=3.4,<4",
+    "fastmcp>=3.4.10,<4",
     "pyjwt>=2.15,<3",
     "opentelemetry-api>=1.45.1,<2",
 ]
