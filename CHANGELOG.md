@@ -45,6 +45,9 @@
 
 ### Fixed
 
+- Require PyJWT 2.15+ and OpenTelemetry API 1.45.1+; update the lockfile to
+  PyJWT 2.15.1 and OpenTelemetry API 1.45.2. Add a regression test for
+  GHSA-ffc3-869f-jxw9's malformed-PEM algorithm confusion.
 - A process-group guard kills ordinary descendants when the bridge is killed;
   escaped sessions and a crash of the guard still require stronger isolation.
 - CLI process launches synchronize with pause and cancellation confirmation;
