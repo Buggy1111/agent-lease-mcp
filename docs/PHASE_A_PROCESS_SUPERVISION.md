@@ -67,6 +67,15 @@ pak byla ve stavu `inactive/dead`. Test nepoužil živou databázi ani existují
 služby. Experiment potvrzuje dostupnost mechanismu v této konfiguraci, nikoli
 implementaci nezávislého dohledu nebo připravenost k nasazení.
 
+Další izolované experimenty (`tests/chaos/probe_cgroup_parent_death.py` a
+`tests/chaos/probe_cgroup_watchdog.py`) ověřily, že dohled po smrti rodiče
+uklidí i potomka po `setsid`. Při současném zabití rodiče a jednoho ze dvou
+nezávislých dohledů druhý dohled cgroup uklidil. Při zabití rodiče i obou
+dohledů potomek zůstal běžet až do úklidu testovacím skriptem. Dva dohledy
+samotné tedy nestačí: obnova musí mít další nezávislou hranici a před dalším
+spuštěním ověřit vyprázdnění cgroup. Tyto experimenty používají pouze umělé
+procesy a nejsou integrací do bridge.
+
 ## Nutné ověření před označením za hotové
 
 - V izolované službě spustit potomka, který vytvoří další proces a zavolá
