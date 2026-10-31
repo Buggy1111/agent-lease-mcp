@@ -4,7 +4,7 @@
 
 ### Added
 
-- Phase A ("exactly once, hours unattended", reviewed by Codex in four rounds):
+- Phase A safety work (not yet complete; see process supervision limitations):
   session-owned task acceptance; lease deadline checks everywhere; atomic
   `complete()` (state + result in one transaction) and `defer()` after a provider
   limit; worker process groups killed and confirmed; broker-side `reconcile()`;
@@ -14,8 +14,9 @@
   `checkpoint()` with a content fingerprint of the workspace; verified daily DB
   backup (`agent-lease backup`) while a fixed SQLite is not available for Python.
 - `tests/chaos/run_chaos.py`: isolated chaos test (killed workers and broker,
-  cancels, competing sessions, pause) checking one effect per task, no orphan
-  processes, nothing stuck, no false "Done", DB integrity.
+  cancels, competing sessions, pause) checking effects, recorded process IDs,
+  stuck leases, false "Done" messages, and database integrity. It does not yet
+  prove that every escaped descendant is terminated.
 
 - `wait(message_id, timeout_seconds)` MCP tool: blocks until the counterpart
   answers or the task reaches a final state, so a sender no longer polls `jobs`.
@@ -44,19 +45,32 @@
 
 ### Fixed
 
+- A process-group guard kills ordinary descendants when the bridge is killed;
+  escaped sessions and a crash of the guard still require stronger isolation.
+- CLI process launches synchronize with pause and cancellation confirmation;
+  a stuck launch is reported as unconfirmed rather than a successful stop.
+- Completion retries are idempotent only for the original lease token and exact
+  result; stale tokens and differing results no longer receive a false success.
 - `room` returned the ten *oldest* messages ever; it now returns the newest,
   shortens long texts to 400 characters and hides agents unseen for over a day
   (`hidden_offline_peers`, `all_peers=True` shows them).
 
 ### Changed
 
+- SQLite now requires rollback journal mode `DELETE` to avoid the WAL-reset bug
+  in affected SQLite versions. Existing WAL databases require an offline migration
+  after stopping all clients; see `docs/AGENT_LEASE_IMPROVEMENTS_TODO.md`.
+- Checkpoint fingerprints distinguish staged and unstaged changes, include the
+  worktree identity, and fail closed for unreadable files or submodules. A match
+  does not establish whether external effects occurred, which must be verified.
 - `store.py` split by area into `_claims`, `_messaging`, `_availability`,
   `_deliveries` and `_store_common`; delivery state sets live in `states.py`.
   `Store`'s public API and the broker's `METHODS` are unchanged, guarded by a
   characterisation snapshot test.
 
-- A task can no longer run twice: accepting a task held by a worker requires its
-  lease token; the bridge yields to an interactive session that accepted it.
+- A worker lease and interactive acceptance prevent ordinary concurrent starts.
+  External effects and recovery after a process crash still need verification;
+  exactly-once execution is not guaranteed.
 - Schema migrations are serialised; receipts written by the old bridge are
   backfilled so retried tasks are not skipped.
 - Clients wait for a restarting broker instead of crashing the bridges and the

@@ -32,6 +32,17 @@ def peer(db: Path, agent: str = "codex") -> dict:
     return next(p for p in Store(db).peers() if p["agent"] == agent)
 
 
+def test_stop_reports_when_pause_cannot_be_confirmed(db: Path, monkeypatch, capsys):
+    def cannot_confirm(*_args):
+        raise TimeoutError("launcher stuck")
+
+    monkeypatch.setattr(Store, "pause", cannot_confirm)
+    assert main(["stop"]) == 1
+    output = capsys.readouterr()
+    assert "could not be confirmed" in output.err
+    assert "Pause confirmed" not in output.out
+
+
 def test_claim_reports_presence(db: Path, tmp_path: Path):
     """Nájem přes CLI musí agenta v místnosti rozsvítit, ne ho nechat mrtvého."""
     assert main(["claim", str(tmp_path / "deploy"), "--purpose", "balím balíček"]) == 0

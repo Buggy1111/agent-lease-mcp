@@ -56,6 +56,21 @@ def authenticated_handler(store: Store, settings: Settings, token: str, session_
     return handler_type
 
 
+def test_unconfirmed_pause_returns_an_error(tmp_path: Path, monkeypatch):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler = authenticated_handler(store, settings, "secret")
+
+    def cannot_confirm(*_args):
+        raise TimeoutError("launcher stuck")
+
+    monkeypatch.setattr(store, "pause", cannot_confirm)
+    status, body = call_handler(store, settings, "secret", "POST", "/api/pause",
+                                headers={"Cookie": f"{SESSION_COOKIE}=session"},
+                                body={"reason": "stop"}, handler_type=handler)
+    assert status == 503 and b"could not be confirmed" in body
+
+
 def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     connection.request(

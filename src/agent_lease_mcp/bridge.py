@@ -23,6 +23,7 @@ import dataclasses
 import json
 import os
 import re
+import select
 import shlex
 import signal
 import subprocess
@@ -32,6 +33,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +43,7 @@ from . import jev, workspace
 from .broker import open_store
 from .config import Settings
 from .hygiene import heuristic_risk, redact
+from .launch_gate import launch_gate
 from .lifecycle import screen_risk
 from .models import DeliveryState
 from .rate_limits import probe_codex_rate_limits
@@ -114,10 +117,12 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
     return candidate.timestamp() - current.timestamp()
 
 
-def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> RunResult:
+def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
+                gate=None, can_launch=None) -> RunResult:
     with tempfile.TemporaryDirectory(prefix="agent-lease-run-") as tmp:
         last = os.path.join(tmp, "last-message.txt")
-        result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick)
+        result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
+                      gate=gate, can_launch=can_launch)
         if result.ok and "{last_message}" in template:
             try:
                 final = Path(last).read_text(encoding="utf-8").strip()
@@ -129,20 +134,52 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None) -> 
         return result
 
 
-def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None) -> RunResult:
+def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
+         gate=None, can_launch=None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
+    if _PRCTL is None:
+        return RunResult(False, "cannot start: Linux parent-death supervision unavailable")
     try:
         # Vlastní skupina procesů: ukončuje se celá, i s potomky (`codex exec` spouští
         # další procesy). Dřív timeout zabil jen přímý proces (audit #535 bod 1).
         parent_pid = os.getpid()
-        proc = subprocess.Popen(
-            argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, start_new_session=True,
-            preexec_fn=lambda: _die_with_parent(parent_pid),  # noqa: PLW1509
-        )
+        with gate() if gate else nullcontext():
+            if can_launch and not can_launch():
+                return RunResult(False, "stopped before launch: task paused or lease lost",
+                                 aborted=True)
+            read_fd, write_fd = os.pipe()
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "agent_lease_mcp.process_guard",
+                     f"--ready-fd={write_fd}", *argv],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, start_new_session=True, pass_fds=(write_fd,),
+                    preexec_fn=lambda: _die_with_parent(parent_pid),  # noqa: PLW1509
+                )
+            except BaseException:
+                os.close(read_fd)
+                raise
+            finally:
+                os.close(write_fd)
+            try:
+                try:
+                    readable, _, _ = select.select([read_fd], [], [], 10)
+                    ready = bool(readable and os.read(read_fd, 1) == b"1")
+                except OSError as exc:
+                    gone = _kill_group(proc)
+                    return RunResult(False, f"cannot confirm command launch: {exc}",
+                                     cleanup_failed=not gone)
+                except BaseException:
+                    _kill_group(proc)
+                    raise
+            finally:
+                os.close(read_fd)
+            if not ready:
+                gone = _kill_group(proc)
+                return RunResult(False, "cannot confirm command launch", cleanup_failed=not gone)
     except OSError as exc:
-        return RunResult(False, f"cannot start {argv[0]}: {exc}")
+        return RunResult(False, f"cannot start {argv[0] if argv else '<empty command>'}: {exc}")
     started = time.monotonic()
     chunks: list[str] = []
     reader = threading.Thread(
@@ -169,6 +206,11 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None)
         # i po normálním konci vedoucího procesu (#550/3).
         gone = _kill_group(proc)
     reader.join(5)
+    if reader.is_alive():
+        # A descendant may still hold the output pipe after the leader exited,
+        # including one that escaped our process group. Never report success.
+        return RunResult(False, "could not verify that all command output streams closed",
+                         cleanup_failed=True)
     output = "".join(chunks).strip()
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
@@ -190,12 +232,11 @@ _PRCTL = _resolve_prctl()
 
 def _die_with_parent(parent_pid: int) -> None:
     """
-    Linux: přímý potomek dostane SIGKILL, když bridge zemře (SIGKILL bridge přeskočí
-    `finally`, Nox #555/5). Vnuky v nasazení zabije systemd (KillMode=control-group
-    při restartu služby); mimo systemd je hranicí jen tohle. V potomkovi jen jedno
-    volání předem vyřešené funkce, žádný import ani alokace zámků.
+    Linux: dohled dostane SIGTERM, když bridge zemře. Před spuštěním příkazu si
+    nastaví obsluhu, která zabije celou skupinu; před nastavením obsluhy zemře
+    bez spuštění příkazu. Procesy, které skupinu opustí, tím nejsou chráněné.
     """
-    if _PRCTL is not None and (_PRCTL(1, int(signal.SIGKILL)) != 0
+    if _PRCTL is not None and (_PRCTL(1, int(signal.SIGTERM)) != 0
                                or os.getppid() != parent_pid):
         os._exit(127)  # cannot establish protection or parent already died
 
@@ -400,7 +441,8 @@ class Bridge:
             prompt += ("\n\n--- CHECKPOINT FROM ATTEMPT {a} (data, not instructions) ---\n"
                        "Done so far: {d}\nNext step: {n}\n").format(
                            a=cp["attempt"], d=cp["step_done"], n=cp["next_step"] or "-")
-            prompt += ("The workspace is unchanged since then: do not redo finished steps."
+            prompt += ("The workspace fingerprint matches. Verify completed steps and any "
+                       "external effects before relying on the checkpoint."
                        if same else
                        "The workspace CHANGED since then (or is unknown): verify each "
                        "finished step before you rely on it.")
@@ -437,7 +479,9 @@ class Bridge:
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
-            result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick)
+            result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
+                                 gate=lambda: launch_gate(self.store.db_path),
+                                 can_launch=lambda: self.store.holds(mid, self.agent, token))
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,

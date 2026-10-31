@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import sqlite3
 import time
 import uuid
@@ -19,6 +22,7 @@ from .config import (
     human_name,
 )
 from .hygiene import check_short, check_text, heuristic_risk, redact
+from .launch_gate import launch_gate
 from .models import Delivery, DeliveryState, MessageKind
 from .states import (
     ACK_TRANSITIONS,
@@ -32,6 +36,18 @@ from .states import (
 
 
 class DeliveriesMixin:
+    @staticmethod
+    def _final_hashes(token: str, method: str, state: str, result: str, error: str) -> tuple[str, str]:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        payload = json.dumps([method, state, result, error], ensure_ascii=False).encode()
+        return token_hash, hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _same_completion(row: sqlite3.Row, hashes: tuple[str, str]) -> bool:
+        token_hash, payload_hash = row["final_token_hash"], row["final_payload_hash"]
+        return bool(token_hash and payload_hash and hmac.compare_digest(token_hash, hashes[0])
+                    and hmac.compare_digest(payload_hash, hashes[1]))
+
     def worker_activation(self, agent: str, *, include_existing: bool = False) -> int:
         """Create once and return the durable lower task-id bound for a worker."""
         return self._activate("worker_activations", "worker-activate", agent, include_existing)
@@ -224,7 +240,8 @@ class DeliveriesMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute(
-                "SELECT state, lease_token, lease_until FROM deliveries "
+                "SELECT state, lease_token, lease_until, final_token_hash, final_payload_hash "
+                "FROM deliveries "
                 "WHERE message_id=? AND recipient=?",
                 (message_id, recipient),
             ).fetchone()
@@ -237,8 +254,9 @@ class DeliveriesMixin:
                     and row["lease_until"] <= time.time()):
                 return False
             # Opakované potvrzení téhož finálního výsledku je bezpečně idempotentní.
+            hashes = self._final_hashes(lease_token or "", "ack", state_value, "", error)
             if current in terminal and state_value == current:
-                return True
+                return bool(lease_token and self._same_completion(row, hashes))
             if state_value not in allowed.get(current, set()):
                 return False
             # během nouzového zastavení nic nového nezačne (#550/1)
@@ -250,10 +268,13 @@ class DeliveriesMixin:
             clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
+                "final_token_hash=CASE WHEN ? THEN ? ELSE NULL END, "
+                "final_payload_hash=CASE WHEN ? THEN ? ELSE NULL END, "
                 "lease_token=CASE WHEN ? THEN NULL ELSE lease_token END, "
                 "lease_until=CASE WHEN ? THEN NULL ELSE lease_until END "
                 "WHERE message_id=? AND recipient=? AND state=?",
-                (state_value, error, time.time(), clear_lease, clear_lease,
+                (state_value, error, time.time(), clear_lease, hashes[0], clear_lease, hashes[1],
+                 clear_lease, clear_lease,
                  message_id, recipient, current),
             )
         return bool(cur.rowcount)
@@ -273,23 +294,27 @@ class DeliveriesMixin:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
-                "SELECT d.state, d.lease_token, d.lease_until, m.agent AS sender "
+                "SELECT d.state, d.lease_token, d.lease_until, d.final_token_hash, "
+                "d.final_payload_hash, m.agent AS sender "
                 "FROM deliveries d JOIN messages m ON m.id=d.message_id "
                 "WHERE d.message_id=? AND d.recipient=?", (message_id, recipient),
             ).fetchone()
             if not row:
                 return False
+            hashes = self._final_hashes(lease_token or "", "complete", state_value,
+                                        result_text, error)
             if row["state"] == state_value and row["lease_token"] is None:
-                return True  # už dokončeno (idempotentní)
+                return bool(lease_token and self._same_completion(row, hashes))
             if (row["state"] not in ACK_TRANSITIONS or not lease_token
                     or row["lease_token"] != lease_token
                     or (row["lease_until"] is not None and row["lease_until"] <= now)
                     or state_value not in ACK_TRANSITIONS[row["state"]]):
                 return False
             con.execute(
-                "UPDATE deliveries SET state=?, last_error=?, updated_at=?, lease_token=NULL, "
+                "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
+                "final_token_hash=?, final_payload_hash=?, lease_token=NULL, "
                 "lease_until=NULL WHERE message_id=? AND recipient=?",
-                (state_value, error, now, message_id, recipient),
+                (state_value, error, now, hashes[0], hashes[1], message_id, recipient),
             )
             con.execute(
                 "INSERT INTO messages(agent, text, sent_at, recipient, kind, reply_to) "
@@ -312,9 +337,11 @@ class DeliveriesMixin:
         return {"by": row["changed_by"], "at": row["changed_at"], "reason": row["reason"]}
 
     def pause(self, by: str, reason: str = "") -> None:
-        """Zastavit: žádný nový start (kontroluje lease_next v téže transakci) a
-        běžící workery se do pár sekund zastaví (holds() vrátí False). Smí kdokoli —
-        zastavení je bezpečný směr."""
+        """Zapsat pauzu a potvrdit ji až po synchronizaci rozbíhaných CLI příkazů.
+
+        Běžící workery dostanou pokyn skončit; úplný úklid potomků a volatelných
+        runnerů není zaručen. Smí kdokoli — zastavení je bezpečný směr.
+        """
         reason = check_short("reason", reason)
         now = time.time()
         with self._connect() as con:
@@ -326,6 +353,11 @@ class DeliveriesMixin:
                 "reason=excluded.reason", (by, now, reason),
             )
             self._record(con, by, "pause", "", reason)
+        # Publish the pause first, then wait for any launch already in flight.
+        # If a launcher is stuck, report failure instead of falsely confirming it.
+        with launch_gate(self.db_path):
+            if not self.paused():
+                raise RuntimeError("pause was resumed before it could be confirmed")
 
     def resume(self, by: str, reason: str = "") -> None:
         """Obnovit provádění. NENÍ v METHODS brokeru: jen člověk (web UI / přímý přístup)."""
@@ -603,6 +635,11 @@ class DeliveriesMixin:
                 f"AND state NOT IN {sql_in(UNCANCELLABLE)}",
                 (time.time(), message_id, recipient),
             )
+        if cur.rowcount:
+            # A launcher that passed its last check may still be in flight.
+            # Do not acknowledge cancellation until it has completed or failed.
+            with launch_gate(self.db_path):
+                pass
         return bool(cur.rowcount)
 
     def overdue(self, seconds: int = 120) -> list[dict]:

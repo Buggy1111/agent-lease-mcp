@@ -191,21 +191,64 @@ Navazující dokumenty: [roadmapa](AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) ·
 
 ## Stav po fázi A (30. 10. 2026)
 
+**Aktualizace po review #555:** fáze A zatím není uzavřená. Probíhá oprava a ověřování;
+dosavadní výsledky nedokládají požadovaný osmihodinový chaos test ani restart Windows/WSL.
+Při SIGKILL bridge dohled ukončuje jeho běžnou procesovou skupinu, ale není doloženo
+ukončení potomků, kteří z ní odejdou, ani úklid po pádu samotného dohledu. MCP `inbox`,
+`room`, `jobs` a odpovědi `wait` nyní skrývají text se známým rizikem; přímý přístup
+ke Store, brokeru či CLI ovšem není stejná hranice. Heuristika nedokáže odhalit každý
+škodlivý text. Externí efekty
+vyžadují spolupráci cílového systému, pokud mají být provedeny přesně jednou.
+
+Lokální ověření po review: kompletní sada 446 testů prošla s jedním očekávaným
+selháním testu odděleného potomka; Ruff prošel. Dvouminutový chaos běh s bariérou
+zpracoval 82 úkolů, 14 pádů workerů a 4 pády brokeru; nezaznamenal dvojitý efekt,
+přeživšího potomka ze sledované skupiny ani úkoly čekající po dojezdu. Při tomto
+běhu ale nedošlo k úspěšnému zrušení úkolu a kontrola pokrytí byla následně
+zpřísněna. Běh nedokazuje osmihodinovou stabilitu ani bezpečné ukončení procesů,
+které skupinu opustí. Následný tříminutový běh se zpřísněnou kontrolou prošel:
+139 úkolů, 19 pádů workerů, 7 pádů brokeru, 4 zrušení a 23 zaznamenaných
+potomků; po dojezdu nezůstal žádný čekající úkol.
+
+Později se zjistilo, že starší chaos test používal identitu `codex` a jeho bridge
+spouštěl lokální autentizovaný Codex app-server pro zjištění limitu. Není ověřeno,
+zda app-server přitom komunikoval po síti. Tato skutečnost znehodnocuje izolaci
+starších běhů; dlouhý běh byl zastaven. Test nově používá syntetickou identitu,
+nepředává provider credentials a ve svém PATH nahrazuje `codex` neškodnou zarážkou,
+jejíž spuštění znamená selhání testu. Tříminutový běh opravené verze prošel:
+122 úkolů, 16 pádů workerů, 6 pádů brokeru, 8 zrušení, 9 simulovaných limitů,
+pozorované zotavení, žádný pokus spustit Codex, žádný dvojitý efekt. Při zastavení
+zůstalo 22 čekajících úkolů kvůli aktivnímu simulovanému limitu. Následný
+třicetiminutový běh prošel: 692 úkolů, 250 pádů workerů, 51 pádů brokeru,
+41 zrušení, 114 potomků a 45 simulovaných limitů. Bez dvojitého efektu,
+zaznamenaného přeživšího potomka, spuštění během pauzy či pokusu o skutečný
+provider probe; 12 úkolů čekalo kvůli aktivnímu simulovanému limitu.
+Osmihodinový běh zatím pokračuje a jeho výsledek není znám.
+
+Třicetiminutový běh před zavedením bariéry pauzy **selhal**: u dvou potomků bylo
+po pádu bridge zaznamenáno přežití a 1551 úkolů zůstalo ve stavu `pending`.
+Nebyl zaznamenán dvojitý efekt a integrita databáze prošla. Je třeba ověřit,
+které z pozorovaných přežití byly jen zpožděním plánovače a zda všechny úkoly
+po ukončení zadávání opravdu doběhnou; nelze z toho vyvozovat úspěšné dokončení A.
+Další 30minutový běh také selhal (jeden zaznamenaný přeživší proces, 50 čekajících
+úkolů); dodatečně se ukázalo, že zpracování fronty zastavil skutečný stav limitu
+Codexu přenesený do testu. Žádný dvojitý efekt ani porušení integrity nezaznamenal.
+
 Michal schválil fázi A; implementovala Ada, každou dávku reviewoval Nox (#540, #545, #550, #555),
-celkem 20 nálezů z review opraveno, testy 380 → 409, chaos test v izolované DB.
+po review #555 zůstaly další problémy k opravě a ověření.
 
 | # | Bod | Stav | Kde |
 |---|---|---|---|
 | A1 | Jeden vlastník: převzetí úkolu jen s identitou session, ne hotový/vypršený, ne během pauzy | ✅ | `_messaging.accept`, `lease_next(owner)`, `server._SESSION` |
 | A2 | Deadline v `ack`/`extend_lease`/`complete`/`defer`, čas až po zámku | ✅ | `_deliveries.py` |
 | A3 | Po limitu: read-only běh se odloží atomicky (`defer`), zapisující → `needs_review` | ✅ | `bridge.py`, `Store.defer` |
-| A4 | Atomické dokončení: stav + výsledek v jedné transakci, idempotentní | ✅ | `Store.complete`, MCP `ack(result=…)` |
-| A5 | Skupina procesů: zabití i potomků, potvrzení zániku, nepotvrzeno → `needs_review` | ✅ | `bridge._kill_group`, `_run` |
+| A4 | Atomické dokončení: stav + výsledek v jedné transakci, idempotentní | ✅ | `Store.complete`, MCP `ack(result=…)`; opakované potvrzení je vázáno na token a obsah |
+| A5 | Skupina procesů: zabití i potomků, potvrzení zániku, nepotvrzeno → `needs_review` | ⚠️ | `bridge._kill_group`, `_run`; při pádu bridge není úklid všech potomků zaručen |
 | A6 | Checkpoint s otiskem obsahu pracovní kopie; obnova jen při shodě | ✅ | `Store.checkpoint`, `workspace.py`, MCP `checkpoint` |
 | A7 | Reconciliace všech adresátů v brokeru | ✅ | `Store.reconcile` |
-| A8 | Opravená SQLite | ⚠️ náhrada | opravená verze pro Python zatím není (3.50.4 v uv 3.13/3.14 i sqlean, pysqlite3 3.51.1 < 3.51.3); místo toho denní ověřená záloha `Store.backup` (integrity_check, atomické zveřejnění, rotace) |
-| A9 | Karanténa i pro bridge; agent ji nevypne (`set_screen` mimo broker, heuristika vždy) | ✅ | `lifecycle.screen_risk`, `bridge.py` |
-| A10 | Nouzové zastavení: MCP `emergency_stop`, CLI `agent-lease stop`, web; obnovit jen člověk ve webu | ✅ | `Store.pause/resume`, `webui.py` |
+| A8 | Opravená SQLite | ⚠️ ověřování | lokální kód požaduje rollback journal `DELETE`, aby neprovozoval známou chybu WAL-reset v SQLite 3.50.4. Stávající WAL databázi sám nepřepíná: po odstavení všech klientů je potřeba explicitní offline migrace `python -m agent_lease_mcp.sqlite_migrate --all-clients-stopped DATABASE`. Nadále platí denní ověřená záloha. Opravený SQLite to nenahrazuje. |
+| A9 | Karanténa i pro bridge; agent ji nevypne (`set_screen` mimo broker, heuristika vždy) | ⚠️ | MCP zakrývá známé riziko; heuristika není úplná a přímý přístup ke Store není bezpečnostní hranice |
+| A10 | Nouzové zastavení: MCP `emergency_stop`, CLI `agent-lease stop`, web; obnovit jen člověk ve webu | ⚠️ | start CLI je synchronizován s potvrzením pauzy; callable runnery ani všichni potomci dosud nemají úplnou záruku zastavení |
 | A11 | Ověření restartu Windows/WSL | ⏳ | ruční test u Michala (restart PC → `agent-lease doctor`) |
 | — | Schválení karantény člověkem (web, hash textu, adresát, jediný pokus, audit) | ✅ | `Store.approve_quarantine`, `/api/approve` |
 

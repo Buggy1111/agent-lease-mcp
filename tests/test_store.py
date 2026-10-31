@@ -392,11 +392,16 @@ def test_database_files_are_owner_only(tmp_path):
     try:
         db = tmp_path / "fresh" / "room.db"
         store = Store(db)
-        store.say("a", "ahoj")  # vytvoří i -wal/-shm
+        store.say("a", "ahoj")
+        with store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("UPDATE messages SET text='test' WHERE id=1")
+            journal = db.with_name(db.name + "-journal")
+            assert journal.exists() and stat.S_IMODE(journal.stat().st_mode) & 0o077 == 0
     finally:
         os.umask(old)
     assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
-    for suffix in ("", "-wal", "-shm"):
+    for suffix in ("", "-wal", "-shm", "-journal"):
         f = db.with_name(db.name + suffix)
         if f.exists():
             assert stat.S_IMODE(f.stat().st_mode) & 0o077 == 0, f"{f.name} je čitelná pro ostatní"
@@ -415,12 +420,40 @@ def test_existing_wal_database_moves_to_safe_journal_mode_when_offline(tmp_path)
     con.close()
     with pytest.raises(sqlite3.OperationalError, match="stop all clients"):
         Store(db)
+    with sqlite3.connect(db) as con:
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert con.execute("SELECT id FROM previous").fetchone()[0] == 42
+    con.close()
     migrate(db)
     store = Store(db)
     with store._connect() as con:
         assert con.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
         assert con.execute("SELECT id FROM previous").fetchone()[0] == 42
         assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_offline_journal_migration_will_not_create_a_database(tmp_path):
+    from agent_lease_mcp.sqlite_migrate import migrate
+
+    missing = tmp_path / "missing.db"
+    with pytest.raises(FileNotFoundError):
+        migrate(missing)
+    assert not missing.exists()
+
+
+def test_existing_deliveries_get_completion_hash_columns_without_losing_data(tmp_path):
+    db = tmp_path / "room.db"
+    store = Store(db)
+    mid = store.send("michal", "codex", "old task", kind="task")
+    with store._connect() as con:
+        con.execute("ALTER TABLE deliveries DROP COLUMN final_token_hash")
+        con.execute("ALTER TABLE deliveries DROP COLUMN final_payload_hash")
+    reopened = Store(db)
+    with reopened._connect() as con:
+        names = {row["name"] for row in con.execute("PRAGMA table_info(deliveries)")}
+        assert {"final_token_hash", "final_payload_hash"} <= names
+        row = con.execute("SELECT state FROM deliveries WHERE message_id=?", (mid,)).fetchone()
+        assert row[0] == "pending"
 
 
 def test_existing_permissive_database_is_tightened(tmp_path):

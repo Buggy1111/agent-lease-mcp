@@ -185,8 +185,9 @@ class MessagingMixin:
         (review Nox, 20. 10. 2026). Task, který už drží worker (`leased`/`started`),
         smí přijmout jen ten, kdo zná jeho lease token; jinak `False`. Bez toho
         by interaktivní session a bridge stejného jména provedly úkol oba.
-        Přijetí s tokenem se značí `by_lease` — když lease vyprší, task se vrátí
-        do fronty a worker ho smí vzít znovu (`lease_next(skip_accepted=True)`).
+        Přijetí s tokenem se značí `by_lease` a atomicky přejde do `started`.
+        Po vypršení se proto předá k ověření (`needs_review`), nikoli automaticky
+        zpět do fronty; už mohlo dojít k vnějším účinkům.
         """
         note = redact(check_short("note", note))
         with self._connect() as con:

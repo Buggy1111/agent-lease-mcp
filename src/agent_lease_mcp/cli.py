@@ -381,7 +381,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.message_id} → pending")
 
     elif args.cmd == "cancel":
-        if not store.cancel(args.message_id, args.recipient, actor=me):
+        try:
+            cancelled = store.cancel(args.message_id, args.recipient, actor=me)
+        except (OSError, RuntimeError):
+            print("Cancellation requested, but stopping could not be confirmed; "
+                  "check the running worker before continuing.", file=sys.stderr)
+            return 1
+        if not cancelled:
             print("Cancel refused: no such task, already finished, or not yours.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → cancelled")
@@ -426,9 +432,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if late else 0
 
     elif args.cmd == "stop":
-        store.pause(me, args.reason)
-        print("⏸ Autonomous execution stopped. Running workers stop within seconds; "
-              "their tasks go to needs_review. Resume: web UI (human).")
+        try:
+            store.pause(me, args.reason)
+        except (OSError, RuntimeError):
+            print("Pause requested, but stopping could not be confirmed; "
+                  "check running workers before continuing.", file=sys.stderr)
+            return 1
+        print("⏸ Pause confirmed. Running workers have been asked to stop; "
+              "check their tasks for review. Resume: web UI (human).")
 
     elif args.cmd == "backup":
         result = store.backup_now()

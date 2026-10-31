@@ -664,6 +664,10 @@ def test_result_is_published_only_with_a_valid_lease(store: Store, monkeypatch):
     d2 = store.lease_next("codex")
     assert store.complete(m2, "codex", d2.lease_token, "succeeded", "Done y")
     assert store.complete(m2, "codex", d2.lease_token, "succeeded", "Done y")   # idempotentní
+    assert not store.complete(m2, "codex", "wrong-token", "succeeded", "Done y")
+    assert not store.complete(m2, "codex", d2.lease_token, "succeeded", "different")
+    assert not store.complete(m2, "codex", d2.lease_token, "succeeded", "Done y", error="x")
+    assert not store.ack(m2, "codex", "succeeded", lease_token=d2.lease_token)
     assert sum(m["text"] == "Done y" for m in store.inbox()) == 1
 
 
@@ -772,6 +776,23 @@ def test_checkpoint_needs_a_valid_lease_and_reaches_the_next_attempt(store: Stor
     assert "krok 1 hotový" in seen[0] and "Next step: krok 2" in seen[0]
 
 
+def test_matching_workspace_checkpoint_still_requires_effect_verification(store: Store, monkeypatch):
+    from agent_lease_mcp import bridge as br
+
+    mid = store.send("michal", "codex", "dvoukrokový úkol", kind="task")
+    d = store.lease_next("codex", lease_seconds=60)
+    assert store.checkpoint(mid, "codex", d.lease_token, "první krok", "druhý krok",
+                            "head", "fingerprint")
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
+    assert store.retry(mid, "codex")
+    monkeypatch.setattr(br.workspace, "workspace_state", lambda _: ("head", "fingerprint"))
+    seen = []
+    Bridge(store, "codex", "", runner=lambda prompt: (seen.append(prompt)
+           or RunResult(True, "hotovo")), read_only=True).step()
+    assert "Verify completed steps and any external effects" in seen[0]
+    assert "do not redo finished steps" not in seen[0]
+
+
 def test_backup_is_consistent_and_rotated(store: Store, tmp_path: Path):
     store.send("michal", "codex", "x", kind="task")
     for _ in range(3):
@@ -817,6 +838,145 @@ def test_paused_before_start_ends_in_review_not_started(store: Store, tmp_path: 
     assert not marker.exists()
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
     assert job["state"] != "started"
+
+
+def test_pause_between_final_check_and_spawn_must_not_start_work(
+    store: Store, tmp_path: Path, monkeypatch,
+):
+    from agent_lease_mcp import bridge as br
+
+    marker = tmp_path / "started-after-pause"
+    command = fake(tmp_path, f"open({str(marker)!r}, 'w').write('ran'); "
+                             "import time; time.sleep(10)")
+    store.send("michal", "codex", "úkol", kind="task")
+    original = br.subprocess.Popen
+    pause_completed = threading.Event()
+    outcome = []
+
+    def pause():
+        store.pause("michal", "stop just before spawn")
+        pause_completed.set()
+
+    def pause_at_launch(*args, **kwargs):
+        thread = threading.Thread(target=pause)
+        thread.start()
+        for _ in range(100):
+            if store.paused():
+                break
+            time.sleep(0.02)
+        assert store.paused()
+        proc = original(*args, **kwargs)
+        # Model a scheduling delay before Popen returns to the bridge.
+        for _ in range(100):
+            if marker.exists():
+                break
+            time.sleep(0.02)
+        outcome.append((marker.exists(), pause_completed.is_set(), thread))
+        return proc
+
+    monkeypatch.setattr(br.subprocess, "Popen", pause_at_launch)
+    Bridge(store, "codex", command).step()
+    assert len(outcome) == 1
+    ran, acknowledged_early, thread = outcome[0]
+    thread.join(timeout=10)
+    assert not thread.is_alive() and pause_completed.is_set()
+    assert ran and not acknowledged_early
+
+
+def test_pause_does_not_falsely_confirm_when_launch_barrier_is_stuck(store: Store, monkeypatch):
+    from agent_lease_mcp import _deliveries
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    monkeypatch.setattr(_deliveries, "launch_gate", lambda db: launch_gate(db, timeout=0.1))
+    with launch_gate(store.db_path), pytest.raises(TimeoutError, match="cannot confirm"):
+        store.pause("michal", "stop")
+    assert store.paused() is not None
+
+
+def test_launch_gate_is_shared_by_database_symlink_aliases(store: Store, tmp_path: Path):
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    alias = tmp_path / "alias.db"
+    alias.symlink_to(store.db_path)
+    with launch_gate(store.db_path), pytest.raises(TimeoutError), launch_gate(alias, timeout=0.1):
+        pass
+
+
+def test_pause_does_not_report_success_if_resumed_before_confirmation(store: Store):
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    errors = []
+
+    def pause():
+        try:
+            store.pause("michal", "stop")
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    with launch_gate(store.db_path):
+        thread = threading.Thread(target=pause)
+        thread.start()
+        for _ in range(100):
+            if store.paused():
+                break
+            time.sleep(0.02)
+        assert store.paused()
+        store.resume("michal", "continue")
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert errors == ["pause was resumed before it could be confirmed"]
+
+
+def test_pause_waits_for_launch_barrier_across_processes(store: Store, tmp_path: Path):
+    import subprocess
+
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    marker = tmp_path / "confirmed"
+    script = ("from pathlib import Path; import sys; "
+              "from agent_lease_mcp.store import Store; "
+              "Store(Path(sys.argv[1])).pause('michal', 'stop'); "
+              "Path(sys.argv[2]).touch()")
+    child = None
+    try:
+        with launch_gate(store.db_path):
+            child = subprocess.Popen([sys.executable, "-c", script, str(store.db_path), str(marker)])
+            for _ in range(100):
+                if store.paused():
+                    break
+                time.sleep(0.02)
+            assert store.paused() and not marker.exists()
+        assert child.wait(timeout=5) == 0
+        assert marker.exists()
+    finally:
+        if child is not None and child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+
+
+def test_cancel_waits_for_an_inflight_launch_before_confirming(store: Store):
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    assert store.lease_next("codex", start=True)
+    finished = threading.Event()
+    result = []
+
+    def cancel():
+        result.append(store.cancel(mid, "codex", actor="codex"))
+        finished.set()
+
+    with launch_gate(store.db_path):
+        thread = threading.Thread(target=cancel)
+        thread.start()
+        for _ in range(100):
+            if next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "cancelled":
+                break
+            time.sleep(0.02)
+        assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "cancelled"
+        assert not finished.is_set()
+    thread.join(timeout=5)
+    assert not thread.is_alive() and result == [True]
 
 
 def test_runner_needs_an_explicit_read_only_declaration(store: Store):
@@ -910,6 +1070,26 @@ def test_agent_cannot_retry_any_failed_attempt_after_it_started(store: Store, st
     assert store.retry(mid, "codex")  # explicit human decision
 
 
+def test_old_completion_without_a_provable_token_is_not_acknowledged(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    task = store.lease_next("codex", start=True)
+    assert store.complete(mid, "codex", task.lease_token, "succeeded", "Done")
+    with store._connect() as con:
+        con.execute("UPDATE deliveries SET final_token_hash=NULL, final_payload_hash=NULL "
+                    "WHERE message_id=?", (mid,))
+    assert not store.complete(mid, "codex", task.lease_token, "succeeded", "Done")
+
+
+def test_repeated_terminal_ack_requires_the_same_token_and_error(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    task = store.lease_next("codex", start=True)
+    assert store.ack(mid, "codex", "failed", lease_token=task.lease_token, error="error")
+    assert store.ack(mid, "codex", "failed", lease_token=task.lease_token, error="error")
+    assert not store.ack(mid, "codex", "failed", lease_token="other", error="error")
+    assert not store.ack(mid, "codex", "failed", lease_token=task.lease_token, error="different")
+    assert not store.ack(mid, "codex", "failed", error="error")
+
+
 def test_lease_duration_starts_after_database_lock_is_acquired(store: Store, monkeypatch):
     store.send("michal", "codex", "úkol", kind="task")
     clock = [time.time()]
@@ -937,6 +1117,17 @@ def test_last_message_result_keeps_cleanup_failure(tmp_path: Path, monkeypatch):
     script.write_text("import sys; open(sys.argv[1], 'w').write('final answer')\n")
     r = br.run_command(f"{sys.executable} {script} {{last_message}} {{prompt}}", "x", timeout=30)
     assert r.output == "final answer" and r.cleanup_failed is True
+
+
+def test_command_does_not_start_without_parent_death_supervision(tmp_path: Path, monkeypatch):
+    from agent_lease_mcp import bridge as br
+
+    marker = tmp_path / "ran"
+    command = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
+    monkeypatch.setattr(br, "_PRCTL", None)
+    result = br.run_command(command, "x", timeout=10)
+    assert not result.ok and "supervision unavailable" in result.output
+    assert not marker.exists()
 
 
 def test_interactive_next_task_starts_and_never_requeues(store: Store, monkeypatch):

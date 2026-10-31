@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS deliveries (
     attempts    INTEGER NOT NULL DEFAULT 0,
     lease_token TEXT,
     lease_until REAL,
+    final_token_hash TEXT,
+    final_payload_hash TEXT,
     last_error  TEXT NOT NULL DEFAULT '',
     updated_at  REAL NOT NULL,
     PRIMARY KEY(message_id, recipient)
@@ -242,8 +244,16 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
             self._migrate_messages(con)
             self._migrate_receipts(con)
             self._migrate_screens(con)
+            self._migrate_deliveries(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
+
+    @staticmethod
+    def _migrate_deliveries(con: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(deliveries)")}
+        for name in ("final_token_hash", "final_payload_hash"):
+            if name not in columns:
+                con.execute(f"ALTER TABLE deliveries ADD COLUMN {name} TEXT")
 
     @staticmethod
     def _migrate_receipts(con: sqlite3.Connection) -> None:

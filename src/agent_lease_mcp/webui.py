@@ -339,7 +339,12 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._reject(400, "cancel needs a valid 'id' and 'to'")
             if not recipient:
                 return self._reject(400, "cancel needs a valid 'id' and 'to'")
-            if not store.cancel(message_id, recipient):
+            try:
+                cancelled = store.cancel(message_id, recipient)
+            except (OSError, RuntimeError):
+                return self._reject(503, "Cancellation requested, but stopping could not be "
+                                    "confirmed. Check the running worker before continuing.")
+            if not cancelled:
                 return self._reject(409, "task can no longer be cancelled or does not exist")
             self._json_response({"id": message_id, "state": "cancelled"})
 
@@ -367,7 +372,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return
             reason = str(data.get("reason", "")).strip()[:500]
             if stop:
-                store.pause(web_agent, reason)
+                try:
+                    store.pause(web_agent, reason)
+                except (OSError, RuntimeError):
+                    return self._reject(503, "Pause requested, but stopping could not be confirmed. "
+                                        "Check the running workers before continuing.")
             else:
                 store.resume(web_agent, reason)
             self._json_response({"paused": stop})

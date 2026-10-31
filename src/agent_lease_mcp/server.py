@@ -131,6 +131,7 @@ def _checkpoint_view(message_id: int) -> dict | None:
         "attempt": cp["attempt"], **fields,
         # jiná pracovní kopie = nenavazovat naslepo, nejdřív ověřit (A6)
         "workspace_matches": workspace.matches(cp, head, dirty),
+        "verification_required": True,
     }
 
 
@@ -357,9 +358,10 @@ def checkpoint(message_id: int, lease_token: str, step_done: str, next_step: str
 @mcp.tool
 def emergency_stop(reason: str = "") -> dict:
     """
-    Stop all autonomous execution NOW: no new task starts and running bridge
-    workers stop within seconds (their tasks go to needs_review). Only the human
-    can resume (web UI). Use it when something is going wrong.
+    Request an emergency pause. CLI launches are synchronized with confirmation;
+    running workers are asked to stop and their results require review. Escaped
+    descendants and callable runners may need manual verification. Only the human
+    can resume (web UI).
     """
     _store.pause(_settings.agent, reason)
     return {"paused": True, "by": _settings.agent}
