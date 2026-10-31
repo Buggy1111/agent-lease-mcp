@@ -6,6 +6,9 @@
 
 - Require FastMCP 3.4.10 or later in the 3.x series to address
   GHSA-7xgj-8392-5q4r; add an in-process authorization regression test.
+- Require patched Authlib, certifi, dnspython and joserfc versions, including
+  fixes for GHSA-6v38-4h7w-rj9h and GHSA-6q48-6c7w-9gw2. Add regression tests
+  for unsigned JWS acceptance and the compromised CA root.
 
 ### Added
 
