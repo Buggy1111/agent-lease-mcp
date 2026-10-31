@@ -15,6 +15,26 @@ nepodaří včas získat, nepotvrdí se jako úspěšná. Test v `tests/test_bri
 ověřuje původní závod a časový limit. Volatelné read-only runnery běží ve vlákně,
 které není možné násilně zastavit, a nejsou touto bariérou dosud pokryté.
 
+## Trvalá pojistka před dalším spuštěním
+
+CLI bridge před spuštěním příkazu zapíše a synchronizuje soubor
+`.room.db.run-fence-<sha256-jména-agenta>` vedle databáze (skutečný název
+databáze může být jiný). Existující soubor brání dalšímu spuštění stejného
+agenta i po restartu bridge. Po potvrzeném úklidu se odstraní; při pádu nebo
+nejistém úklidu zůstane. Současné starty stejného agenta odděluje atomické
+vytvoření souboru. Chyba zápisu vede k zastavení před spuštěním příkazu.
+Pojistka platí jen při použití stejné databázové cesty a sdíleného souborového
+systému; přesun databáze, její obnova ze zálohy nebo spuštění jiným jménem
+agenta ji nepřenese automaticky.
+
+Pojistka není automatický úklid ani ochrana před agentem, který má oprávnění
+soubor odstranit. Po běžném dokončení navíc současný dohled nedokáže najít
+potomka, který opustil procesovou skupinu a zavřel zděděný výstup. Odstranění
+zůstalé pojistky proto vyžaduje nejdříve nezávisle ověřit ukončení všech
+procesů původního pokusu a rozhodnout o jeho možných účincích. Obnovení pomocí
+cgroup níže zatím není implementováno; soubor nemažte pouze proto, abyste
+obešli zablokování. Funkce nezaručuje odstranění potomků při pádu bridge.
+
 ## Navržené řešení pro Linux s cgroup v2
 
 1. Každý pokus spustit ve vlastní cgroup pod službou s delegovanou podskupinou.

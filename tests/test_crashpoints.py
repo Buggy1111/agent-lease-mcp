@@ -240,3 +240,44 @@ def test_open_pipe_from_detached_child_is_uncertain_on_timeout(tmp_path: Path):
                 os.kill(int(marker.read_text()), signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="requires Linux /proc")
+def test_killed_bridge_leaves_fence_for_next_bridge(tmp_path: Path):
+    from agent_lease_mcp.bridge import Bridge
+    from agent_lease_mcp.config import Settings
+    from agent_lease_mcp.store import Store
+
+    db = tmp_path / "room.db"
+    store = Store(db, settings=Settings(db, "codex", 1800))
+    first = store.send("michal", "codex", "first", kind="task")
+    second = store.send("michal", "codex", "second", kind="task")
+    marker = tmp_path / "started"
+    worker = tmp_path / "worker.py"
+    worker.write_text(f"import time\nopen({str(marker)!r}, 'w').write('started')\ntime.sleep(30)\n")
+    command = f"{sys.executable} {worker} {{prompt}}"
+    program = (
+        "from pathlib import Path\n"
+        "from agent_lease_mcp.bridge import Bridge\n"
+        "from agent_lease_mcp.config import Settings\n"
+        "from agent_lease_mcp.store import Store\n"
+        f"db=Path({str(db)!r})\n"
+        f"Bridge(Store(db, settings=Settings(db, 'codex', 1800)), 'codex', {command!r}).step()\n"
+    )
+    parent = subprocess.Popen([sys.executable, "-c", program])
+    try:
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert marker.exists()
+        parent.kill()
+        parent.wait(timeout=5)
+        new_bridge = Bridge(store, "codex", command)
+        assert new_bridge._run_fence.present()
+        assert new_bridge.step() is False
+        states = {job["id"]: job["state"] for job in store.jobs("codex")}
+        assert states[first] == "started" and states[second] == "pending"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)

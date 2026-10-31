@@ -637,6 +637,46 @@ def test_uncertain_cleanup_blocks_new_tasks_even_if_reporting_fails(store, tmp_p
     assert states[first] == "started" and states[second] == "pending"
 
 
+def test_crashed_attempt_fence_blocks_new_bridge(store, tmp_path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    first = store.send("michal", "codex", "first", kind="task")
+    second = store.send("michal", "codex", "second", kind="task")
+    command = fake(tmp_path, "print('unused')")
+    bridge = Bridge(store, "codex", command)
+
+    def crash(*args, **kwargs):
+        raise ConnectionResetError("simulated crash")
+
+    monkeypatch.setattr(br, "run_command", crash)
+    with pytest.raises(ConnectionResetError):
+        bridge.step()
+    assert bridge._run_fence.present()
+    assert Bridge(store, "codex", command).step() is False
+    states = {job["id"]: job["state"] for job in store.jobs("codex")}
+    assert states[first] == "started" and states[second] == "pending"
+
+
+def test_clean_attempt_removes_persistent_fence(store, tmp_path):
+    store.send("michal", "codex", "first", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('done')"))
+    assert bridge.step()
+    assert not bridge._run_fence.present()
+
+
+def test_fence_write_failure_does_not_launch_command(store, tmp_path, monkeypatch):
+    mid = store.send("michal", "codex", "first", kind="task")
+    marker = tmp_path / "command-ran"
+    bridge = Bridge(store, "codex", fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')"))
+    monkeypatch.setattr(bridge._run_fence, "acquire", lambda *_: (_ for _ in ()).throw(
+        OSError("disk failure")
+    ))
+    assert bridge.step()
+    assert not marker.exists()
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "needs_review"
+    assert bridge.step() is False
+
+
 # ── review Nox #540 + fáze A dávka 2 ─────────────────────────────────────────
 
 def test_children_are_killed_even_when_the_leader_exits_first(tmp_path: Path):

@@ -47,6 +47,7 @@ from .launch_gate import launch_gate
 from .lifecycle import screen_risk
 from .models import DeliveryState
 from .rate_limits import probe_codex_rate_limits
+from .run_fence import RunFence
 from .store import BRIDGE_ACCEPT_NOTE, Store
 
 # `{prompt}` se nahradí jedním argumentem (bez shellu → žádná injekce přes text zprávy).
@@ -360,6 +361,8 @@ class Bridge:
         self._last_provider_probe = float("-inf")
         self._starts: list[float] = []
         self._cleanup_blocked = False
+        self._run_fence = RunFence(self.store.db_path, self.agent)
+        self._fence_reported = False
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -372,6 +375,13 @@ class Bridge:
             # The previous command may still run. Do not take another task even
             # when reporting the uncertain result failed because the broker died.
             return False
+        if self._run_fence.present():
+            if not self._fence_reported:
+                print(f"[agent-lease-bridge] command fence {self._run_fence.path} exists; "
+                      "another attempt is active or needs review", file=sys.stderr)
+                self._fence_reported = True
+            return False  # another attempt is active, or needs manual recovery
+        self._fence_reported = False
         self.store.heartbeat(self.worker_identity, status=f"bridge: waiting for {self.agent} task")
         now = time.monotonic()
         if self.provider_probe is not None and now - self._last_provider_probe >= self.provider_probe_interval:
@@ -492,9 +502,27 @@ class Bridge:
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
-            result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
-                                 gate=lambda: launch_gate(self.store.db_path),
-                                 can_launch=lambda: self.store.holds(mid, self.agent, token))
+            try:
+                self._run_fence.acquire(mid)
+            except OSError:
+                self._cleanup_blocked = True
+                self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                    f"Task #{mid} not started: command fence unavailable.",
+                                    error="command fence unavailable")
+                return True
+            try:
+                result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
+                                     gate=lambda: launch_gate(self.store.db_path),
+                                     can_launch=lambda: self.store.holds(mid, self.agent, token))
+            except BaseException:
+                # Even an unexpected exception cannot prove the command is gone.
+                self._cleanup_blocked = True
+                raise
+            if not result.cleanup_failed:
+                try:
+                    self._run_fence.release()
+                except OSError:
+                    result = dataclasses.replace(result, ok=False, cleanup_failed=True)
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
             self._cleanup_blocked = True
