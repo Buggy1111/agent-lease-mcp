@@ -599,6 +599,44 @@ def test_crash_in_tick_kills_the_whole_process_group(tmp_path: Path):
         os.kill(grandchild, 0)
 
 
+def test_tick_error_preserves_unconfirmed_cleanup(tmp_path: Path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    original_kill = br._kill_group
+
+    def unconfirmed(proc, *args, **kwargs):
+        original_kill(proc, *args, **kwargs)
+        return False
+
+    monkeypatch.setattr(br, "_kill_group", unconfirmed)
+
+    def fail_tick():
+        raise ConnectionResetError("broker gone")
+
+    command = fake(tmp_path, "import time; time.sleep(30)")
+    result = br.run_command(command, "x", timeout=30, on_tick=fail_tick)
+    assert result.aborted and result.cleanup_failed and not result.ok
+
+
+def test_uncertain_cleanup_blocks_new_tasks_even_if_reporting_fails(store, tmp_path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    first = store.send("michal", "codex", "first", kind="task")
+    second = store.send("michal", "codex", "second", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, "print('unused')"))
+    monkeypatch.setattr(br, "run_command", lambda *a, **kw: RunResult(
+        False, "uncertain", aborted=True, cleanup_failed=True
+    ))
+    monkeypatch.setattr(store, "complete", lambda *a, **kw: (_ for _ in ()).throw(
+        ConnectionResetError("broker gone")
+    ))
+    with pytest.raises(ConnectionResetError):
+        bridge.step()
+    assert bridge.step() is False
+    states = {job["id"]: job["state"] for job in store.jobs("codex")}
+    assert states[first] == "started" and states[second] == "pending"
+
+
 # ── review Nox #540 + fáze A dávka 2 ─────────────────────────────────────────
 
 def test_children_are_killed_even_when_the_leader_exits_first(tmp_path: Path):

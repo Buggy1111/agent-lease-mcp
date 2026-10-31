@@ -186,20 +186,23 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
         target=lambda: chunks.append(proc.stdout.read() if proc.stdout else ""), daemon=True
     )
     reader.start()
+    tick_error = None
     try:
         while proc.poll() is None:
             if time.monotonic() - started > timeout:
                 gone = _kill_group(proc)
                 reader.join(2)
                 return RunResult(False, f"timed out after {int(timeout)} s",
-                                 cleanup_failed=not gone)
+                                 cleanup_failed=not gone or reader.is_alive())
             # on_tick vrátí False = worker přišel o lease → okamžitě zastavit.
             if on_tick and on_tick() is False:
                 gone = _kill_group(proc)
                 reader.join(2)
                 return RunResult(False, "stopped: the task lease was lost or cancelled",
-                                 aborted=True, cleanup_failed=not gone)
+                                 aborted=True, cleanup_failed=not gone or reader.is_alive())
             time.sleep(0.2)
+    except Exception as exc:  # noqa: BLE001 — preserve cleanup failure before propagating
+        tick_error = exc
     finally:
         # Výjimka (třeba výpadek brokeru v on_tick) nesmí nechat proces běžet,
         # zatímco bridge začne další kolo (audit #535 bod 1). Uklidí i potomky
@@ -210,7 +213,12 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
         # A descendant may still hold the output pipe after the leader exited,
         # including one that escaped our process group. Never report success.
         return RunResult(False, "could not verify that all command output streams closed",
-                         cleanup_failed=True)
+                         aborted=tick_error is not None, cleanup_failed=True)
+    if tick_error is not None:
+        if not gone:
+            return RunResult(False, "cannot confirm process cleanup after a worker error",
+                             aborted=True, cleanup_failed=True)
+        raise tick_error
     output = "".join(chunks).strip()
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
@@ -351,6 +359,7 @@ class Bridge:
         # stroji (CI, autostart po zapnutí PC) by první kontrola limitu 60 s chyběla.
         self._last_provider_probe = float("-inf")
         self._starts: list[float] = []
+        self._cleanup_blocked = False
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -359,6 +368,10 @@ class Bridge:
 
     def step(self) -> bool:
         """Jeden průchod. Vrací True, pokud se něco zpracovalo."""
+        if self._cleanup_blocked:
+            # The previous command may still run. Do not take another task even
+            # when reporting the uncertain result failed because the broker died.
+            return False
         self.store.heartbeat(self.worker_identity, status=f"bridge: waiting for {self.agent} task")
         now = time.monotonic()
         if self.provider_probe is not None and now - self._last_provider_probe >= self.provider_probe_interval:
@@ -484,6 +497,9 @@ class Bridge:
                                  can_launch=lambda: self.store.holds(mid, self.agent, token))
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
+            self._cleanup_blocked = True
+            print("[agent-lease-bridge] process cleanup unconfirmed; new tasks disabled "
+                  "until this bridge is stopped and investigated", file=sys.stderr)
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                 f"Task #{mid} stopped, but the end of its process could not be "
                                 "confirmed; waiting for review.",

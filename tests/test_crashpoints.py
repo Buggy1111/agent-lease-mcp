@@ -217,3 +217,26 @@ def test_open_pipe_from_detached_child_cannot_be_reported_as_success(tmp_path: P
                 os.kill(child, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="requires Linux /proc")
+def test_open_pipe_from_detached_child_is_uncertain_on_timeout(tmp_path: Path):
+    from agent_lease_mcp.bridge import run_command
+
+    marker = tmp_path / "child.pid"
+    worker = tmp_path / "worker.py"
+    worker.write_text(
+        "import os,time\np=os.fork()\nif p == 0:\n os.setsid()\n "
+        f"open({str(marker)!r},'w').write(str(os.getpid()))\n time.sleep(30)\n"
+        "else:\n time.sleep(30)\n"
+    )
+    try:
+        result = run_command(f"{sys.executable} {worker} {{prompt}}", "x", timeout=1)
+        assert marker.exists()
+        assert not result.ok and result.cleanup_failed
+    finally:
+        if marker.exists() and marker.read_text():
+            try:
+                os.kill(int(marker.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
