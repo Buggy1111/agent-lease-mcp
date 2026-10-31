@@ -31,24 +31,34 @@ Pojistka není automatický úklid ani ochrana před agentem, který má oprávn
 soubor odstranit. Po běžném dokončení navíc současný dohled nedokáže najít
 potomka, který opustil procesovou skupinu a zavřel zděděný výstup. Odstranění
 zůstalé pojistky proto vyžaduje nejdříve nezávisle ověřit ukončení všech
-procesů původního pokusu a rozhodnout o jeho možných účincích. Obnovení pomocí
-cgroup níže zatím není implementováno; soubor nemažte pouze proto, abyste
-obešli zablokování. Funkce nezaručuje odstranění potomků při pádu bridge.
+procesů původního pokusu a rozhodnout o jeho možných účincích. Soubor nemažte
+pouze proto, abyste obešli zablokování. U staré pojistky bez cgroup záznamu nebo
+při neověřitelné identitě cgroup je vždy potřeba ruční prověření.
 
 ## Rozpracované řešení pro Linux s cgroup v2
 
 Bridge má volitelný režim `--cgroup`: ve vlastní delegované cgroup pro každý
 příkaz ověří dostupnost ovládání před spuštěním a po běhu volá `cgroup.kill`
 a kontroluje `populated 0`. Strážce volá `cgroup.kill` také při smrti bridge.
-Není-li delegace dostupná, příkaz se nespustí. Režim není dosud zapnutý ve
-službách a nezajišťuje nezávislý úklid po současném pádu bridge a strážce;
-trvalá pojistka proto zůstává nutná. Proces se stejným uživatelem a oprávněním
-ke správě nadřazené cgroup může izolaci obejít.
+Není-li delegace dostupná, příkaz se nespustí. Před spuštěním se do pojistky
+uloží identita skupiny a bridge drží zámek. Nový bridge může po zániku vlastníka
+uklidit jen zaznamenanou skupinu ve své současné delegované cgroup; ověří její
+identitu i vyprázdnění. Kontrolní součet chrání před náhodným poškozením záznamu,
+ne před jeho úmyslnou změnou oprávněným uživatelem. Starý úkol zůstává nejistý a po vypršení lease přejde
+do `needs_review`. Pokud se skupinu nepodaří ověřit nebo uklidit, pojistka
+zůstává. Režim není dosud zapnutý ve službách. Proces se stejným uživatelem a
+oprávněním ke správě nadřazené cgroup může izolaci obejít.
 
 V dočasné delegované scope byl reálný bridge s umělým příkazem ověřen při
 normálním dokončení i po `SIGKILL` bridge: oddělený potomek byl ukončen.
 Experiment `tests/chaos/probe_cgroup_bridge.py` nepoužívá živé workery ani
 databázi. To samo nedokazuje připravenost k nasazení.
+
+Experiment `tests/chaos/probe_cgroup_recovery.py` v samostatné scope navíc
+ověřil, že při současné smrti umělého bridge a strážce nový bridge uklidí
+zbylou skupinu a neoznačí původní úkol za dokončený. Živého vlastníka neuklízí.
+Obnova funguje jen pod stejnou delegovanou cgroup; při jiné cestě nebo poškozeném
+záznamu selže bezpečně a ponechá pojistku k ručnímu prověření.
 
 1. Každý pokus spustit ve vlastní cgroup pod službou s delegovanou podskupinou.
    Než se spustí cizí kód, musí být proces do podskupiny zařazen; při chybě
@@ -80,8 +90,8 @@ Delegate=yes
 
 Experiment musí používat výhradně novou testovací databázi a umělé workery;
 nemá měnit ani restartovat stávající služby. Skutečné nasazení by vyžadovalo
-samostatné posouzení a souhlas. Samotné `Delegate=yes` nestačí: pro autonomní
-obnovu je stále nutné doplnit nezávislé obnovení úklidu podle bodů výše.
+samostatné posouzení a souhlas. Samotné `Delegate=yes` nestačí: je také nutný
+režim `--cgroup` a ověření obnovy a provozního nastavení podle bodů výše.
 
 Připravený zkušební skript `tests/chaos/probe_cgroup.py` nepoužívá databázi ani
 živé workery: v nové podskupině vytvoří umělého potomka, ten zavolá `setsid`,

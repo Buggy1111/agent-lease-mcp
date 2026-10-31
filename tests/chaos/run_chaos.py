@@ -64,7 +64,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes", type=float, default=10)
     ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--cgroup", action="store_true", help="require delegated cgroups for bridge commands")
+    ap.add_argument("--drain-seconds", type=float, default=120,
+                    help="maximum time to finish the test backlog after load stops")
     args = ap.parse_args()
+    if args.drain_seconds <= 0:
+        ap.error("--drain-seconds must be positive")
 
     tmp = Path(tempfile.mkdtemp(prefix="agent-lease-chaos-"))
     db = tmp / "room.db"
@@ -101,7 +106,7 @@ def main() -> int:
         return subprocess.Popen(
             [py, "-m", "agent_lease_mcp.bridge", "--agent", "chaos-agent", "--command", cmd,
              "--max-per-hour", "100000", "--interactive-grace", "0", "--include-existing",
-             "--lease-seconds", "8", "--timeout", "60"],
+             "--lease-seconds", "8", "--timeout", "60", *(["--cgroup"] if args.cgroup else [])],
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     sys.path.insert(0, str(HERE.parents[1] / "src"))
@@ -202,7 +207,7 @@ def main() -> int:
             time.sleep(rnd.uniform(0.5, 2.0))
 
         # dojezd: nové úkoly už ne, nechat frontu doběhnout
-        drain_end = time.monotonic() + 120
+        drain_end = time.monotonic() + args.drain_seconds
         while time.monotonic() < drain_end:
             provider_state = store.provider_state("chaos-agent-bridge")
             if provider_state and provider_state["state"] == "limited":

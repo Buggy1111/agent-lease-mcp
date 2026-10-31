@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -15,6 +16,57 @@ def current_cgroup() -> Path:
             resolved.relative_to(Path("/sys/fs/cgroup"))
             return resolved
     raise OSError("cgroup v2 is unavailable")
+
+
+def recover_cgroup(record: object, timeout: float = 5) -> bool:
+    """Kill only the recorded cgroup, under this process's delegated root."""
+    if not isinstance(record, dict) or record.get("version") != 1:
+        return False
+    root = current_cgroup()
+    name = record.get("name")
+    dev, ino = record.get("dev"), record.get("ino")
+    if (record.get("root") != str(root) or not isinstance(name, str)
+            or not re.fullmatch(r"agent-lease-attempt-[0-9a-f]{32}", name)
+            or type(dev) is not int or type(ino) is not int):
+        return False
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            group_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                               dir_fd=root_fd)
+        except FileNotFoundError:
+            return True  # original group was already removed by the kernel/manager
+        try:
+            st = os.fstat(group_fd)
+            if (st.st_dev, st.st_ino) != (dev, ino):
+                return False
+            kill_fd = os.open("cgroup.kill", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group_fd)
+            try:
+                if os.write(kill_fd, b"1") != 1:
+                    return False
+            finally:
+                os.close(kill_fd)
+            deadline = time.monotonic() + timeout
+            while True:
+                events_fd = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=group_fd)
+                try:
+                    fields = dict(line.split() for line in os.read(events_fd, 4096).decode().splitlines())
+                finally:
+                    os.close(events_fd)
+                if fields.get("populated") == "0":
+                    break
+                if fields.get("populated") != "1" or time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.05)
+            current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (dev, ino):
+                return False
+            os.rmdir(name, dir_fd=root_fd)
+            return True
+        finally:
+            os.close(group_fd)
+    finally:
+        os.close(root_fd)
 
 
 class CommandCgroup:

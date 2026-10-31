@@ -120,7 +120,8 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 
 
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
-                gate=None, can_launch=None, use_cgroup: bool = False) -> RunResult:
+                gate=None, can_launch=None, use_cgroup: bool = False,
+                on_cgroup_created=None) -> RunResult:
     with tempfile.TemporaryDirectory(prefix="agent-lease-run-") as tmp:
         last = os.path.join(tmp, "last-message.txt")
         try:
@@ -128,6 +129,8 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
         except (OSError, ValueError) as exc:
             return RunResult(False, f"cannot create delegated command cgroup: {exc}")
         try:
+            if group is not None and on_cgroup_created is not None:
+                on_cgroup_created(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
                           gate=gate, can_launch=can_launch, group=group)
         except BaseException:
@@ -404,6 +407,8 @@ class Bridge:
             # The previous command may still run. Do not take another task even
             # when reporting the uncertain result failed because the broker died.
             return False
+        if self._run_fence.present() and self.use_cgroup:
+            self._run_fence.try_recover()
         if self._run_fence.present():
             if not self._fence_reported:
                 print(f"[agent-lease-bridge] command fence {self._run_fence.path} exists; "
@@ -543,7 +548,8 @@ class Bridge:
                 result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
                                      can_launch=lambda: self.store.holds(mid, self.agent, token),
-                                     use_cgroup=self.use_cgroup)
+                                     use_cgroup=self.use_cgroup,
+                                     on_cgroup_created=self._run_fence.record_cgroup)
             except BaseException:
                 # Even an unexpected exception cannot prove the command is gone.
                 self._cleanup_blocked = True
