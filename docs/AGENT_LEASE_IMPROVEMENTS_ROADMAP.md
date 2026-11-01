@@ -54,6 +54,11 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 |---|---|---|
 | D1 | Sdílená paměť „příznak → příčina → ověřené řešení“ (SQLite FTS, nebo napojení claude-mem) | hledání dřívějšího řešení; neověřené ≠ fakt |
 | D2 | Modulární režimy Základní / Inteligentní / Autonomní + webový panel | viz [modulární systém](AGENT_LEASE_MODULAR_SYSTEM.md) |
+| D3 | **Výzkumný tým subagentů**: paralelní rešerše dostupnými agenty, rozdělení témat, deduplikace výsledků a syntéza | jeden souhrn s odkazy a jasně oddělenými fakty od návrhů |
+| D4 | **Průzkum konkurence a známých problémů** před většími změnami (přiměřený počet relevantních zdrojů; u velkých úloh například 20) | doložené časté chyby a doporučení, jak je neopakovat |
+| D5 | **Ověřování a archivace výzkumu** v `docs/research/` se zdroji, datem, mírou jistoty a vazbou na D1 | každý závěr dohledatelný; neověřené poznatky nejsou automaticky považované za fakta |
+| D6 | **Porovnání algoritmů, architektury a technologií** ještě před programováním; varianty s riziky, náklady a měřitelnými kritérii | doložené rozhodnutí bez automatického zásahu do kódu |
+| D7 | **Rozpočet výzkumu**: limity tokenů, počtu subagentů, času a souběhu; malá zadání bez zbytečného výzkumu | limity vynucené a bezpečné zastavení při vyčerpání |
 
 ---
 
