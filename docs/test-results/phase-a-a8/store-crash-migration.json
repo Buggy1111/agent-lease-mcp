@@ -1,0 +1,1 @@
+{"python": "3.12.3", "sqlite": "3.54.1", "store_complete_idempotent": true, "backup_integrity": "ok", "killed_writer_rollback": true, "offline_migration": "ok"}

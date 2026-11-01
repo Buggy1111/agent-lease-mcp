@@ -1,0 +1,8 @@
+{
+  "parent_sqlite": "3.54.1",
+  "clean_child": {
+    "sqlite": "3.54.1",
+    "python": "3.12.3"
+  },
+  "library_sha256": "168e48ea59c72fcbe3c4d5a92dcffc4f338775e3879265f065198c617e4ac1ae"
+}

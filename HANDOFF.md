@@ -2,7 +2,7 @@
 
 > Generated: 2026-11-01, Europe/Prague
 > Project: agent-lease-mcp
-> Session summary: Osmihodinový chaos test prošel; Michal požádal o uložení výsledků a předávky včetně push kvůli zbývajícím 17 % týdenního limitu.
+> Session summary: Osmihodinový chaos prošel a byl archivován; následně Michal schválil využít zbytek limitu na izolované A8 prostředí, které prošlo celou sadou i skutečným MCP/broker/bridge ověřením.
 
 ## Goal
 
@@ -17,11 +17,18 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
 
 - Testovaný kód `f918cf6`, poslední přednasazovací audit `6d9175a`.
 - Full suite dříve zaznamenána: 478 passed, 1 xfailed, 1 warning; Ruff prošel.
-  Při této dokumentační předávce nebyla suite opakována.
+  Následně zopakována i v izolovaném A8 runtime Python 3.12.3 / SQLite 3.54.1:
+  opět 478 passed, 1 xfailed, 1 warning v 169,58 s. Ruff prošel.
 - Aktuální 480min izolovaný chaos s cgroup dokončen: 6 883 úkolů,
   4 053 pádů workerů, 965 pádů brokeru; PROŠLO. Žádné dvojité efekty,
   sirotci, falešné Done či pending; DB integrity ok. Viz nový report a celý log.
 - Test proces skončil, scope je inactive/dead; restart Codexu již tento běh neohrozí.
+- A8 izolovaný kompletní runtime `/tmp/agent-lease-a8-runtime/venv`:
+  instalovaný wheel zdrojového commitu `8fbb132`, SQLite 3.54.1 načtena přes
+  lokální `.pth` bootstrap bez LD_PRELOAD. MCP stdio (18 nástrojů), broker,
+  bridge i syntetický worker potvrdily 3.54.1 a dokončily kontrolní práci.
+  Čistý podproces, zálohy, crash rollback a migrace prošly. Vadná knihovna
+  odmítá start s exit 78. Podrobný report a skript jsou níže.
 - Repozitář při zahájení předávky čistý, větev master.
 
 **Open:**
@@ -30,8 +37,9 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
   jen příjem. Rozhodnout a zrevidovat sémantiku, neodškrtávat rozdíl mlčky.
 - A6: checkpoint je poradní kontext, ne úplná automatická obnova kroků.
   Shoda workspace sama neprokazuje, že lze bezpečně opakovat externí účinek.
-- A8: balíček/testovaný uv Python stále SQLite 3.50.4. Oddělený experiment
-  se systémovým Pythonem 3.12 + SQLite 3.54.1 prošel, celé MCP prostředí ne.
+- A8: původní uv/provozní Python stále SQLite 3.50.4. Nové kompletní izolované
+  prostředí již prošlo; chybí nezávislé review distribuce knihovny a schválené
+  přepnutí všech skutečných služeb i MCP klientů. Nový runtime neprošel 8h chaosem.
 - Nezávislé review aktuálního kódu, schválené nasazení a ověření služeb,
   A11 reálný Windows/WSL restart. Provozní cgroup zatím není zapnutá.
 - Fáze A ani gate nejsou uzavřené. Nový 8h test nedokazuje opravený A8 runtime.
@@ -41,6 +49,8 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
 | File | Why It Matters |
 |---|---|
 | `docs/PHASE_A_CHAOS_8H_RESULT.md` | Nový výsledek, rozsah a identita aktuálního testu |
+| `docs/PHASE_A_SQLITE_RUNTIME_RESULT.md`, `docs/test-results/phase-a-a8/` | A8 postup, úplný test log, bootstrap a verze/důkazy |
+| `scripts/verify_sqlite_runtime.py` | Skutečné oddělené MCP/broker/bridge ověření instalovaného balíčku v nové syntetické místnosti |
 | `docs/test-results/phase-a-8h-f918cf6.log` | Nezměněný úplný log s kontrolním součtem v reportu |
 | `docs/PHASE_A_PREDEPLOY_REVIEW.md` | Historický audit A1–A10, A8 experiment, plán nasazení/rollbacku, A11 checklist |
 | `docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md` | Specifikace A1–A11 a navazujících fází |
@@ -59,8 +69,12 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
 - `LD_PRELOAD` nezměnil SQLite staticky vázaného uv Pythonu 3.13: Python i SQL
   dál hlásily 3.50.4. Tuto cestu neopakovat jako hotové řešení A8.
 - Systémový Python 3.12.3 s lokální knihovnou 3.54.1 funguje ve stdlib/Store
-  experimentu; to není důkaz úplného MCP runtime. APSW má jiné API než sqlite3;
+  experimentu; nyní prošlo i kompletní izolované MCP prostředí. APSW má jiné API než sqlite3;
   pysqlite3-binary dříve poskytoval 3.51.1, pod tehdy požadovanou opravou.
+- První plná sada A8 byla spuštěna před instalací projektového wheelu a její
+  watchdog podprocesy hlásily `ModuleNotFoundError: No module named 'agent_lease_mcp'`.
+  Běh byl přerušen a po instalaci následovalo čisté úspěšné opakování. Nestačí
+  pytest `pythonpath=src`: nezávislé podprocesy potřebují instalovaný balíček.
 - Staré paměťové tvrzení, že checkpoint automaticky obnovuje práci, je příliš
   silné; aktuální audit má přednost. Celkový audit volitelných REA backendů
   není relevantní pro dokončení Agent Lease fáze A.
@@ -80,11 +94,11 @@ pak otestovat výsledný build; dnešní 8h výsledek nepřenášet na změněn�
    a testy interaktivní/bridge cesty. Ujasnit kompatibilitu budíku a startu.
 3. Pro A6 zkontrolovat checkpoint/`workspace_matches` a bridge prompt; návrh
    musí rozlišovat dokončený krok a ověřený účinek. Neshoda či nejistota → review.
-4. Pro A8 navázat na `/tmp/agent-lease-audit-prep/sqlite_probe.py`,
-   `sqlite-result.json` a `sqlite/libsqlite3.so`. Hash ověřeného experimentu:
-   `168e48ea59c72fcbe3c4d5a92dcffc4f338775e3879265f065198c617e4ac1ae`.
-   Připravit izolovaný kompletní runtime a ověřit importy, MCP, broker i bridge;
-   nevkládat LD_PRELOAD globálně. Dostupnost verzí znovu ověřit.
+4. Pro A8 přečíst nový `docs/PHASE_A_SQLITE_RUNTIME_RESULT.md`. Kompletní
+   izolovaný runtime již nebudovat znovu bez důvodu; ověřit jeho dostupnost,
+   zrevidovat venv bootstrap a navrhnout reprodukovatelnou distribuci knihovny
+   s licencemi/proveniencí a rollbackem. Bootstrap se dá obejít pomocí Python
+   `-S`; nejde o hranici oprávnění. Nepřenášet jej automaticky do provozu.
 5. Spustit odpovídající regrese/lint a potřebný chaos pro změněný build.
    Získat nezávislé review; neoznačovat autorskou kontrolu za nezávislou.
 6. Připravit konkrétní balíček a rollback podle auditu; požádat Michala o
@@ -95,8 +109,9 @@ pak otestovat výsledný build; dnešní 8h výsledek nepřenášet na změněn�
 
 ## Key Constraints
 
-- Aktuální zadání je archivace a push dokumentace, nikoliv nasazení nebo další
-  implementace. Michal chce šetřit zbývající týdenní limit.
+- Poslední schválené zadání je izolované dokončení ověření A8 a uložení
+  výsledků. Michal chce šetřit zbývající týdenní limit; provozní nasazení
+  neschválil. Nový dlouhý test nebyl spuštěn.
 - Změny systemd, produkčního prostředí, oprávnění/instrukcí, práce s tajemstvími
   a živé externí operace vyžadují přímý souhlas Michala dle jeho instrukcí.
 - Ada (`claude-code`) může adresně zadat lokální práci v autorizovaných dev
