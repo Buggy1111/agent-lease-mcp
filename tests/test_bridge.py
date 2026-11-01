@@ -509,6 +509,34 @@ def test_bridge_loop_survives_a_broker_outage(store: Store, monkeypatch, capsys)
     assert "broker unavailable" in capsys.readouterr().err
 
 
+def test_bridge_waits_on_sqlite_busy_but_not_other_database_errors(store, monkeypatch):
+    import sqlite3
+
+    bridge = Bridge(store, "codex", command="true {prompt}")
+    calls = []
+    error = sqlite3.OperationalError("database is locked")
+    error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+
+    def busy_once(poll):
+        calls.append(1)
+        if len(calls) == 1:
+            raise error
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bridge, "_tick", busy_once)
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    with pytest.raises(KeyboardInterrupt):
+        bridge.run_forever()
+    assert len(calls) == 2
+
+    def disk_error(poll):
+        raise sqlite3.OperationalError("synthetic disk error")
+
+    monkeypatch.setattr(bridge, "_tick", disk_error)
+    with pytest.raises(sqlite3.OperationalError, match="synthetic disk error"):
+        bridge.run_forever()
+
+
 # ── audit Nox #535: fáze A, dávka 1 ──────────────────────────────────────────
 
 def test_rate_limit_after_start_with_write_access_is_not_retried(store: Store, tmp_path: Path):

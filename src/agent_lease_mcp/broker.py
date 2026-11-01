@@ -18,6 +18,7 @@ import json
 import os
 import socket
 import socketserver
+import sqlite3
 import struct
 import sys
 import threading
@@ -44,6 +45,15 @@ _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
+
+
+class DatabaseBusyError(OSError):
+    """A broker request could not complete because SQLite was busy."""
+
+
+def database_busy(exc: sqlite3.OperationalError) -> bool:
+    code = getattr(exc, "sqlite_errorcode", None)
+    return isinstance(code, int) and (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
 
 
 def default_socket_path(settings: Settings) -> Path:
@@ -121,6 +131,9 @@ class _Handler(socketserver.StreamRequestHandler):
                     raise PermissionError(f"{method} over the broker needs a viewer")
                 result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
                 self._reply({"ok": True, "result": encode(result)})
+            except sqlite3.OperationalError as exc:
+                error = "DatabaseBusyError" if database_busy(exc) else "RuntimeError"
+                self._reply({"ok": False, "error": error, "message": str(exc)})
             except (PermissionError, ValueError, TypeError, KeyError) as exc:
                 self._reply({"ok": False, "error": type(exc).__name__, "message": str(exc)})
             except Exception as exc:  # noqa: BLE001
@@ -213,7 +226,8 @@ class RemoteStore:
         reply = json.loads(line)
         if reply["ok"]:
             return decode(reply["result"])
-        exc = {"PermissionError": PermissionError, "ValueError": ValueError,
+        exc = {"DatabaseBusyError": DatabaseBusyError,
+               "PermissionError": PermissionError, "ValueError": ValueError,
                "TypeError": TypeError, "KeyError": KeyError}.get(reply["error"], RuntimeError)
         raise exc(reply["message"])
 

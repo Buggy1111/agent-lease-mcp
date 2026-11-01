@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import sqlite3
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from agent_lease_mcp.broker import RemoteStore, open_store, ping, serve
+from agent_lease_mcp.broker import DatabaseBusyError, RemoteStore, open_store, ping, serve
 from agent_lease_mcp.config import Settings
 
 
@@ -90,6 +92,63 @@ def test_errors_cross_the_socket(broker):
         remote.send("unconfigured-x-1", "codex", "rm", kind="task")
     with pytest.raises(AttributeError):
         remote.__getattr__("_connect")  # jen povolené metody
+
+
+def test_locked_database_is_distinguished_and_recovers(broker):
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    lock = sqlite3.connect(settings.db_path, check_same_thread=False)
+    lock.execute("BEGIN EXCLUSIVE")
+
+    def release():
+        time.sleep(6)
+        lock.rollback()
+        lock.close()
+
+    thread = threading.Thread(target=release)
+    thread.start()
+    try:
+        with pytest.raises(DatabaseBusyError):
+            remote.provider_state("synthetic")
+    finally:
+        thread.join()
+    assert remote.provider_state("synthetic") is None
+
+
+def test_broker_busy_error_does_not_replay_a_write(tmp_path, monkeypatch):
+    from agent_lease_mcp.store import Store
+
+    calls = []
+
+    def busy(*args, **kwargs):
+        calls.append(1)
+        error = sqlite3.OperationalError("database is locked")
+        error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+        raise error
+
+    monkeypatch.setattr(Store, "send", busy)
+    settings = Settings(tmp_path / "room.db", "codex", 1800)
+    sock = tmp_path / "busy.sock"
+    server = serve(settings, sock)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(DatabaseBusyError):
+            RemoteStore(settings, sock).send("michal", "codex", "synthetic", kind="task")
+        assert calls == [1]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_only_sqlite_lock_codes_are_treated_as_transient():
+    from agent_lease_mcp.broker import database_busy
+
+    error = sqlite3.OperationalError("synthetic error")
+    error.sqlite_errorcode = sqlite3.SQLITE_BUSY | (2 << 8)
+    assert database_busy(error)
+    error.sqlite_errorcode = sqlite3.SQLITE_IOERR
+    assert not database_busy(error)
+    assert not database_busy(sqlite3.OperationalError("unsafe journal mode"))
 
 
 def test_unknown_method_is_refused(broker):

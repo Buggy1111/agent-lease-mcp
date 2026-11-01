@@ -26,6 +26,7 @@ import re
 import select
 import shlex
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -40,7 +41,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jev, workspace
-from .broker import open_store
+from .broker import database_busy, open_store
 from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
 from .hygiene import heuristic_risk, redact
@@ -685,11 +686,14 @@ class Bridge:
             try:
                 self._tick(poll)
                 backoff = 1.0
-            except OSError as exc:
+            except (OSError, sqlite3.OperationalError) as exc:
+                if isinstance(exc, sqlite3.OperationalError) and not database_busy(exc):
+                    raise
                 # Broker nedostupný déle, než čeká RemoteStore, nebo spadl uprostřed
                 # volání. Stejnou operaci neopakujeme (výsledek zápisu je neznámý);
                 # další kolo začne novým voláním. Rozběhnutý úkol pohlídá needs_review.
-                print(f"[agent-lease-bridge] broker unavailable: {exc}; retry in {backoff:.0f} s",
+                print(f"[agent-lease-bridge] broker unavailable or database busy: {exc}; "
+                      f"retry in {backoff:.0f} s",
                       file=sys.stderr)
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)

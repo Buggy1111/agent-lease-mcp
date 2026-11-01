@@ -1,5 +1,11 @@
 # Fáze A: zastavení potomků po pádu bridge
 
+Ověření 1. 11. 2026: třicetiminutový izolovaný chaos běh s nezávislým dohledem
+a opravenými závislostmi prošel: 468 úkolů, 249 pádů workerů, 58 pádů brokeru,
+bez dvojitých účinků, přeživších sledovaných procesů a čekajících úkolů po dojezdu.
+Pozdější úprava rozlišení SQLite zámků se ověřuje samostatně; tento běh ji
+ještě neobsahoval. Služby zatím nebyly aktualizovány.
+
 Stav: volitelná cgroup izolace je rozpracovaná, nejde o úplnou záruku. Při ukončení
 bridge pomocí SIGKILL se jeho `finally` neprovede. Ve výchozím režimu dohled
 `process_guard` díky

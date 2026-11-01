@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Preserve SQLite busy/locked errors across the broker boundary so the bridge
+  can back off without replaying a request. Other database errors remain errors.
+
 ### Security
 
 - Require FastMCP 3.4.10 or later in the 3.x series to address
