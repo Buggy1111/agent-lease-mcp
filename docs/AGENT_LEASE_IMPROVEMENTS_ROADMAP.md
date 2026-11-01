@@ -59,10 +59,27 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | D5 | **Ověřování a archivace výzkumu** v `docs/research/` se zdroji, datem, mírou jistoty a vazbou na D1 | každý závěr dohledatelný; neověřené poznatky nejsou automaticky považované za fakta |
 | D6 | **Porovnání algoritmů, architektury a technologií** ještě před programováním; varianty s riziky, náklady a měřitelnými kritérii | doložené rozhodnutí bez automatického zásahu do kódu |
 
-**Rozšíření D3–D6 – reverzní inženýrství (plánované, bez nové fáze):** Pokud úkol vyžaduje porozumět existujícímu softwaru, firmwaru nebo protokolu bez zdrojových kódů, výzkumný tým může využít již dostupné nástroje agenta, např. Ada (Claude Code) → Ghidra přes MCP, pokud propojení projde ověřením dostupnosti a oprávnění. Ada provede nejprve pouze čtecí/statickou analýzu dodaných souborů a dokumentace, zaznamená použitou verzi a hashe artefaktů, funkce, rozhraní, důkazy, nejistoty a možnosti úprav. Nox nezávisle zkontroluje závěry, výstupy se archivují v `docs/research/` a ověřené poznatky navazují na D1. **Fail-closed:** bez oprávnění k analýze či dostupného nástroje se úloha eskaluje, neobcházejí se omezení. Zápis či flash firmwaru, zásah do fyzického zařízení a další rizikové změny vyžadují výslovné schválení uživatele, zálohu a plán obnovy; žádná automatická destruktivní akce. **Akceptační test:** na neškodném testovacím binárním souboru agent rozpozná dostupnost Ghidra MCP, provede čtecí analýzu, doloží závěry, druhý agent je zreviduje; bez schválení je zápis/flash zablokován. Toto rozšíření se řeší až ve fázi D po A → B → C.
 | D7 | **Rozpočet výzkumu**: limity tokenů, počtu subagentů, času a souběhu; malá zadání bez zbytečného výzkumu | limity vynucené a bezpečné zastavení při vyčerpání |
 
+**Rozšíření D3–D6 – reverzní inženýrství (plánované, bez nové fáze):** Pokud úkol vyžaduje porozumět existujícímu softwaru, firmwaru nebo protokolu bez zdrojových kódů, výzkumný tým může využít již dostupné nástroje agenta, např. Ada (Claude Code) → Ghidra přes MCP, pokud propojení projde ověřením dostupnosti a oprávnění. Ada provede nejprve pouze čtecí/statickou analýzu dodaných souborů a dokumentace, zaznamená použitou verzi a hashe artefaktů, funkce, rozhraní, důkazy, nejistoty a možnosti úprav. Nox nezávisle zkontroluje závěry, výstupy se archivují v `docs/research/` a ověřené poznatky navazují na D1. **Fail-closed:** bez oprávnění k analýze či dostupného nástroje se úloha eskaluje, neobcházejí se omezení. Zápis či flash firmwaru, zásah do fyzického zařízení a další rizikové změny vyžadují výslovné schválení uživatele, zálohu a plán obnovy; žádná automatická destruktivní akce. **Akceptační test:** na neškodném testovacím binárním souboru agent rozpozná dostupnost Ghidra MCP, provede čtecí analýzu, doloží závěry, druhý agent je zreviduje; bez schválení je zápis/flash zablokován. Toto rozšíření se řeší až ve fázi D po A → B → C.
+
 ---
+
+## Open-source inspirace pro urychlení vývoje (průzkum 1. 11. 2026)
+
+**Status:** návrhy k ověření, nikoliv schválené nové závislosti nebo implementace. Neměnit pořadí **A → B → C → D**. Použít jen po revizi licence, bezpečnosti, kompatibility, údržby a měřitelném pilotu v izolované kopii. Zatím neproběhl audit zdrojového kódu třetích stran ani benchmark přímo na Agent Lease.
+
+| Fáze | Open-source projekt | Doporučený konkrétní pilot a kontrola | Rozhodnutí |
+|---|---|---|---|
+| A1–A7 | [Hypothesis](https://github.com/HypothesisWorks/hypothesis) | Stateful/property-based testy stavů úkolu, claim/lease/expiry, souběhu, failoveru a restartu; invarianta jediného oprávněného vlastníka a žádné duplicitní nevratné účinky; skutečné pády ověřit i integračně | **Priorita 1** — pilot |
+| A / postupy vývoje | [Superpowers](https://github.com/obra/superpowers) | Na jedné malé opravě vyzkoušet TDD, systematický debugging, nezávislé review zadání a kvality; sledovat čas a regrese, neporušit existující instrukce Ady/Noxe | **Priorita 2** — volitelné pracovní postupy |
+| A / test suite | [pytest-xdist](https://github.com/pytest-dev/pytest-xdist) | Izolovat SQLite soubory a temp adresáře, porovnat sériový/paralelní čas a flakiness | Jen při doloženém zrychlení |
+| B3–B5, C2 | [Gas Town](https://github.com/gastownhall/gastown) | Porovnat dohled nad zaseknutými agenty, předávky, code review a merge frontu; sepsat gap analýzu vůči Agent Lease | **Priorita 3** — inspirace, nepřebírat celé jádro |
+| B | [Beads](https://github.com/steveyegge/beads) | Porovnat model závislostí úkolů; posoudit duplicitu existující SQLite fronty | Zatím neinstalovat |
+| A6, C | [LangGraph](https://github.com/langchain-ai/langgraph) | Studovat persistence/interrupt/resume a vedlejší účinky při obnově; checkpoint **nezajišťuje** přesně-jednou automaticky | Pouze inspirace |
+| A–C | [Testcontainers Python](https://github.com/testcontainers/testcontainers-python) | Izolované testy externích služeb, jen pokud je projekt opravdu potřebuje; běžné SQLite scénáře zvládne temp DB | Volitelné dle potřeby |
+
+**Rozhodovací brána pro každý pilot:** nejdříve baseline, izolovaná větev nebo kopie, reprodukovatelný test, srovnání času a spolehlivosti; teprve potom návrh závislosti, samostatné review druhým agentem a explicitní souhlas vlastníka. Žádné nekontrolované stahování a spouštění cizích skriptů. Fáze A zůstává prioritou, odklad B/C/D trvá.
 
 ## Doporučené pořadí
 
