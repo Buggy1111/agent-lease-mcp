@@ -41,7 +41,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jev, workspace
 from .broker import open_store
-from .cgroup import CommandCgroup
+from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
 from .hygiene import heuristic_risk, redact
 from .launch_gate import launch_gate
@@ -128,17 +128,31 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
             group = CommandCgroup() if use_cgroup else None
         except (OSError, ValueError) as exc:
             return RunResult(False, f"cannot create delegated command cgroup: {exc}")
+        watchdog = None
         try:
             if group is not None and on_cgroup_created is not None:
                 on_cgroup_created(group)
-            result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
-                          gate=gate, can_launch=can_launch, group=group)
-        except BaseException:
             if group is not None:
-                group.cleanup()
+                watchdog = CgroupWatchdog(group)
+            result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
+                          gate=gate, can_launch=can_launch, group=group, watchdog=watchdog)
+        except BaseException:
+            try:
+                if watchdog is not None:
+                    watchdog.finish(clean=False)
+            finally:
+                if group is not None:
+                    group.cleanup()
             raise
-        if group is not None and not group.cleanup():
-            result = dataclasses.replace(result, ok=False, cleanup_failed=True)
+        if group is not None:
+            try:
+                clean = group.cleanup()
+            except BaseException:
+                watchdog.finish(clean=False)
+                raise
+            watchdog_ok = watchdog.finish(clean=clean)
+            if not clean or not watchdog_ok:
+                result = dataclasses.replace(result, ok=False, cleanup_failed=True)
         if result.ok and "{last_message}" in template:
             try:
                 final = Path(last).read_text(encoding="utf-8").strip()
@@ -151,7 +165,8 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
 
 
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
-         gate=None, can_launch=None, group: CommandCgroup | None = None) -> RunResult:
+         gate=None, can_launch=None, group: CommandCgroup | None = None,
+         watchdog: CgroupWatchdog | None = None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     if _PRCTL is None:
@@ -162,6 +177,8 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
         # další procesy). Dřív timeout zabil jen přímý proces (audit #535 bod 1).
         parent_pid = os.getpid()
         with gate() if gate else nullcontext():
+            if watchdog and watchdog.failed():
+                return RunResult(False, "cgroup watchdog stopped before launch", cleanup_failed=True)
             if can_launch and not can_launch():
                 return RunResult(False, "stopped before launch: task paused or lease lost",
                                  aborted=True)
@@ -220,6 +237,11 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
     tick_error = None
     try:
         while proc.poll() is None:
+            if watchdog and watchdog.failed():
+                _kill_group(proc)
+                reader.join(2)
+                return RunResult(False, "cgroup watchdog stopped during command",
+                                 aborted=True, cleanup_failed=True)
             if time.monotonic() - started > timeout:
                 gone = _kill_group(proc)
                 reader.join(2)

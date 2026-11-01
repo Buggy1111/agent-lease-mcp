@@ -1,7 +1,8 @@
 # Fáze A: zastavení potomků po pádu bridge
 
 Stav: volitelná cgroup izolace je rozpracovaná, nejde o úplnou záruku. Při ukončení
-bridge pomocí SIGKILL se jeho `finally` neprovede. Dohled `process_guard` díky
+bridge pomocí SIGKILL se jeho `finally` neprovede. Ve výchozím režimu dohled
+`process_guard` díky
 `PR_SET_PDEATHSIG` ukončí běžnou procesovou skupinu, ale skupina nezachytí
 potomka, který zavolá `setsid`; nezávislý dohled také může sám havarovat.
 Bez další hranice proto nelze tvrdit,
@@ -40,6 +41,11 @@ při neověřitelné identitě cgroup je vždy potřeba ruční prověření.
 Bridge má volitelný režim `--cgroup`: ve vlastní delegované cgroup pro každý
 příkaz ověří dostupnost ovládání před spuštěním a po běhu volá `cgroup.kill`
 a kontroluje `populated 0`. Strážce volá `cgroup.kill` také při smrti bridge.
+Nezávislý dohled mimo skupinu sleduje životnost bridge přes rouru i linuxový
+signál smrti rodiče a po jeho zániku také ukončí skupinu. Signál pomáhá i při
+nechtěně zděděné kopii roury; Linux jej váže na zakládající vlákno. Pokud dohled selže během běhu, bridge zastaví úkol,
+ponechá pojistku a předá úkol ke kontrole. Při současné smrti všech tří procesů
+uklidí skupinu až náhradní bridge po restartu.
 Není-li delegace dostupná, příkaz se nespustí. Před spuštěním se do pojistky
 uloží identita skupiny a bridge drží zámek. Nový bridge může po zániku vlastníka
 uklidit jen zaznamenanou skupinu ve své současné delegované cgroup; ověří její
@@ -54,11 +60,14 @@ normálním dokončení i po `SIGKILL` bridge: oddělený potomek byl ukončen.
 Experiment `tests/chaos/probe_cgroup_bridge.py` nepoužívá živé workery ani
 databázi. To samo nedokazuje připravenost k nasazení.
 
-Experiment `tests/chaos/probe_cgroup_recovery.py` v samostatné scope navíc
-ověřil, že při současné smrti umělého bridge a strážce nový bridge uklidí
-zbylou skupinu a neoznačí původní úkol za dokončený. Živého vlastníka neuklízí.
+Experiment `tests/chaos/probe_cgroup_recovery.py` v samostatných scope ověřil
+úklid při pádu bridge a jednoho dohledu, úklid až po restartu při pádu všech
+tří procesů a bezpečné zastavení při samostatném selhání nezávislého dohledu.
+Původní úkol nepovažuje za dokončený a živého vlastníka neuklízí.
 Obnova funguje jen pod stejnou delegovanou cgroup; při jiné cestě nebo poškozeném
 záznamu selže bezpečně a ponechá pojistku k ručnímu prověření.
+`tests/chaos/probe_watchdog_leaked_pipe.py` navíc ověřil ukončení skupiny,
+i když jiný umělý proces držel otevřenou kopii dohledové roury.
 
 1. Každý pokus spustit ve vlastní cgroup pod službou s delegovanou podskupinou.
    Než se spustí cizí kód, musí být proces do podskupiny zařazen; při chybě

@@ -699,7 +699,15 @@ def test_unconfirmed_cgroup_cleanup_cannot_report_success(monkeypatch):
         def cleanup(self):
             return False
 
+    class HealthyWatchdog:
+        def __init__(self, group):
+            pass
+
+        def finish(self, *, clean):
+            return True
+
     monkeypatch.setattr(br, "CommandCgroup", UncertainGroup)
+    monkeypatch.setattr(br, "CgroupWatchdog", HealthyWatchdog)
     monkeypatch.setattr(br, "_run", lambda *args, **kwargs: RunResult(True, "done"))
     result = br.run_command("unused", "x", timeout=5, use_cgroup=True)
     assert not result.ok and result.cleanup_failed
@@ -718,11 +726,104 @@ def test_cgroup_membership_write_failure_cannot_launch_worker(tmp_path, monkeypa
             os.close(self.guard_kill_fd)
             return True
 
+    class HealthyWatchdog:
+        def __init__(self, group):
+            pass
+
+        def failed(self):
+            return False
+
+        def finish(self, *, clean):
+            return True
+
     monkeypatch.setattr(br, "CommandCgroup", RejectMembership)
+    monkeypatch.setattr(br, "CgroupWatchdog", HealthyWatchdog)
     marker = tmp_path / "command-ran"
     command = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
     result = br.run_command(command, "x", timeout=5, use_cgroup=True)
     assert not result.ok and not marker.exists()
+
+
+def test_watchdog_start_failure_keeps_fence_and_never_launches(store, tmp_path, monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    group_path = tmp_path / "synthetic-group"
+    group_path.mkdir()
+    cleaned = []
+
+    class Group:
+        path = group_path
+
+        def cleanup(self):
+            cleaned.append(True)
+            return True
+
+    def fail_watchdog(group):
+        raise OSError("synthetic watchdog failure")
+
+    monkeypatch.setattr(br, "CommandCgroup", Group)
+    monkeypatch.setattr(br, "CgroupWatchdog", fail_watchdog)
+    marker = tmp_path / "worker-ran"
+    task = store.send("michal", "codex", "first", kind="task")
+    bridge = Bridge(store, "codex", fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')"),
+                    use_cgroup=True)
+    with pytest.raises(OSError, match="synthetic watchdog failure"):
+        bridge.step()
+    assert cleaned and not marker.exists() and bridge._run_fence.present()
+    assert next(j for j in store.jobs("codex") if j["id"] == task)["state"] == "started"
+
+
+def test_watchdog_is_released_when_cgroup_cleanup_raises(monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    notified = []
+
+    class Group:
+        def cleanup(self):
+            raise OSError("synthetic cgroup failure")
+
+    class Watchdog:
+        def __init__(self, group):
+            pass
+
+        def finish(self, *, clean):
+            notified.append(clean)
+            return True
+
+    monkeypatch.setattr(br, "CommandCgroup", Group)
+    monkeypatch.setattr(br, "CgroupWatchdog", Watchdog)
+    monkeypatch.setattr(br, "_run", lambda *args, **kwargs: RunResult(True, "done"))
+    with pytest.raises(OSError, match="synthetic cgroup failure"):
+        br.run_command("unused", "x", timeout=5, use_cgroup=True)
+    assert notified == [False]
+
+
+def test_cgroup_cleanup_still_runs_when_watchdog_release_raises(monkeypatch):
+    import agent_lease_mcp.bridge as br
+
+    cleaned = []
+
+    class Group:
+        def cleanup(self):
+            cleaned.append(True)
+            return True
+
+    class Watchdog:
+        def __init__(self, group):
+            pass
+
+        def finish(self, *, clean):
+            raise OSError("synthetic watchdog release failure")
+
+    def fail_run(*args, **kwargs):
+        raise ValueError("synthetic worker failure")
+
+    monkeypatch.setattr(br, "CommandCgroup", Group)
+    monkeypatch.setattr(br, "CgroupWatchdog", Watchdog)
+    monkeypatch.setattr(br, "_run", fail_run)
+    with pytest.raises(OSError, match="synthetic watchdog release failure"):
+        br.run_command("unused", "x", timeout=5, use_cgroup=True)
+    assert cleaned == [True]
 
 
 def test_gate_error_after_launch_preserves_uncertain_cleanup(tmp_path, monkeypatch):

@@ -26,9 +26,11 @@
   stuck leases, false "Done" messages, and database integrity. It does not yet
   prove that every escaped descendant is terminated.
 - Opt-in delegated cgroup containment and restart recovery for bridge commands,
-  guarded by a persistent fence and verified group identity. This remains
-  incomplete for process cleanup before a replacement bridge starts and is not
-  enabled in deployed services. See `docs/PHASE_A_PROCESS_SUPERVISION.md`.
+  guarded by a persistent fence and verified group identity. An independent
+  watchdog also cleans the group after bridge death, and a watchdog failure
+  stops the command. If every guard dies, cleanup waits for recovery after a
+  restart. This is not enabled in deployed services. See
+  `docs/PHASE_A_PROCESS_SUPERVISION.md`.
 
 - `wait(message_id, timeout_seconds)` MCP tool: blocks until the counterpart
   answers or the task reaches a final state, so a sender no longer polls `jobs`.

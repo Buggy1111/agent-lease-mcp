@@ -1,6 +1,7 @@
 """Exercise restart recovery after killing both bridge and its guard in a test scope."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import signal
@@ -20,6 +21,10 @@ from agent_lease_mcp.store import Store
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--kill", choices=("guard", "watchdog", "both", "watchdog_only"),
+                        default="guard")
+    args = parser.parse_args()
     root = current_cgroup()
     if not os.access(root, os.W_OK):
         print("No delegated cgroup; no test started.", file=sys.stderr)
@@ -60,24 +65,44 @@ def main() -> int:
             # A live owner must prevent recovery and leave its worker untouched.
             if fence.try_recover():
                 raise RuntimeError("recovered a live bridge's cgroup")
-            children = Path(f"/proc/{parent.pid}/task/{parent.pid}/children").read_text().split()
-            if len(children) != 1:
-                raise RuntimeError("cannot identify the synthetic guard")
+            children = set(Path(f"/proc/{parent.pid}/task/{parent.pid}/children").read_text().split())
+            guard = children & set((group / "cgroup.procs").read_text().split())
+            watch = children - guard
+            if len(guard) != 1 or len(watch) != 1:
+                raise RuntimeError("cannot identify the synthetic guard and watchdog")
+            if args.kill == "watchdog_only":
+                kill_group_member(int(next(iter(watch))), root)
+                parent.wait(timeout=15)
+                state = next(j for j in store.jobs("codex") if j["id"] == task)["state"]
+                if state != "needs_review" or not fence.present() or group.exists():
+                    raise RuntimeError("bridge did not fail closed after watchdog death")
+                print("watchdog_only: bridge stopped the worker and held the task for review")
+                return 0
             parent.send_signal(signal.SIGSTOP)
             _, status = os.waitpid(parent.pid, os.WUNTRACED)
             if not os.WIFSTOPPED(status):
                 raise RuntimeError("synthetic bridge did not stop")
-            kill_group_member(int(children[0]), group)
+            if args.kill in ("guard", "both"):
+                kill_group_member(int(next(iter(guard))), group)
+            if args.kill in ("watchdog", "both"):
+                kill_group_member(int(next(iter(watch))), root)
             parent.kill()
             parent.wait(timeout=5)
-            if "populated 1" not in (group / "cgroup.events").read_text():
-                raise RuntimeError("test did not leave an orphaned worker")
+            if args.kill == "both":
+                if "populated 1" not in (group / "cgroup.events").read_text():
+                    raise RuntimeError("test did not leave an orphaned worker")
+            else:
+                deadline = time.monotonic() + 5
+                while "populated 1" in (group / "cgroup.events").read_text():
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("remaining guard did not stop the worker")
+                    time.sleep(0.05)
             restarted = Bridge(store, "codex", command, use_cgroup=True)
             if restarted.step() or fence.present() or group.exists():
                 raise RuntimeError("restart did not safely recover the stale group")
             if next(j for j in store.jobs("codex") if j["id"] == task)["state"] != "started":
                 raise RuntimeError("recovery changed the uncertain task state")
-            print("restart cleaned the orphaned cgroup and kept its task uncertain")
+            print(f"{args.kill}: cleanup verified; restart kept its task uncertain")
             return 0
     finally:
         if parent is not None and parent.poll() is None:

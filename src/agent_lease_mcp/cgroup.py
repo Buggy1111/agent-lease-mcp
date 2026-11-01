@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import os
 import re
+import select
+import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -116,3 +119,75 @@ class CommandCgroup:
             os.close(self.procs_fd)
             os.close(self.kill_fd)
             os.close(self.guard_kill_fd)
+
+
+class CgroupWatchdog:
+    """Watch bridge lifetime from outside its command cgroup."""
+
+    def __init__(self, group: CommandCgroup) -> None:
+        read_fd, write_fd = os.pipe()
+        try:
+            ready_read, ready_write = os.pipe()
+        except BaseException:
+            os.close(read_fd)
+            os.close(write_fd)
+            raise
+        kill_fd = None
+        proc = None
+        try:
+            kill_fd = os.open(group.path / "cgroup.kill", os.O_WRONLY | os.O_NOFOLLOW)
+            env = {key: os.environ[key] for key in ("PYTHONPATH", "LANG", "LC_ALL")
+                   if key in os.environ}
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "agent_lease_mcp.cgroup_watchdog",
+                 str(read_fd), str(ready_write), str(kill_fd), str(os.getpid())],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                pass_fds=(read_fd, ready_write, kill_fd), start_new_session=True,
+                env=env,
+            )
+        except BaseException:
+            os.close(write_fd)
+            os.close(ready_read)
+            raise
+        finally:
+            os.close(read_fd)
+            os.close(ready_write)
+            if kill_fd is not None:
+                os.close(kill_fd)
+        try:
+            readable, _, _ = select.select([ready_read], [], [], 5)
+            if not readable or os.read(ready_read, 1) != b"1" or proc.poll() is not None:
+                raise OSError("cannot confirm cgroup watchdog readiness")
+        except BaseException:
+            os.close(write_fd)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            raise
+        finally:
+            os.close(ready_read)
+        self.proc = proc
+        self.write_fd = write_fd
+
+    def failed(self) -> bool:
+        return self.proc.poll() is not None
+
+    def finish(self, *, clean: bool) -> bool:
+        """Close the lifetime pipe and reap our watchdog, never another process."""
+        healthy = not self.failed()
+        try:
+            if clean and healthy and os.write(self.write_fd, b"C") != 1:
+                healthy = False
+        except OSError:
+            healthy = False
+        finally:
+            os.close(self.write_fd)
+        try:
+            code = self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(timeout=5)
+            return False
+        return healthy and code == 0
