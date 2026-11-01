@@ -1,0 +1,119 @@
+Running as unit: run-rfc1643f4aaee4f2c8790ab1ed2eaec98.scope; invocation ID: 4b36c5dd281b4059b0080a0ae8cc88be
+izolovaná data: /tmp/agent-lease-watchdog-chaos/runtime8h/agent-lease-chaos-rmosuj8n; požadovaná délka: 480 min
+průběh: {'sent': 131, 'worker_kills': 41, 'broker_kills': 12, 'cancels': 9, 'interactive': 18, 'interactive_crash': 8, 'pauses': 0}
+průběh: {'sent': 222, 'worker_kills': 74, 'broker_kills': 22, 'cancels': 16, 'interactive': 41, 'interactive_crash': 17, 'pauses': 0}
+průběh: {'sent': 297, 'worker_kills': 109, 'broker_kills': 31, 'cancels': 21, 'interactive': 65, 'interactive_crash': 28, 'pauses': 0}
+průběh: {'sent': 362, 'worker_kills': 155, 'broker_kills': 38, 'cancels': 31, 'interactive': 86, 'interactive_crash': 38, 'pauses': 0}
+průběh: {'sent': 449, 'worker_kills': 201, 'broker_kills': 45, 'cancels': 36, 'interactive': 101, 'interactive_crash': 46, 'pauses': 0}
+průběh: {'sent': 524, 'worker_kills': 246, 'broker_kills': 52, 'cancels': 45, 'interactive': 122, 'interactive_crash': 61, 'pauses': 0}
+průběh: {'sent': 601, 'worker_kills': 285, 'broker_kills': 63, 'cancels': 48, 'interactive': 142, 'interactive_crash': 70, 'pauses': 0}
+průběh: {'sent': 689, 'worker_kills': 318, 'broker_kills': 78, 'cancels': 52, 'interactive': 159, 'interactive_crash': 75, 'pauses': 0}
+průběh: {'sent': 764, 'worker_kills': 370, 'broker_kills': 83, 'cancels': 58, 'interactive': 171, 'interactive_crash': 79, 'pauses': 0}
+průběh: {'sent': 835, 'worker_kills': 426, 'broker_kills': 91, 'cancels': 69, 'interactive': 188, 'interactive_crash': 90, 'pauses': 0}
+průběh: {'sent': 896, 'worker_kills': 471, 'broker_kills': 99, 'cancels': 77, 'interactive': 209, 'interactive_crash': 106, 'pauses': 0}
+průběh: {'sent': 980, 'worker_kills': 517, 'broker_kills': 113, 'cancels': 80, 'interactive': 230, 'interactive_crash': 113, 'pauses': 0}
+průběh: {'sent': 1055, 'worker_kills': 560, 'broker_kills': 124, 'cancels': 84, 'interactive': 251, 'interactive_crash': 123, 'pauses': 0}
+průběh: {'sent': 1130, 'worker_kills': 617, 'broker_kills': 139, 'cancels': 87, 'interactive': 265, 'interactive_crash': 133, 'pauses': 0}
+průběh: {'sent': 1218, 'worker_kills': 660, 'broker_kills': 155, 'cancels': 94, 'interactive': 278, 'interactive_crash': 139, 'pauses': 0}
+průběh: {'sent': 1310, 'worker_kills': 708, 'broker_kills': 159, 'cancels': 98, 'interactive': 294, 'interactive_crash': 147, 'pauses': 0}
+průběh: {'sent': 1391, 'worker_kills': 750, 'broker_kills': 168, 'cancels': 105, 'interactive': 308, 'interactive_crash': 156, 'pauses': 0}
+průběh: {'sent': 1475, 'worker_kills': 787, 'broker_kills': 178, 'cancels': 115, 'interactive': 329, 'interactive_crash': 167, 'pauses': 0}
+průběh: {'sent': 1551, 'worker_kills': 826, 'broker_kills': 186, 'cancels': 123, 'interactive': 349, 'interactive_crash': 176, 'pauses': 0}
+průběh: {'sent': 1618, 'worker_kills': 885, 'broker_kills': 193, 'cancels': 128, 'interactive': 372, 'interactive_crash': 183, 'pauses': 0}
+průběh: {'sent': 1688, 'worker_kills': 932, 'broker_kills': 203, 'cancels': 130, 'interactive': 389, 'interactive_crash': 193, 'pauses': 0}
+průběh: {'sent': 1772, 'worker_kills': 964, 'broker_kills': 216, 'cancels': 131, 'interactive': 407, 'interactive_crash': 201, 'pauses': 0}
+průběh: {'sent': 1819, 'worker_kills': 1009, 'broker_kills': 230, 'cancels': 138, 'interactive': 420, 'interactive_crash': 207, 'pauses': 0}
+průběh: {'sent': 1914, 'worker_kills': 1054, 'broker_kills': 235, 'cancels': 141, 'interactive': 434, 'interactive_crash': 214, 'pauses': 0}
+průběh: {'sent': 1971, 'worker_kills': 1110, 'broker_kills': 243, 'cancels': 147, 'interactive': 446, 'interactive_crash': 222, 'pauses': 0}
+průběh: {'sent': 2050, 'worker_kills': 1155, 'broker_kills': 247, 'cancels': 151, 'interactive': 459, 'interactive_crash': 227, 'pauses': 0}
+průběh: {'sent': 2140, 'worker_kills': 1200, 'broker_kills': 253, 'cancels': 152, 'interactive': 478, 'interactive_crash': 235, 'pauses': 0}
+průběh: {'sent': 2199, 'worker_kills': 1239, 'broker_kills': 264, 'cancels': 160, 'interactive': 500, 'interactive_crash': 247, 'pauses': 0}
+průběh: {'sent': 2278, 'worker_kills': 1280, 'broker_kills': 283, 'cancels': 165, 'interactive': 517, 'interactive_crash': 257, 'pauses': 0}
+průběh: {'sent': 2346, 'worker_kills': 1319, 'broker_kills': 299, 'cancels': 166, 'interactive': 542, 'interactive_crash': 271, 'pauses': 0}
+průběh: {'sent': 2414, 'worker_kills': 1372, 'broker_kills': 306, 'cancels': 173, 'interactive': 555, 'interactive_crash': 278, 'pauses': 0}
+průběh: {'sent': 2494, 'worker_kills': 1407, 'broker_kills': 320, 'cancels': 179, 'interactive': 575, 'interactive_crash': 287, 'pauses': 0}
+průběh: {'sent': 2566, 'worker_kills': 1453, 'broker_kills': 328, 'cancels': 183, 'interactive': 596, 'interactive_crash': 302, 'pauses': 0}
+průběh: {'sent': 2637, 'worker_kills': 1497, 'broker_kills': 339, 'cancels': 191, 'interactive': 618, 'interactive_crash': 312, 'pauses': 0}
+průběh: {'sent': 2718, 'worker_kills': 1541, 'broker_kills': 351, 'cancels': 201, 'interactive': 637, 'interactive_crash': 322, 'pauses': 0}
+průběh: {'sent': 2776, 'worker_kills': 1591, 'broker_kills': 363, 'cancels': 207, 'interactive': 660, 'interactive_crash': 336, 'pauses': 0}
+průběh: {'sent': 2831, 'worker_kills': 1639, 'broker_kills': 372, 'cancels': 213, 'interactive': 678, 'interactive_crash': 343, 'pauses': 0}
+průběh: {'sent': 2900, 'worker_kills': 1683, 'broker_kills': 383, 'cancels': 220, 'interactive': 690, 'interactive_crash': 349, 'pauses': 0}
+průběh: {'sent': 2948, 'worker_kills': 1723, 'broker_kills': 393, 'cancels': 224, 'interactive': 707, 'interactive_crash': 357, 'pauses': 0}
+průběh: {'sent': 3039, 'worker_kills': 1764, 'broker_kills': 403, 'cancels': 232, 'interactive': 724, 'interactive_crash': 368, 'pauses': 0}
+průběh: {'sent': 3102, 'worker_kills': 1810, 'broker_kills': 414, 'cancels': 234, 'interactive': 736, 'interactive_crash': 372, 'pauses': 0}
+průběh: {'sent': 3184, 'worker_kills': 1851, 'broker_kills': 423, 'cancels': 237, 'interactive': 753, 'interactive_crash': 380, 'pauses': 0}
+průběh: {'sent': 3268, 'worker_kills': 1891, 'broker_kills': 435, 'cancels': 244, 'interactive': 767, 'interactive_crash': 385, 'pauses': 0}
+průběh: {'sent': 3320, 'worker_kills': 1931, 'broker_kills': 440, 'cancels': 248, 'interactive': 786, 'interactive_crash': 395, 'pauses': 0}
+průběh: {'sent': 3405, 'worker_kills': 1967, 'broker_kills': 447, 'cancels': 252, 'interactive': 801, 'interactive_crash': 403, 'pauses': 0}
+průběh: {'sent': 3474, 'worker_kills': 2000, 'broker_kills': 457, 'cancels': 256, 'interactive': 821, 'interactive_crash': 410, 'pauses': 0}
+průběh: {'sent': 3554, 'worker_kills': 2042, 'broker_kills': 466, 'cancels': 261, 'interactive': 839, 'interactive_crash': 416, 'pauses': 0}
+průběh: {'sent': 3621, 'worker_kills': 2076, 'broker_kills': 477, 'cancels': 266, 'interactive': 865, 'interactive_crash': 431, 'pauses': 1}
+průběh: {'sent': 3681, 'worker_kills': 2108, 'broker_kills': 486, 'cancels': 268, 'interactive': 880, 'interactive_crash': 441, 'pauses': 1}
+průběh: {'sent': 3745, 'worker_kills': 2147, 'broker_kills': 499, 'cancels': 271, 'interactive': 901, 'interactive_crash': 455, 'pauses': 1}
+průběh: {'sent': 3801, 'worker_kills': 2183, 'broker_kills': 510, 'cancels': 278, 'interactive': 919, 'interactive_crash': 466, 'pauses': 1}
+průběh: {'sent': 3864, 'worker_kills': 2218, 'broker_kills': 521, 'cancels': 284, 'interactive': 934, 'interactive_crash': 473, 'pauses': 1}
+průběh: {'sent': 3956, 'worker_kills': 2257, 'broker_kills': 531, 'cancels': 289, 'interactive': 952, 'interactive_crash': 481, 'pauses': 1}
+průběh: {'sent': 4015, 'worker_kills': 2303, 'broker_kills': 541, 'cancels': 296, 'interactive': 963, 'interactive_crash': 488, 'pauses': 1}
+průběh: {'sent': 4054, 'worker_kills': 2342, 'broker_kills': 549, 'cancels': 302, 'interactive': 976, 'interactive_crash': 494, 'pauses': 1}
+průběh: {'sent': 4106, 'worker_kills': 2375, 'broker_kills': 561, 'cancels': 308, 'interactive': 989, 'interactive_crash': 501, 'pauses': 1}
+průběh: {'sent': 4188, 'worker_kills': 2412, 'broker_kills': 576, 'cancels': 317, 'interactive': 1012, 'interactive_crash': 512, 'pauses': 1}
+průběh: {'sent': 4250, 'worker_kills': 2450, 'broker_kills': 585, 'cancels': 324, 'interactive': 1037, 'interactive_crash': 522, 'pauses': 1}
+průběh: {'sent': 4331, 'worker_kills': 2493, 'broker_kills': 598, 'cancels': 330, 'interactive': 1057, 'interactive_crash': 534, 'pauses': 1}
+průběh: {'sent': 4383, 'worker_kills': 2540, 'broker_kills': 607, 'cancels': 336, 'interactive': 1077, 'interactive_crash': 546, 'pauses': 1}
+průběh: {'sent': 4444, 'worker_kills': 2581, 'broker_kills': 621, 'cancels': 344, 'interactive': 1092, 'interactive_crash': 554, 'pauses': 1}
+průběh: {'sent': 4488, 'worker_kills': 2623, 'broker_kills': 630, 'cancels': 354, 'interactive': 1110, 'interactive_crash': 562, 'pauses': 1}
+průběh: {'sent': 4534, 'worker_kills': 2660, 'broker_kills': 644, 'cancels': 358, 'interactive': 1125, 'interactive_crash': 569, 'pauses': 1}
+průběh: {'sent': 4608, 'worker_kills': 2708, 'broker_kills': 650, 'cancels': 367, 'interactive': 1137, 'interactive_crash': 573, 'pauses': 1}
+průběh: {'sent': 4685, 'worker_kills': 2757, 'broker_kills': 658, 'cancels': 370, 'interactive': 1155, 'interactive_crash': 581, 'pauses': 1}
+průběh: {'sent': 4765, 'worker_kills': 2789, 'broker_kills': 670, 'cancels': 373, 'interactive': 1174, 'interactive_crash': 589, 'pauses': 1}
+průběh: {'sent': 4813, 'worker_kills': 2826, 'broker_kills': 681, 'cancels': 376, 'interactive': 1188, 'interactive_crash': 597, 'pauses': 1}
+průběh: {'sent': 4897, 'worker_kills': 2865, 'broker_kills': 688, 'cancels': 380, 'interactive': 1207, 'interactive_crash': 606, 'pauses': 1}
+průběh: {'sent': 4989, 'worker_kills': 2903, 'broker_kills': 700, 'cancels': 387, 'interactive': 1235, 'interactive_crash': 624, 'pauses': 1}
+průběh: {'sent': 5060, 'worker_kills': 2949, 'broker_kills': 709, 'cancels': 388, 'interactive': 1251, 'interactive_crash': 635, 'pauses': 1}
+průběh: {'sent': 5142, 'worker_kills': 2992, 'broker_kills': 719, 'cancels': 391, 'interactive': 1265, 'interactive_crash': 644, 'pauses': 1}
+průběh: {'sent': 5226, 'worker_kills': 3039, 'broker_kills': 730, 'cancels': 393, 'interactive': 1288, 'interactive_crash': 655, 'pauses': 1}
+průběh: {'sent': 5303, 'worker_kills': 3081, 'broker_kills': 742, 'cancels': 400, 'interactive': 1306, 'interactive_crash': 666, 'pauses': 1}
+průběh: {'sent': 5345, 'worker_kills': 3118, 'broker_kills': 753, 'cancels': 402, 'interactive': 1320, 'interactive_crash': 673, 'pauses': 1}
+průběh: {'sent': 5429, 'worker_kills': 3154, 'broker_kills': 764, 'cancels': 408, 'interactive': 1342, 'interactive_crash': 684, 'pauses': 1}
+průběh: {'sent': 5501, 'worker_kills': 3196, 'broker_kills': 775, 'cancels': 412, 'interactive': 1363, 'interactive_crash': 696, 'pauses': 1}
+průběh: {'sent': 5565, 'worker_kills': 3242, 'broker_kills': 782, 'cancels': 416, 'interactive': 1374, 'interactive_crash': 702, 'pauses': 1}
+průběh: {'sent': 5630, 'worker_kills': 3289, 'broker_kills': 795, 'cancels': 422, 'interactive': 1398, 'interactive_crash': 711, 'pauses': 1}
+průběh: {'sent': 5687, 'worker_kills': 3337, 'broker_kills': 805, 'cancels': 426, 'interactive': 1409, 'interactive_crash': 718, 'pauses': 1}
+průběh: {'sent': 5770, 'worker_kills': 3377, 'broker_kills': 812, 'cancels': 431, 'interactive': 1427, 'interactive_crash': 728, 'pauses': 1}
+průběh: {'sent': 5835, 'worker_kills': 3422, 'broker_kills': 820, 'cancels': 436, 'interactive': 1444, 'interactive_crash': 736, 'pauses': 1}
+průběh: {'sent': 5896, 'worker_kills': 3469, 'broker_kills': 832, 'cancels': 441, 'interactive': 1459, 'interactive_crash': 744, 'pauses': 1}
+průběh: {'sent': 5953, 'worker_kills': 3511, 'broker_kills': 842, 'cancels': 443, 'interactive': 1475, 'interactive_crash': 752, 'pauses': 1}
+průběh: {'sent': 6013, 'worker_kills': 3557, 'broker_kills': 846, 'cancels': 448, 'interactive': 1488, 'interactive_crash': 761, 'pauses': 1}
+průběh: {'sent': 6085, 'worker_kills': 3602, 'broker_kills': 858, 'cancels': 456, 'interactive': 1506, 'interactive_crash': 771, 'pauses': 1}
+průběh: {'sent': 6146, 'worker_kills': 3644, 'broker_kills': 870, 'cancels': 460, 'interactive': 1520, 'interactive_crash': 780, 'pauses': 1}
+průběh: {'sent': 6217, 'worker_kills': 3679, 'broker_kills': 879, 'cancels': 465, 'interactive': 1539, 'interactive_crash': 788, 'pauses': 1}
+průběh: {'sent': 6301, 'worker_kills': 3715, 'broker_kills': 889, 'cancels': 471, 'interactive': 1554, 'interactive_crash': 797, 'pauses': 1}
+průběh: {'sent': 6367, 'worker_kills': 3754, 'broker_kills': 901, 'cancels': 474, 'interactive': 1573, 'interactive_crash': 804, 'pauses': 1}
+průběh: {'sent': 6443, 'worker_kills': 3806, 'broker_kills': 909, 'cancels': 474, 'interactive': 1587, 'interactive_crash': 814, 'pauses': 1}
+průběh: {'sent': 6487, 'worker_kills': 3842, 'broker_kills': 928, 'cancels': 479, 'interactive': 1602, 'interactive_crash': 823, 'pauses': 1}
+průběh: {'sent': 6583, 'worker_kills': 3897, 'broker_kills': 935, 'cancels': 485, 'interactive': 1622, 'interactive_crash': 833, 'pauses': 1}
+průběh: {'sent': 6642, 'worker_kills': 3940, 'broker_kills': 940, 'cancels': 492, 'interactive': 1640, 'interactive_crash': 839, 'pauses': 1}
+průběh: {'sent': 6727, 'worker_kills': 3975, 'broker_kills': 951, 'cancels': 493, 'interactive': 1660, 'interactive_crash': 853, 'pauses': 1}
+průběh: {'sent': 6815, 'worker_kills': 4021, 'broker_kills': 958, 'cancels': 501, 'interactive': 1677, 'interactive_crash': 859, 'pauses': 1}
+statistika: {'sent': 6883, 'worker_kills': 4053, 'broker_kills': 965, 'cancels': 506, 'interactive': 1689, 'interactive_crash': 867, 'pauses': 1}, karanténa: 684
+stavy úkolů: {'succeeded': 3691, 'needs_review': 2686, 'cancelled': 506}
+efekty: 4573 úkolů, dvojité: žádné
+succeeded bez právě 1 efektu: žádné
+succeeded bez právě 1 Done: žádné
+nesoulad zadaných a evidovaných úkolů: žádný
+„Done“ u nedokončeného: žádné; dvojité Done: žádné
+karanténa spuštěna: nikdy
+start během pauzy: žádný
+efekt během pauzy: žádný
+přeživší procesy: žádné
+potomci přeživší pád bridge: žádní
+účinky potomků po pádu bridge: žádné
+zaznamenaní potomci workerů: 830
+simulované limity poskytovatele: 273
+limit a následné zotavení skutečně pozorovány: True / True
+visící leased/started: žádné
+zbývající pending po dojezdu: 0
+pending kvůli aktivnímu limitu: 0
+integrita DB: ok; pokrytí scénářů: ano
+pokus o skutečný provider probe: žádný
+VÝSLEDEK: PROŠLO (data: /tmp/agent-lease-watchdog-chaos/runtime8h/agent-lease-chaos-rmosuj8n)
