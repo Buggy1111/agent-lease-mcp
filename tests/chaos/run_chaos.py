@@ -115,8 +115,20 @@ def main() -> int:
 
     settings = Settings(db, "michal", 1800)
     store = Store(db, settings=settings)       # driver píše přímo (jako člověk/web)
+    # Unix socket path limit (~107 bytes): a long TMPDIR silently leaves the broker
+    # down and every bridge idle, which looks like a stuck queue, not a setup error.
+    sock = db.parent / "broker.sock"
+    if len(os.fsencode(sock)) > 100:
+        ap.error(f"broker socket path too long ({len(os.fsencode(sock))} bytes): {sock}; "
+                 "use a shorter TMPDIR")
     broker = start_broker()
-    time.sleep(1.5)
+    deadline = time.monotonic() + 10
+    while not sock.exists() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if not sock.exists():
+        broker.kill()
+        ap.error(f"broker did not start (no {sock})")
+    time.sleep(0.5)
     workers = [start_bridge() for _ in range(args.workers)]
     sent: list[int] = []
     injected: set[int] = set()
