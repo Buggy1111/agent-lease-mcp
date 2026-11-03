@@ -1,0 +1,18 @@
+........................................................................ [ 14%]
+........................................................................ [ 29%]
+..........................x............................................. [ 44%]
+........................................................................ [ 59%]
+........................................................................ [ 73%]
+........................................................................ [ 88%]
+............................................----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 35426)
+Traceback (most recent call last):
+............                 [100%]
+=============================== warnings summary ===============================
+tests/test_authlib_security.py:3
+  /home/buggy1111/dev/projects/agent-lease-mcp/tests/test_authlib_security.py:3: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.
+  It will be compatible before version 2.0.0.
+    from authlib.jose import JsonWebSignature
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+487 passed, 1 xfailed, 1 warning in 167.38s (0:02:47)

@@ -31,12 +31,25 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
   odmítá start s exit 78. Podrobný report a skript jsou níže.
 - Repozitář při zahájení předávky čistý, větev master.
 
+**Update 2026-11-03 (Ada, Nox bez tokenů):**
+
+- A1 a A6 implementovány v `cda7678`: `accept` je jen příjem, start přes `ack(STARTED)`;
+  A6 přísně (Michalovo rozhodnutí) — změněná/neověřitelná kopie → `needs_review` bez spuštění,
+  jednorázové lidské schválení ve webu. Roadmapa A6 upřesněna. 487 testů zelených.
+- Chaos BEZ `--cgroup` končí „SELHALO“ s ~50 pending i na původním `5213531`: po zabití
+  workeru uprostřed příkazu zůstane run-fence („Unverified command attempt“) a bez cgroup ho
+  bridge neumí obnovit → fail-closed přestane brát úkoly. Správné chování, ne regrese.
+  Chaos pouštět jako 8h běh: `systemd-run --user --scope --property=Delegate=yes … --cgroup`.
+- A8: návrh `docs/PHASE_A_A8_DISTRIBUTION_PROPOSAL.md` — standalone CPython 20261026 má
+  SQLite 3.53.1 (bez bootstrapu). Čeká na Michalův souhlas se stažením a ověřením.
+- A8 izolovaně ověřeno (Michalův souhlas): standalone CPython 3.13.18 se SQLite 3.53.1,
+  487 testů, skutečné MCP/broker/bridge a 15min chaos s cgroup PROŠLY
+  (`docs/test-results/phase-a-a8-pbs/`). Chybí 8h běh v tomto runtime a schválené nasazení.
+- Chaos harness nově končí chybou, když broker nenaběhne (dlouhý TMPDIR > limit Unix socketu).
+- Chybí nezávislé review `cda7678` a následných commitů (Nox).
+
 **Open:**
 
-- A1: `accept` s tokenem atomicky přechází do `started`; roadmapa požaduje
-  jen příjem. Rozhodnout a zrevidovat sémantiku, neodškrtávat rozdíl mlčky.
-- A6: checkpoint je poradní kontext, ne úplná automatická obnova kroků.
-  Shoda workspace sama neprokazuje, že lze bezpečně opakovat externí účinek.
 - A8: původní uv/provozní Python stále SQLite 3.50.4. Nové kompletní izolované
   prostředí již prošlo; chybí nezávislé review distribuce knihovny a schválené
   přepnutí všech skutečných služeb i MCP klientů. Nový runtime neprošel 8h chaosem.
