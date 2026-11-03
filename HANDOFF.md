@@ -47,6 +47,10 @@ Tato předávka je na výslovnou žádost uživatele verzovaná a určená k pus
   (`docs/test-results/phase-a-a8-pbs/`). Chybí 8h běh v tomto runtime a schválené nasazení.
 - Chaos harness nově končí chybou, když broker nenaběhne (dlouhý TMPDIR > limit Unix socketu).
 - Chybí nezávislé review `cda7678` a následných commitů (Nox).
+- Plán nasazení `docs/PHASE_A_DEPLOY_PLAN.md` (neprovedeno). Inventura: služby běží ze starého
+  uv tool snímku (Py 3.14.4/SQLite 3.50.4, bez cgroup), MCP klienti z vývojového `.venv` repa.
+- 8h chaos v novém runtime běží jako `al-chaos-8h.service` (log `/tmp/al-8h-42ffb97/chaos8h.log`).
+- Nox bez tokenů do cca 7. 11. 2026.
 
 **Open:**
 
