@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Changed
+
+- A1: `accept` is only a receipt and never starts a task. Permission to run
+  comes solely from a valid lease token; the bridge starts work with an
+  explicit `ack(STARTED)` after accepting. A crash between accept and start
+  leaves the task `leased`, so its expiry safely returns it to the queue
+  (nothing ran yet); after `started` an expiry still ends in `needs_review`.
+- A6 (strict, approved by Michal 2026-11-03): a task with a checkpoint is
+  started only when the current workspace matches the checkpoint fingerprint
+  (git HEAD + content hash). A changed or unverifiable workspace holds the task
+  in `needs_review` (`checkpoint: workspace changed, not started`) on both the
+  bridge and `next_task` paths, with nothing run. A plain retry is held again;
+  only the human can approve one resumed attempt in the web UI ("Resume anyway",
+  logged reason, `/api/approve-resume`, not reachable through the broker).
+
 ### Fixed
 
 - Preserve SQLite busy/locked errors across the broker boundary so the bridge

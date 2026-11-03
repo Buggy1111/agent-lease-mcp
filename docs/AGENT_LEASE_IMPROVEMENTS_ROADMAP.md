@@ -26,6 +26,14 @@ review druhým agentem, nasazení až po zelených testech.
 | A10 | **Globální pauza / nouzové zastavení** kontrolované v transakci převzetí | 10 | střední | — | pauza vs. start: po potvrzení nic nového |
 | A11 | **Windows/WSL start** ověřený naostro (logon, `wsl --shutdown`) | 1 | nízká | jen ruční test u Michala | akceptační checklist |
 
+**Upřesnění A1 a A6 (3. 11. 2026, rozhodnutí Michala):**
+- **A1:** `accept` je jen příjem a stav úkolu nemění. Spustit smí jen držitel platného lease tokenu;
+  start je samostatný přechod `leased → started` (`ack(STARTED)` v bridge, `next_task` interaktivně).
+- **A6:** úplnou záruku „hotový krok se nikdy nezopakuje“ nelze u agenta dát, systém nevidí vnější
+  účinky. Platí proto přísné pravidlo: přerušený rozběhnutý úkol vždy končí v `needs_review`; další pokus
+  s checkpointem se spustí jen při shodě pracovní kopie (HEAD + otisk obsahu), jinak zůstane zadržen,
+  dokud člověk ve webu jednorázově neschválí navázání. Agent dostane hotové kroky jako data a ověřuje je.
+
 **Hotovo, když:** 8hodinový běh v izolované kopii s náhodnými pády (broker, bridge, limit) → žádný úkol
 proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven z checkpointu, nebo `needs_review`.
 

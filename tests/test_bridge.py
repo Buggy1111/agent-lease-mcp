@@ -384,17 +384,20 @@ def test_interactive_accept_after_bridge_lease_is_refused(store: Store, tmp_path
     assert lease.message_id == mid
     assert store.accept(mid, "codex", "beru v okně", owner="s1") is False          # drží ho worker
     assert store.accept(mid, "codex", "bridge", lease_token=lease.lease_token) is True
-    # accept s tokenem úkol rovnou zahájí (Nox #555/2)
-    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "started"
+    # A1: accept je jen příjem; start dává až token (ack STARTED)
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "leased"
     assert store.accept(mid, "codex", "beru v okně", owner="s1") is False          # pořád ne
+    assert store.ack(mid, "codex", "started", lease_token=lease.lease_token)
+    assert store.accept(mid, "codex", "beru v okně", owner="s1") is False          # ani teď
 
 
-def test_accepted_task_is_never_retaken_after_lease_expiry(store: Store, monkeypatch):
-    """Nox #555/2: přijetí = začátek práce; vypršení → needs_review, nikdy nový běh."""
+def test_started_task_is_never_retaken_after_lease_expiry(store: Store, monkeypatch):
+    """Nox #555/2 + A1: po startu vypršení → needs_review, nikdy nový běh."""
     real = time.time()
     mid = store.send("michal", "codex", "úkol", kind="task")
     lease = store.lease_next("codex", lease_seconds=1, skip_accepted=True)
     store.accept(mid, "codex", "bridge", lease_token=lease.lease_token)
+    assert store.ack(mid, "codex", "started", lease_token=lease.lease_token)
     monkeypatch.setattr(time, "time", lambda: real + 5)
     assert store.lease_next("codex", skip_accepted=True) is None
     assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "needs_review"
@@ -1035,12 +1038,16 @@ def test_emergency_stop_stops_a_running_worker(store: Store, tmp_path: Path):
     assert not any(m["text"].startswith(f"Done #{mid}") for m in store.inbox())
 
 
-def test_checkpoint_needs_a_valid_lease_and_reaches_the_next_attempt(store: Store, tmp_path: Path):
+def test_checkpoint_needs_a_valid_lease_and_reaches_the_next_attempt(store: Store, tmp_path: Path,
+                                                                     monkeypatch):
+    from agent_lease_mcp import bridge as br
+
     mid = store.send("michal", "codex", "dvoukrokový úkol", kind="task")
     d = store.lease_next("codex", lease_seconds=60)
     assert store.checkpoint(mid, "codex", "cizí-token", "krok 1") is False
     assert store.checkpoint(mid, "codex", d.lease_token, "krok 1 hotový", "krok 2",
-                            evidence="pytest: 10 passed")
+                            "head", "fingerprint", evidence="pytest: 10 passed")
+    monkeypatch.setattr(br.workspace, "workspace_state", lambda _: ("head", "fingerprint"))
     store.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
     assert store.retry(mid, "codex")              # needs_review znovu spouští jen člověk (web)
     seen = []
@@ -1068,6 +1075,88 @@ def test_matching_workspace_checkpoint_still_requires_effect_verification(store:
            or RunResult(True, "hotovo")), read_only=True).step()
     assert "Verify completed steps and any external effects" in seen[0]
     assert "do not redo finished steps" not in seen[0]
+
+
+def _interrupted_with_checkpoint(store: Store, mid: int) -> None:
+    d = store.lease_next("codex", lease_seconds=60)
+    assert store.checkpoint(mid, "codex", d.lease_token, "první krok", "druhý krok",
+                            "head", "fingerprint")
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
+    assert store.retry(mid, "codex")
+
+
+def test_changed_workspace_holds_checkpointed_task_without_starting(store: Store, monkeypatch):
+    """A6 přísně: jiná pracovní kopie → nic nespustit, předat člověku."""
+    from agent_lease_mcp import bridge as br
+
+    mid = store.send("michal", "codex", "dvoukrokový úkol", kind="task")
+    _interrupted_with_checkpoint(store, mid)
+    monkeypatch.setattr(br.workspace, "workspace_state", lambda _: ("head", "jiný-otisk"))
+    seen = []
+    Bridge(store, "codex", "", runner=lambda prompt: (seen.append(prompt)
+           or RunResult(True, "hotovo")), read_only=True).step()
+    assert seen == []
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+    # obyčejný retry nestačí: kopie pořád nesedí → znovu zadrženo, nic nespuštěno
+    assert store.retry(mid, "codex")
+    Bridge(store, "codex", "", runner=lambda prompt: (seen.append(prompt)
+           or RunResult(True, "hotovo")), read_only=True).step()
+    assert seen == []
+
+
+def test_unknown_workspace_is_never_treated_as_a_match(store: Store, monkeypatch):
+    from agent_lease_mcp import bridge as br
+
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    _interrupted_with_checkpoint(store, mid)
+    monkeypatch.setattr(br.workspace, "workspace_state",
+                        lambda _: (br.workspace.UNKNOWN, br.workspace.UNKNOWN))
+    seen = []
+    Bridge(store, "codex", "", runner=lambda p: (seen.append(p) or RunResult(True, "x")),
+           read_only=True).step()
+    assert seen == []
+
+
+def test_human_resume_approval_runs_exactly_one_attempt(store: Store, monkeypatch):
+    from agent_lease_mcp import bridge as br
+
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    _interrupted_with_checkpoint(store, mid)
+    monkeypatch.setattr(br.workspace, "workspace_state", lambda _: ("head", "jiný-otisk"))
+    seen = []
+
+    def step():
+        Bridge(store, "codex", "", runner=lambda p: (seen.append(p)
+               or RunResult(False, "přerušeno znovu")), read_only=True).step()
+
+    step()
+    assert seen == []
+    assert store.approve_checkpoint_resume(mid, "codex", "michal", "zkontroloval jsem diff")
+    assert store.checkpoint_resume_approved(mid, "codex") is False   # ještě žádný nový pokus
+    step()
+    assert len(seen) == 1 and "the human approved resuming" in seen[0]
+    # další pokus po dalším přerušení potřebuje nové schválení
+    assert store.retry(mid, "codex")
+    step()
+    assert len(seen) == 1
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+
+
+def test_resume_approval_only_for_tasks_held_by_their_checkpoint(store: Store):
+    from agent_lease_mcp.broker import METHODS
+
+    assert "approve_checkpoint_resume" not in METHODS         # agent si ho nedá
+    assert "checkpoint_resume_approved" in METHODS             # jen čtení
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    d = store.lease_next("codex")
+    store.checkpoint(mid, "codex", d.lease_token, "krok", "", "h", "f")
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "jiný důvod",
+                          error="exit 3")
+    assert store.approve_checkpoint_resume(mid, "codex", "michal", "x") is False
+    other = store.send("michal", "codex", "bez checkpointu", kind="task")
+    assert store.approve_checkpoint_resume(other, "codex", "michal", "x") is False
 
 
 def test_backup_is_consistent_and_rotated(store: Store, tmp_path: Path):
@@ -1323,7 +1412,34 @@ def test_workspace_fingerprint_tracks_index_and_fails_closed(tmp_path: Path, mon
     assert workspace.workspace_state(tmp_path) == (workspace.UNKNOWN, workspace.UNKNOWN)
 
 
-def test_accept_existing_lease_receipt_still_marks_started(store: Store):
+def _state(store: Store, mid: int) -> str:
+    return next(j for j in store.jobs("codex") if j["id"] == mid)["state"]
+
+
+def test_accept_is_only_a_receipt_and_start_needs_the_token(store: Store):
+    """A1: accept never starts a task; only the lease token holder starts it."""
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    first = store.lease_next("codex")
+    assert store.accept(mid, "codex", lease_token=first.lease_token)
+    assert _state(store, mid) == "leased"
+    assert not store.ack(mid, "codex", "started", lease_token="cizí")
+    assert store.ack(mid, "codex", "started", lease_token=first.lease_token)
+    assert _state(store, mid) == "started"
+
+
+def test_crash_between_accept_and_start_returns_task_to_the_queue(store: Store, monkeypatch):
+    """Accepted but never started = nothing ran, so expiry may safely requeue it."""
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    first = store.lease_next("codex", lease_seconds=5)
+    assert store.accept(mid, "codex", lease_token=first.lease_token)
+    real = time.time
+    monkeypatch.setattr(time, "time", lambda: real() + 60)
+    second = store.lease_next("codex", skip_accepted=True)
+    assert second is not None and second.message_id == mid
+    assert not store.ack(mid, "codex", "started", lease_token=first.lease_token)
+
+
+def test_accept_existing_lease_receipt_keeps_the_task_unstarted(store: Store):
     mid = store.send("michal", "codex", "úkol", kind="task")
     first = store.lease_next("codex")
     assert store.accept(mid, "codex", lease_token=first.lease_token)
@@ -1333,7 +1449,7 @@ def test_accept_existing_lease_receipt_still_marks_started(store: Store):
                     "WHERE message_id=?", (mid,))
     second = store.lease_next("codex")
     assert store.accept(mid, "codex", lease_token=second.lease_token)
-    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "started"
+    assert _state(store, mid) == "leased"
 
 
 @pytest.mark.parametrize("state", ["failed", "dead_letter", "needs_review"])

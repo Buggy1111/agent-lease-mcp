@@ -24,6 +24,7 @@ from .config import Settings, human_name
 from .hygiene import check_text, heuristic_risk, redact
 from .lifecycle import QUARANTINE_TEXT
 from .models import DeliveryState, MessageKind
+from .states import CHECKPOINT_HOLD
 
 mcp = FastMCP("agent-lease")
 _settings = Settings.from_env()
@@ -148,6 +149,17 @@ def next_task(lease_seconds: int = 3600) -> dict:
                                  start=True)
     if delivery is None:
         return {"task": None}
+    view = _checkpoint_view(delivery.message_id)
+    # A6 přísně i interaktivně: změněná/neověřitelná kopie → nic nevydat, k člověku
+    if (view and not view["workspace_matches"]
+            and not _store.checkpoint_resume_approved(delivery.message_id, _settings.agent)):
+        _store.complete(delivery.message_id, _settings.agent, delivery.lease_token or "",
+                        DeliveryState.NEEDS_REVIEW,
+                        f"Task #{delivery.message_id} not started: the workspace changed since "
+                        "its checkpoint (or cannot be verified). Restore it and retry, or "
+                        "approve resuming in the web UI.", error=CHECKPOINT_HOLD)
+        return {"task": None, "held_for_review": delivery.message_id,
+                "reason": "workspace does not match the task checkpoint"}
     return {
         "task": {
             "id": delivery.message_id,
@@ -161,7 +173,7 @@ def next_task(lease_seconds: int = 3600) -> dict:
             "lease_until": delivery.lease_until,
             "reply_to": delivery.reply_to,
         },
-        "checkpoint": _checkpoint_view(delivery.message_id),
+        "checkpoint": view,
     }
 
 

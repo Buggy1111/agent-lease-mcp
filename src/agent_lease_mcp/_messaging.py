@@ -185,9 +185,12 @@ class MessagingMixin:
         (review Nox, 20. 10. 2026). Task, který už drží worker (`leased`/`started`),
         smí přijmout jen ten, kdo zná jeho lease token; jinak `False`. Bez toho
         by interaktivní session a bridge stejného jména provedly úkol oba.
-        Přijetí s tokenem se značí `by_lease` a atomicky přejde do `started`.
-        Po vypršení se proto předá k ověření (`needs_review`), nikoli automaticky
-        zpět do fronty; už mohlo dojít k vnějším účinkům.
+        Přijetí s tokenem se značí `by_lease`.
+
+        A1: `accept` je jen příjem, nikdy start. Oprávnění spustit dává výhradně
+        platný lease token; start je samostatný přechod `leased → started`
+        (`ack(STARTED)` v bridge, `lease_next(start=True)` v interaktivní cestě).
+        Teprve `started` po vypršení končí v `needs_review` místo ve frontě.
         """
         note = redact(check_short("note", note))
         with self._connect() as con:
@@ -244,13 +247,6 @@ class MessagingMixin:
                 if (not by_lease and prior and prior["accepted_at"] and not prior["by_lease"]
                         and prior["owner"] != owner):
                     return False
-            # Transition even on an idempotent receipt from an earlier lease.
-            if msg["kind"] == MessageKind.TASK.value and by_lease and d["state"] == "leased":
-                con.execute(
-                    "UPDATE deliveries SET state='started', updated_at=? "
-                    "WHERE message_id=? AND recipient=? AND state='leased'",
-                    (now, message_id, recipient),
-                )
             row = con.execute(
                 "SELECT accepted_at, by_lease FROM receipts WHERE message_id=? AND recipient=?",
                 (message_id, recipient),

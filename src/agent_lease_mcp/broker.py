@@ -38,7 +38,7 @@ METHODS = frozenset({
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_activation", "failover_sweep", "get_screen", "overdue", "extend_lease", "signal_mtime",
     "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
-    "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "paused", "pause",
+    "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "checkpoint_resume_approved", "paused", "pause",
     "checkpoint", "get_checkpoint", "backup_now",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})

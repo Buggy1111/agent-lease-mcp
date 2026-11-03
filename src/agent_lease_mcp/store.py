@@ -245,6 +245,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
             self._migrate_receipts(con)
             self._migrate_screens(con)
             self._migrate_deliveries(con)
+            self._migrate_checkpoints(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
 
@@ -254,6 +255,15 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
         for name in ("final_token_hash", "final_payload_hash"):
             if name not in columns:
                 con.execute(f"ALTER TABLE deliveries ADD COLUMN {name} TEXT")
+
+    @staticmethod
+    def _migrate_checkpoints(con: sqlite3.Connection) -> None:
+        """A6: lidské schválení navázání na checkpoint přes změněnou pracovní kopii."""
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(checkpoints)")}
+        for name, decl in (("resume_approved_by", "TEXT"), ("resume_approved_at", "REAL"),
+                           ("resume_approved_attempt", "INTEGER")):
+            if name not in columns:
+                con.execute(f"ALTER TABLE checkpoints ADD COLUMN {name} {decl}")
 
     @staticmethod
     def _migrate_receipts(con: sqlite3.Connection) -> None:

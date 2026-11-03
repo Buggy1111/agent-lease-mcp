@@ -483,3 +483,28 @@ def test_web_ui_creates_owner_only_human_name_file(tmp_path, monkeypatch):
     f = tmp_path / "human-name"
     assert f.read_text() == name
     assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_only_authenticated_human_approves_checkpoint_resume(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    mid = store.send("michal", "codex", "práce", kind="task")
+    d = store.lease_next("codex")
+    store.checkpoint(mid, "codex", d.lease_token, "krok", "", "h", "f")
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "zadrženo",
+                          error="checkpoint: workspace changed, not started")
+    handler_type = authenticated_handler(store, settings, "secret")
+    body = {"id": mid, "to": "codex", "reason": "diff zkontrolován"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                             headers={"Origin": "http://localhost:8765"}, body=body,
+                             handler_type=handler_type)
+    assert status in (401, 403)
+    headers = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://localhost:8765"}
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                               headers=headers, body={"id": mid, "to": "codex"},
+                               handler_type=handler_type)
+    assert status == 400                                       # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                               headers=headers, body=body, handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["resume_approved"] is True
+    assert store.jobs("codex")[0]["state"] == "pending"

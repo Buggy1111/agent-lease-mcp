@@ -42,3 +42,6 @@ def sql_in(states: frozenset[str]) -> str:
     """`('a','b')` pro SQL. Jen pro tyto konstanty, nikdy pro vstup od uživatele."""
     assert states and all(_SAFE.match(s) for s in states)
     return "(" + ",".join(f"'{s}'" for s in sorted(states)) + ")"
+
+# A6: úkol zadržený, protože pracovní kopie neodpovídá checkpointu (nespuštěn).
+CHECKPOINT_HOLD = "checkpoint: workspace changed, not started"

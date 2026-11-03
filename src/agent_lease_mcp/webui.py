@@ -198,6 +198,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_cancel()
             if parts.path == "/api/approve":
                 return self._handle_approve()
+            if parts.path == "/api/approve-resume":
+                return self._handle_approve_resume()
             if parts.path in ("/api/pause", "/api/resume"):
                 return self._handle_pause(parts.path.endswith("pause"))
             self._reject(404, "not found")
@@ -364,6 +366,23 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             if not store.approve_quarantine(message_id, recipient, web_agent, reason):
                 return self._reject(409, "only a task held back by quarantine can be approved")
             self._json_response({"id": message_id, "state": "pending", "approved": True})
+
+        def _handle_approve_resume(self) -> None:
+            """Člověk povolí jeden pokus navázat na checkpoint přes změněnou kopii (A6)."""
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                message_id = int(data["id"])
+                recipient = str(data["to"]).strip()
+                reason = str(data.get("reason", "")).strip()
+            except (KeyError, TypeError, ValueError):
+                return self._reject(400, "approve-resume needs a valid 'id' and 'to'")
+            if not recipient or not reason:
+                return self._reject(400, "approve-resume needs 'id', 'to' and a reason")
+            if not store.approve_checkpoint_resume(message_id, recipient, web_agent, reason):
+                return self._reject(409, "only a task held back by its checkpoint can be resumed")
+            self._json_response({"id": message_id, "state": "pending", "resume_approved": True})
 
         def _handle_pause(self, stop: bool) -> None:
             """Nouzové zastavení / obnovení. Obnovit smí jen člověk – proto jen tady."""
@@ -713,6 +732,18 @@ function renderMessage(m) {
           .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
       };
       actions.appendChild(approve);
+    }
+    if (m.state === "needs_review" && (m.last_error || "").startsWith("checkpoint:")) {
+      const resume = document.createElement("button");
+      resume.className = "btn-ghost"; resume.textContent = "Resume anyway (once)";
+      resume.onclick = () => {
+        const reason = prompt("The workspace changed since the checkpoint. Why is it safe to continue? (logged)");
+        if (!reason) return;
+        fetch("/api/approve-resume", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id: m.id, to: m.recipient, reason})})
+          .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
+      };
+      actions.appendChild(resume);
     }
     if (["failed", "needs_review", "dead_letter"].includes(m.state)) {
       const retry = document.createElement("button");

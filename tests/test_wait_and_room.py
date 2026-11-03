@@ -148,6 +148,9 @@ def test_interactive_checkpoint_does_not_inject_untrusted_instructions(server, m
     assert store.complete(mid, "claude-code", task["lease_token"], "needs_review", "stopped")
     assert store.retry(mid, "claude-code")
     monkeypatch.setattr(server, "_workspace_state", lambda: ("unknown", "unknown"))
+    held = server.next_task()                       # A6: neověřitelná kopie → k člověku
+    assert held["task"] is None and bad not in str(held)
+    assert store.approve_checkpoint_resume(mid, "claude-code", "michal", "ověřeno")
     checkpoint = server.next_task()["checkpoint"]
     assert bad not in str(checkpoint)
     assert "held back" in checkpoint["step_done"]

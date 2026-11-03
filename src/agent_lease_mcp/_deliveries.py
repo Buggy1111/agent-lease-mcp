@@ -586,6 +586,53 @@ class DeliveriesMixin:
         self._signal(recipient)
         return True
 
+    def approve_checkpoint_resume(self, message_id: int, recipient: str, approver: str,
+                                  reason: str) -> bool:
+        """
+        LIDSKÉ schválení jednoho pokusu, který naváže na checkpoint, ačkoli se
+        pracovní kopie od něj změnila nebo ji nejde ověřit (A6, přísný režim).
+        Jen úkol zadržený právě touto kontrolou (nespustil se). Není v METHODS
+        brokeru: agent si ho dát nemůže, volá ho jen web UI s lidskou session.
+        """
+        reason = check_short("reason", reason.strip()) or "approved"
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            now = time.time()
+            row = con.execute(
+                "SELECT d.state, d.last_error, d.attempts FROM deliveries d "
+                "JOIN checkpoints c ON c.message_id=d.message_id AND c.recipient=d.recipient "
+                "WHERE d.message_id=? AND d.recipient=?",
+                (message_id, recipient),
+            ).fetchone()
+            if (not row or row["state"] != "needs_review"
+                    or not (row["last_error"] or "").startswith("checkpoint:")):
+                return False
+            con.execute(
+                "UPDATE checkpoints SET resume_approved_by=?, resume_approved_at=?, "
+                "resume_approved_attempt=? WHERE message_id=? AND recipient=?",
+                (approver, now, row["attempts"], message_id, recipient),
+            )
+            con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                "last_error='', updated_at=? WHERE message_id=? AND recipient=?",
+                (now, message_id, recipient),
+            )
+            self._record(con, approver, "approve-checkpoint-resume", "",
+                         f"#{message_id}: {reason}")
+        self._signal(recipient)
+        return True
+
+    def checkpoint_resume_approved(self, message_id: int, recipient: str) -> bool:
+        """Platí jen pro pokus bezprostředně po schválení (jednorázové)."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT c.resume_approved_attempt, d.attempts FROM checkpoints c "
+                "JOIN deliveries d ON d.message_id=c.message_id AND d.recipient=c.recipient "
+                "WHERE c.message_id=? AND c.recipient=? AND c.resume_approved_at IS NOT NULL",
+                (message_id, recipient),
+            ).fetchone()
+        return bool(row) and row["attempts"] == (row["resume_approved_attempt"] or 0) + 1
+
     def _may_manage(self, con: sqlite3.Connection, message_id: int, recipient: str,
                     actor: str | None) -> bool:
         """`actor=None` = ověřený člověk (web). Agent smí spravovat jen svoje nebo jím zadané."""

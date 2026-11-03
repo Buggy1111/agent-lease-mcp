@@ -85,3 +85,33 @@ def test_addressed_task_roundtrip(server):
     assert task["text"] == "zkontroluj"
     acked = server.ack(task["id"], "succeeded", task["lease_token"])
     assert acked["ok"] is True
+
+
+def test_next_task_holds_a_checkpointed_task_when_the_workspace_changed(server, monkeypatch):
+    """A6 přísně i v interaktivní cestě: nevydat úkol, předat člověku."""
+    store = server._store
+    mid = store.send("michal", "test-agent", "úkol", kind="task")
+    d = store.lease_next("test-agent", start=True)
+    assert store.checkpoint(mid, "test-agent", d.lease_token, "krok 1", "krok 2", "h", "f")
+    assert store.complete(mid, "test-agent", d.lease_token, "needs_review", "přerušeno")
+    assert store.retry(mid, "test-agent")
+    monkeypatch.setattr(server, "_workspace_state", lambda: ("h", "jiný"))
+    result = server.next_task()
+    assert result["task"] is None and result["held_for_review"] == mid
+    job = next(j for j in store.jobs("test-agent") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+    assert store.approve_checkpoint_resume(mid, "test-agent", "michal", "ověřeno")
+    result = server.next_task()
+    assert result["task"]["id"] == mid and result["checkpoint"]["workspace_matches"] is False
+
+
+def test_next_task_resumes_a_checkpoint_on_a_matching_workspace(server, monkeypatch):
+    store = server._store
+    mid = store.send("michal", "test-agent", "úkol", kind="task")
+    d = store.lease_next("test-agent", start=True)
+    store.checkpoint(mid, "test-agent", d.lease_token, "krok 1", "krok 2", "h", "f")
+    store.complete(mid, "test-agent", d.lease_token, "needs_review", "přerušeno")
+    store.retry(mid, "test-agent")
+    monkeypatch.setattr(server, "_workspace_state", lambda: ("h", "f"))
+    result = server.next_task()
+    assert result["task"]["id"] == mid and result["checkpoint"]["workspace_matches"] is True
