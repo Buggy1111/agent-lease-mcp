@@ -63,7 +63,7 @@ Důsledky:
    `$R/python/bin/python3 -I` a `sqlite3` v režimu `mode=ro`), zapsat SHA-256 zálohy.
    Celý adresář DB zkopírovat mimo něj. Globální snímek fronty uložit do souboru:
    `SELECT message_id, recipient, state, attempts, last_error FROM deliveries
-   WHERE state NOT IN ('done','failed','cancelled','dead')` (read-only spojení).
+   WHERE state IN ('pending','leased','started','needs_review')` (read-only spojení).
 4. **Přepnutí runtime a služeb:**
    - Uložit původní stav: `readlink ~/.local/share/agent-lease/current` (při prvním
      nasazení neexistuje, zapsat „nebyl“) a archiv všech stávajících adresářů
