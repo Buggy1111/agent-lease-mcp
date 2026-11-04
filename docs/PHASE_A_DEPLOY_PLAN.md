@@ -1,7 +1,7 @@
 # Fáze A: plán provozního nasazení (příprava 3. 11. 2026)
 
-**Stav: NEPROVEDENO.** Čeká na: výsledek 8h chaosu v novém runtime, review Noxe
-(kolem 7. 11.) a Michalův výslovný souhlas. Plán popisuje konkrétní kroky;
+**Stav: NEPROVEDENO.** Čeká na: 8h chaos přesného kandidáta (po opravě Nox #566/P1),
+review oprav Noxem a Michalův výslovný souhlas. Plán doplněn 4. 11. podle review #566 (P2). Plán popisuje konkrétní kroky;
 spouštět je jen po schválení a nejlépe společně s Michalem.
 
 ## Současný provoz (inventura 3. 11. 2026, jen čtení)
@@ -37,18 +37,42 @@ Důsledky:
 
 ## Postup (každý krok až po souhlasu)
 
-0. **Příprava bez výpadku:** sestavit `runtime-<commit>` vedle stávajícího stavu.
-   V něm pustit `env -i …/python -I` kontrolu verze, celou sadu testů a
-   `scripts/verify_sqlite_runtime.py`. Stávající služby se nemění.
-1. **Okno údržby:** přes `agent-lease jobs`/web ověřit, že nic neběží (žádné
-   `leased`/`started`). Zapnout `emergency_stop`, aby nic nového nezačalo.
+0. **Příprava bez výpadku:** sestavit runtime **přímo ve finální cestě**
+   `~/.local/share/agent-lease/runtime-<commit>/` (venv není přemístitelný).
+   Archiv stáhnout z přesné URL release `20261026`, ověřit proti uloženému
+   manifestu `docs/test-results/phase-a-a8-pbs/SHA256SUMS` a manifest i URL
+   zapsat do `runtime-<commit>/IDENTITY`. V runtime pustit `env -i …/python -I`
+   kontrolu verze, celou sadu testů a `scripts/verify_sqlite_runtime.py`.
+   Zkontrolovat, že shebangy `venv/bin/agent-lease*` ukazují do `runtime-<commit>`.
+   Stávající služby se nemění.
+1. **Okno údržby:** přes web ověřit, že nic neběží (žádné `leased`/`started`).
+   Zapnout `emergency_stop`, aby nic nového nezačalo. (`jobs` je omezený výpis pro
+   adresáta, globální snímek fronty se dělá až v kroku 3.)
 2. **Zastavit všechny klienty DB:**
    `systemctl --user stop agent-lease-bridge@claude-code agent-lease-bridge@codex agent-lease-codex-wake agent-lease-broker`,
    ukončit web UI a **zavřít interaktivní relace Claude Code a Codexu** (jejich MCP
    procesy drží DB). Ověřit `fuser`/`lsof` nad `room.db`, že ji nikdo nemá otevřenou.
-3. **Záloha:** `agent-lease backup` (integrity `ok`) a kopie celého adresáře DB
-   mimo něj. Zapsat hash zálohy.
-4. **Přepnutí služeb:** drop-iny `~/.config/systemd/user/<unit>.d/10-runtime.conf`
+3. **Offline záloha a snímek fronty** (broker stojí, proto bez broker-only env a
+   přes absolutní cestu nového interpretu, ne CLI z `PATH`):
+   ```
+   R=~/.local/share/agent-lease/runtime-<commit>
+   env -u AGENT_LEASE_REQUIRE_BROKER -u AGENT_LEASE_SOCKET AGENT_LEASE_DB=<cesta k room.db> \
+     $R/venv/bin/agent-lease backup
+   ```
+   Ověřit `PRAGMA integrity_check` = ok u **zdrojové DB i zálohy** (přímo přes
+   `$R/python/bin/python3 -I` a `sqlite3` v režimu `mode=ro`), zapsat SHA-256 zálohy.
+   Celý adresář DB zkopírovat mimo něj. Globální snímek fronty uložit do souboru:
+   `SELECT message_id, recipient, state, attempts, last_error FROM deliveries
+   WHERE state NOT IN ('done','failed','cancelled','dead')` (read-only spojení).
+4. **Přepnutí runtime a služeb:**
+   - Uložit původní stav: `readlink ~/.local/share/agent-lease/current` (při prvním
+     nasazení neexistuje, zapsat „nebyl“) a archiv všech stávajících adresářů
+     `~/.config/systemd/user/agent-lease-*.d/` (`tar czf drop-ins-<datum>.tgz`).
+   - Atomicky založit/přepnout symlink:
+     `ln -sfn runtime-<commit> ~/.local/share/agent-lease/current.new &&
+      mv -T ~/.local/share/agent-lease/current.new ~/.local/share/agent-lease/current`,
+     ověřit `readlink` a existenci `current/venv/bin/agent-lease-{broker,bridge,mcp}`.
+   - Drop-iny `~/.config/systemd/user/<unit>.d/10-runtime.conf`
    s `ExecStart=` (vyprázdnit) a novým `ExecStart=%h/.local/share/agent-lease/current/venv/bin/…`.
    Pro bridge navíc `Delegate=yes` a `--cgroup`. Původní unit soubory zůstanou beze změny.
    Potom `systemctl --user daemon-reload`.
@@ -56,9 +80,17 @@ Důsledky:
    `claude mcp add -s user agent-lease -- …/current/venv/bin/agent-lease-mcp`.
    Zachovat stávající env. V `~/.codex/config.toml` změnit jen `command`.
    Předtím zálohovat `~/.claude.json` a `~/.codex/config.toml`.
-6. **Start:** broker, pak bridge a wake. `agent-lease doctor --json` musí hlásit
-   SQLite 3.53.1 a dostupné služby. `journalctl --user -u 'agent-lease-*'` bez chyb.
-   `systemctl --user show agent-lease-bridge@codex -p Delegate` = yes.
+6. **Start a ověření skutečných procesů:** broker, pak bridge a wake.
+   `doctor` hlásí jen SQLite **svého** procesu, nestačí. Pro každou službu:
+   `systemctl --user show <unit> -p ExecStart -p MainPID -p Delegate`, pak
+   `readlink /proc/<MainPID>/exe` (musí být `runtime-<commit>/python/bin/python3.13`)
+   a `/proc/<MainPID>/cmdline` (musí být `current/venv/bin/…`). Tentýž interpret je
+   v kroku 0 ověřený na SQLite 3.53.1. Totéž pro **oba čerstvě spuštěné MCP
+   klienty** (`pgrep -af agent-lease-mcp` po startu nové relace Claude Code i Codexu).
+   Doctor spouštět absolutně: `current/venv/bin/agent-lease doctor --json`.
+   U obou bridge ověřit `Delegate=yes` **a** skutečné umístění v cgroup
+   (`cat /proc/<MainPID>/cgroup`, `systemd-cgls --user-unit agent-lease-bridge@codex`).
+   `journalctl --user -u 'agent-lease-*'` bez chyb.
 7. **Kontrola:** `PRAGMA integrity_check` = ok, fronta beze změny proti stavu
    z kroku 1. Zrušit `emergency_stop` (jen člověk, web).
 8. **Živý test, jen se zvláštním souhlasem:** jeden syntetický úkol na `claude-code`
@@ -68,11 +100,15 @@ Důsledky:
 ## Návrat zpět
 
 1. `emergency_stop`, zastavit služby a zavřít relace agentů (jako v kroku 2).
-2. Smazat drop-iny `10-runtime.conf`, `daemon-reload`. Tím se služby vrátí na
+2. Obnovit drop-iny přesně z archivu z kroku 4 (smazat nové `10-runtime.conf`,
+   rozbalit původní stav), symlink `current` vrátit na zapsaný původní cíl
+   (nebo odstranit, pokud dřív nebyl), `daemon-reload`. Tím se služby vrátí na
    uv tool (Python 3.14.4).
 3. Obnovit `~/.claude.json` / `~/.codex/config.toml` ze zálohy z kroku 5.
 4. DB: nové sloupce starý kód ignoruje, takže obnova DB není nutná. Při pochybnosti
-   o integritě obnovit zálohu z kroku 3, ale **jen** se zastavenými klienty.
+   o integritě obnovit zálohu z kroku 3, ale **jen** se zastavenými klienty; vadnou
+   DB zachovat stranou a `emergency_stop` nechat zapnutý, dokud člověk neověří
+   účinky úkolů provedených po záloze (viz `PHASE_A_PREDEPLOY_REVIEW.md`).
 5. Spustit služby, `doctor --json`, integrity check. Po restartu se `needs_review`
    ani `pending` úkoly nesmí spustit samy bez kontroly.
 

@@ -15,7 +15,9 @@ Provoz, služby ani MCP klienti nebyli změněni.
 | Identita artefaktů | [runtime-identity.json](test-results/phase-a-a8-pbs/runtime-identity.json), [requirements.lock](test-results/phase-a-a8-pbs/requirements.lock) |
 | 15min chaos s cgroup (systemd scope, 4 workery, kód `cda7678`) | **PROŠLO**: 310 úkolů, 114 pádů workerů, 23 pádů brokeru, 9 limitů; žádné dvojité efekty ani Done, žádní sirotci, 0 pending, integrita `ok` ([log](test-results/phase-a-a8-pbs/chaos-15min-cgroup.log)) |
 
-8h běh v tomto runtime zatím neproběhl (podmínka uzavření A8).
+8h běh v tomto runtime: pokusy 3. 11. a 4. 11. ráno přerušilo vypnutí WSL
+(žádný výsledek); 3. pokus běží 4. 11. od 14:30 na `2a69f93`. Rozhodující bude
+8h běh přesného kandidáta po opravě Nox #566/P1 (`240f7d2` a novější).
 
 ## Zjištění
 
@@ -30,8 +32,10 @@ Provoz, služby ani MCP klienti nebyli změněni.
   `cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz`
   a `cpython-3.14.10+20261026-…`, k nim `SHA256SUMS`. Novější uv (aktuálně 0.13.7)
   tyto sestavení stahuje sám.
-- Lokálně jsme zatím **neověřili**, že stažené sestavení skutečně hlásí 3.53.1.
-  Ověří se to až po schválení. Bez toho se nic neodškrtává.
+- Lokálně ověřeno 3. 11. 2026 (tabulka výše): stažené sestavení hlásí 3.53.1.
+  Upstream manifest je uložen v [SHA256SUMS](test-results/phase-a-a8-pbs/SHA256SUMS)
+  (z `https://github.com/astral-sh/python-build-standalone/releases/download/20261026/SHA256SUMS`);
+  řádek archivu: `126343c54daff4068efc1ac269518d0cc202d57857794948103dd1454e8881be`.
 
 ## Proč je to lepší než dosavadní experiment
 
