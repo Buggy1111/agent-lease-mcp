@@ -91,10 +91,12 @@ Důsledky:
    U obou bridge ověřit `Delegate=yes` **a** skutečné umístění v cgroup
    (`cat /proc/<MainPID>/cgroup`, `systemd-cgls --user-unit agent-lease-bridge@codex`).
    `journalctl --user -u 'agent-lease-*'` bez chyb.
-7. **Kontrola:** `PRAGMA integrity_check` = ok, fronta beze změny proti stavu
-   z kroku 1. Zrušit `emergency_stop` (jen člověk, web).
+7. **Kontrola:** `PRAGMA integrity_check` = ok, fronta beze změny proti snímku
+   z kroku 3. Znovu spustit web UI zastavené v kroku 2 a teprve pak zrušit
+   `emergency_stop` (jen člověk, web).
 8. **Živý test, jen se zvláštním souhlasem:** jeden syntetický úkol na `claude-code`
-   bridge, ověřit jediné dokončení, `wait`, karanténu a stop/resume.
+   bridge, ověřit jediné dokončení, `wait`, karanténu a stop/resume. Ověřit i
+   cgroup samotného workeru (podřízená skupina bridge), ne jen MainPID bridge.
 9. Teprve potom A11 (Windows/WSL restart) podle checklistu v `PHASE_A_PREDEPLOY_REVIEW.md`.
 
 ## Návrat zpět
@@ -113,6 +115,11 @@ Důsledky:
    ani `pending` úkoly nesmí spustit samy bez kontroly.
 
 ## Rizika a otevřené body
+
+- Kontrola checkpointu (A6) chrání před **neúmyslným** spuštěním: otisk pracovní
+  kopie posílá volající. Klient se stejným OS uživatelem a přístupem k socketu
+  ji může záměrně obejít; socket není bezpečnostní hranice proti lživému
+  klientovi (Nox #571) a nesmí se tak prezentovat.
 
 - Za běhu nesmí zůstat žádný klient se starým kódem: běžící procesy se změnou
   souborů nepřepnou. Proto se zavírají i interaktivní relace.
