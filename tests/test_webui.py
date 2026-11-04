@@ -489,7 +489,7 @@ def test_only_authenticated_human_approves_checkpoint_resume(tmp_path: Path):
     settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
     store = Store(settings=settings)
     mid = store.send("michal", "codex", "práce", kind="task")
-    d = store.lease_next("codex")
+    d = store.lease_next("codex", start=True)
     store.checkpoint(mid, "codex", d.lease_token, "krok", "", "h", "f")
     assert store.complete(mid, "codex", d.lease_token, "needs_review", "zadrženo",
                           error="checkpoint: workspace changed, not started")

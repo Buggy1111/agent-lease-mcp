@@ -505,7 +505,8 @@ class Bridge:
         # 0b) A6 přísně: navázat na checkpoint jen při shodě pracovní kopie, jinak
         #     nic nespouštět a předat člověku (schválení jen pro jeden pokus).
         cp = self.store.get_checkpoint(mid, self.agent)
-        same = bool(cp) and workspace.matches(cp, *workspace.workspace_state(os.getcwd()))
+        ws = workspace.workspace_state(os.getcwd()) if cp else None  # git jen když je co ověřit
+        same = bool(cp) and workspace.matches(cp, *ws)
         if cp and not same and not self.store.checkpoint_resume_approved(mid, self.agent):
             self.store.complete(
                 mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
@@ -522,7 +523,8 @@ class Bridge:
         #    se ještě nespustilo.
         if not self.store.accept(mid, self.agent, BRIDGE_ACCEPT_NOTE, lease_token=token):
             return True  # lease už není náš / pauza → nespouštět
-        if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token):
+        if not self.store.ack(mid, self.agent, DeliveryState.STARTED, lease_token=token,
+                              workspace=list(ws) if ws else None):
             return True  # vypršel, zrušen nebo pauza mezi příjmem a startem → nespouštět
         self._starts.append(time.time())
         self.store.heartbeat(self.worker_identity, status=f"bridge: {self.agent} task #{mid}")

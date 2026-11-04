@@ -97,7 +97,7 @@ def test_next_task_holds_a_checkpointed_task_when_the_workspace_changed(server, 
     assert store.retry(mid, "test-agent")
     monkeypatch.setattr(server, "_workspace_state", lambda: ("h", "jiný"))
     result = server.next_task()
-    assert result["task"] is None and result["held_for_review"] == mid
+    assert result["task"] is None    # úložiště samo úkol zadrželo, nic nevydalo (A6, #566/P1)
     job = next(j for j in store.jobs("test-agent") if j["id"] == mid)
     assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
     assert store.approve_checkpoint_resume(mid, "test-agent", "michal", "ověřeno")

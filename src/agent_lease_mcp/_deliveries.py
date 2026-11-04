@@ -11,6 +11,7 @@ import json
 import sqlite3
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from ._store_common import (
@@ -26,6 +27,7 @@ from .launch_gate import launch_gate
 from .models import Delivery, DeliveryState, MessageKind
 from .states import (
     ACK_TRANSITIONS,
+    CHECKPOINT_HOLD,
     HELD,
     QUEUED,
     RETRYABLE,
@@ -33,6 +35,7 @@ from .states import (
     UNCANCELLABLE,
     sql_in,
 )
+from .workspace import matches as workspace_matches
 
 
 class DeliveriesMixin:
@@ -135,7 +138,7 @@ class DeliveriesMixin:
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
-        start: bool = False,
+        start: bool = False, workspace: Sequence[str] | None = None,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -146,6 +149,9 @@ class DeliveriesMixin:
           jemu; worker ho nesmí vzít taky (jinak by proběhl dvakrát).
         - `defer_if_present` — je-li adresát přítomný (heartbeat), nechá worker
           task tolik sekund jemu a převezme ho až potom.
+        - `start=True` vydá úkol rovnou jako started; navazuje-li na checkpoint
+          minulého pokusu, musí volající doložit shodný `workspace` (git HEAD,
+          otisk změn), jinak úkol jde k člověku (A6 jako invariant úložiště).
         """
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         after_message_id = max(0, int(after_message_id))
@@ -203,6 +209,10 @@ class DeliveriesMixin:
                                        "not started, waiting for the human to review.",
                                        candidate["id"], now)
                     continue
+                if start and self._checkpoint_hold(con, candidate["id"], recipient,
+                                                   candidate["attempts"] + 1, workspace,
+                                                   candidate["agent"], now):
+                    continue
                 row = candidate
                 break
             if row is None:
@@ -233,8 +243,15 @@ class DeliveriesMixin:
         *,
         lease_token: str | None = None,
         error: str = "",
+        workspace: Sequence[str] | None = None,
     ) -> bool:
-        """Potvrdí pouze platný přechod vlastněného pracovního lease."""
+        """
+        Potvrdí pouze platný přechod vlastněného pracovního lease.
+
+        Přechod do `started` u úkolu s checkpointem minulého pokusu vyžaduje shodný
+        `workspace` (nebo lidské schválení); jinak úkol atomicky skončí v
+        needs_review a nic se nespustí (A6, Nox #566/P1).
+        """
         state_value = DeliveryState(state).value
         terminal, allowed = TERMINAL, ACK_TRANSITIONS
         with self._connect() as con:
@@ -265,6 +282,13 @@ class DeliveriesMixin:
                 return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
+            if state_value == "started":
+                att = con.execute("SELECT d.attempts, m.agent FROM deliveries d JOIN messages m "
+                                  "ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",
+                                  (message_id, recipient)).fetchone()
+                if self._checkpoint_hold(con, message_id, recipient, att["attempts"], workspace,
+                                         att["agent"], time.time(), held_state=current):
+                    return False
             clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
@@ -375,10 +399,46 @@ class DeliveriesMixin:
 
     # ── checkpoint (fáze A6) ─────────────────────────────────────────────────
 
+    def _checkpoint_hold(self, con: sqlite3.Connection, message_id: int, recipient: str,
+                         attempt: int, workspace: Sequence[str] | None, sender: str,
+                         now: float, *, held_state: str = "pending") -> bool:
+        """
+        Smí pokus `attempt` začít? Má-li úkol checkpoint z dřívějšího pokusu, start
+        projde jen se shodným otiskem pracovní kopie, nebo s lidským schválením právě
+        pro tento pokus. Jinak úkol v téže transakci přejde do needs_review (žádný
+        token, žádný start) a vrátí True.
+        """
+        cp = con.execute(
+            "SELECT attempt, git_head, dirty, resume_approved_at, resume_approved_attempt "
+            "FROM checkpoints WHERE message_id=? AND recipient=?", (message_id, recipient),
+        ).fetchone()
+        if not cp or cp["attempt"] >= attempt:
+            return False
+        if cp["resume_approved_at"] is not None and attempt == (cp["resume_approved_attempt"] or 0) + 1:
+            return False
+        ws = list(workspace) if workspace is not None else []
+        if len(ws) == 2 and workspace_matches(dict(cp), str(ws[0]), str(ws[1])):
+            return False
+        con.execute(
+            "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=?, "
+            "lease_token=NULL, lease_until=NULL "
+            "WHERE message_id=? AND recipient=? AND state=?",
+            (CHECKPOINT_HOLD, now, message_id, recipient, held_state),
+        )
+        self._insert_event(con, "broker", sender,
+                           f"Task #{message_id} not started: the workspace changed since the "
+                           f"checkpoint of attempt {cp['attempt']} (or cannot be verified). "
+                           "Restore it and retry, or approve resuming in the web UI.",
+                           message_id, now)
+        return True
+
     def checkpoint(self, message_id: int, recipient: str, lease_token: str, step_done: str,
                    next_step: str = "", git_head: str = "", dirty: str = "",
                    evidence: str = "") -> bool:
-        """Uloží postup úkolu. Jen vlastník platného lease (cizí/starý token nic nepřepíše)."""
+        """
+        Uloží postup úkolu. Jen vlastník platného lease ve stavu started (cizí/starý
+        token ani dosud nespuštěný pokus nepřepíše otisk minulého pokusu, Nox #566/P1).
+        """
         for label, value in (("step_done", step_done), ("next_step", next_step),
                              ("evidence", evidence)):
             check_short(label, value) if label != "evidence" else check_text(value)
@@ -386,8 +446,8 @@ class DeliveriesMixin:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()  # až po zámku (Nox #545/6)
             row = con.execute(
-                f"SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
-                f"AND lease_token=? AND state IN {sql_in(HELD)} AND lease_until>?",
+                "SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
+                "AND lease_token=? AND state='started' AND lease_until>?",
                 (message_id, recipient, lease_token, now),
             ).fetchone()
             if not row:

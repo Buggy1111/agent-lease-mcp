@@ -404,3 +404,18 @@ def test_agents_cannot_write_screening_results_through_the_broker():
     from agent_lease_mcp.broker import METHODS
     assert "set_screen" not in METHODS and "approve_quarantine" not in METHODS
     assert "resume" not in METHODS
+
+
+def test_rpc_start_cannot_skip_the_checkpoint_hold(broker):
+    """A6 přes skutečné RPC brokeru, ne jen přes Bridge/server wrapper (Nox #566/P1)."""
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    mid = remote.send("michal", "codex", "úkol", kind="task")
+    d = remote.lease_next("codex", lease_seconds=60, start=True)
+    assert remote.checkpoint(mid, "codex", d.lease_token, "krok 1", "krok 2", "h", "f")
+    assert remote.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
+    from agent_lease_mcp.store import Store
+    assert Store(settings=settings).retry(mid, "codex")   # člověk (web), ne agent přes RPC
+    assert remote.lease_next("codex", start=True) is None
+    job = next(j for j in remote.jobs("codex", viewer="codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")

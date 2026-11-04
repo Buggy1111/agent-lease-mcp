@@ -1043,7 +1043,7 @@ def test_checkpoint_needs_a_valid_lease_and_reaches_the_next_attempt(store: Stor
     from agent_lease_mcp import bridge as br
 
     mid = store.send("michal", "codex", "dvoukrokový úkol", kind="task")
-    d = store.lease_next("codex", lease_seconds=60)
+    d = store.lease_next("codex", lease_seconds=60, start=True)
     assert store.checkpoint(mid, "codex", "cizí-token", "krok 1") is False
     assert store.checkpoint(mid, "codex", d.lease_token, "krok 1 hotový", "krok 2",
                             "head", "fingerprint", evidence="pytest: 10 passed")
@@ -1064,7 +1064,7 @@ def test_matching_workspace_checkpoint_still_requires_effect_verification(store:
     from agent_lease_mcp import bridge as br
 
     mid = store.send("michal", "codex", "dvoukrokový úkol", kind="task")
-    d = store.lease_next("codex", lease_seconds=60)
+    d = store.lease_next("codex", lease_seconds=60, start=True)
     assert store.checkpoint(mid, "codex", d.lease_token, "první krok", "druhý krok",
                             "head", "fingerprint")
     assert store.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
@@ -1078,7 +1078,7 @@ def test_matching_workspace_checkpoint_still_requires_effect_verification(store:
 
 
 def _interrupted_with_checkpoint(store: Store, mid: int) -> None:
-    d = store.lease_next("codex", lease_seconds=60)
+    d = store.lease_next("codex", lease_seconds=60, start=True)
     assert store.checkpoint(mid, "codex", d.lease_token, "první krok", "druhý krok",
                             "head", "fingerprint")
     assert store.complete(mid, "codex", d.lease_token, "needs_review", "přerušeno")
@@ -1150,7 +1150,7 @@ def test_resume_approval_only_for_tasks_held_by_their_checkpoint(store: Store):
     assert "approve_checkpoint_resume" not in METHODS         # agent si ho nedá
     assert "checkpoint_resume_approved" in METHODS             # jen čtení
     mid = store.send("michal", "codex", "úkol", kind="task")
-    d = store.lease_next("codex")
+    d = store.lease_next("codex", start=True)
     store.checkpoint(mid, "codex", d.lease_token, "krok", "", "h", "f")
     assert store.complete(mid, "codex", d.lease_token, "needs_review", "jiný důvod",
                           error="exit 3")
@@ -1564,3 +1564,50 @@ def test_child_dies_when_the_bridge_is_killed(tmp_path: Path):
     time.sleep(0.5)
     stat_file = Path(f"/proc/{pid}/stat")
     assert not stat_file.exists() or stat_file.read_text().split()[2] == "Z"
+
+
+# ── A6 jako invariant úložiště/brokeru (Nox #566/P1) ─────────────────────────
+
+def _checkpointed_pending(store: Store, mid: int, agent: str = "codex") -> None:
+    d = store.lease_next(agent, lease_seconds=60, start=True)
+    assert store.checkpoint(mid, agent, d.lease_token, "krok 1", "krok 2", "h", "f")
+    assert store.complete(mid, agent, d.lease_token, "needs_review", "přerušeno")
+    assert store.retry(mid, agent)
+
+
+def test_low_level_start_cannot_skip_the_checkpoint_hold(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    _checkpointed_pending(store, mid)
+    # žádný otisk ani jiný otisk → nic se nevydá, úkol jde k člověku
+    assert store.lease_next("codex", start=True) is None
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+    assert store.retry(mid, "codex")
+    assert store.lease_next("codex", start=True, workspace=["h", "jiný"]) is None
+    # shodný otisk → start povolen
+    assert store.retry(mid, "codex")
+    d = store.lease_next("codex", start=True, workspace=["h", "f"])
+    assert d is not None and d.state.value == "started"
+
+
+def test_ack_started_without_a_matching_workspace_holds_the_task(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    _checkpointed_pending(store, mid)
+    d = store.lease_next("codex", lease_seconds=60)          # leased (bridge cesta)
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token) is False
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+    # po lidském schválení projde právě jeden další pokus
+    assert store.approve_checkpoint_resume(mid, "codex", "michal", "ověřeno")
+    d = store.lease_next("codex", lease_seconds=60)
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token) is True
+
+
+def test_unstarted_lease_cannot_overwrite_the_previous_checkpoint(store: Store):
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    _checkpointed_pending(store, mid)
+    d = store.lease_next("codex", lease_seconds=60)          # leased, ještě nespuštěno
+    assert store.checkpoint(mid, "codex", d.lease_token, "přepis", "", "h2", "f2") is False
+    cp = store.get_checkpoint(mid, "codex")
+    assert (cp["git_head"], cp["dirty"]) == ("h", "f")
+
