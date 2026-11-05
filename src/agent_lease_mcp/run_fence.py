@@ -17,12 +17,14 @@ import json
 import os
 import stat
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from .cgroup import recover_cgroup
 
-# An owner locks the marker right after creating it; an empty file older than
-# this cannot belong to a live `acquire`.
+# Keep a grace period for empty markers left by older versions. Age alone
+# cannot prove the creator died: the directory lock below protects live creators
+# even when they pause between creating the marker and locking its inode.
 EMPTY_MARKER_GRACE = 30.0
 
 
@@ -64,7 +66,23 @@ class RunFence:
         finally:
             os.close(fd)
 
+    @contextmanager
+    def _directory_lock(self, *, blocking: bool = True):
+        # The parent directory is stable even when the marker is removed and
+        # replaced. Holding its lock closes the create-before-flock gap: recovery
+        # must never unlink a live creator's not-yet-locked marker.
+        fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            yield
+        finally:
+            os.close(fd)
+
     def acquire(self, message_id: int, *, cgroup: bool = False) -> None:
+        with self._directory_lock():
+            self._acquire_locked(message_id, cgroup=cgroup)
+
+    def _acquire_locked(self, message_id: int, *, cgroup: bool) -> None:
         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(self.path, flags, 0o600)
         try:
@@ -102,6 +120,13 @@ class RunFence:
 
     def try_recover(self) -> bool:
         """Recover only a dead owner's recorded cgroup within our current scope."""
+        try:
+            with self._directory_lock(blocking=False):
+                return self._try_recover_locked()
+        except OSError:
+            return False
+
+    def _try_recover_locked(self) -> bool:
         flags = os.O_RDWR | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = os.open(self.path, flags)

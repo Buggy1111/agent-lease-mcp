@@ -141,6 +141,75 @@ def test_empty_marker_is_cleared_only_after_grace(tmp_path):
     assert fence.try_recover() and not fence.present()
 
 
+def test_recovery_cannot_remove_marker_while_live_owner_is_before_flock(tmp_path, monkeypatch):
+    """A slow creator still owns its empty marker, even beyond the age grace."""
+    import os
+    import time
+    from threading import Event
+
+    owner = RunFence(tmp_path / "room.db", "codex")
+    created, resume = Event(), Event()
+    real_open = os.open
+
+    def pause_after_create(path, flags, *args, **kwargs):
+        fd = real_open(path, flags, *args, **kwargs)
+        if path == owner.path and flags & os.O_EXCL:
+            created.set()
+            if not resume.wait(5):
+                os.close(fd)
+                raise TimeoutError("test did not resume the creator")
+        return fd
+
+    monkeypatch.setattr(os, "open", pause_after_create)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(owner.acquire, 1, cgroup=True)
+        try:
+            assert created.wait(5)
+            old = time.time() - 120
+            os.utime(owner.path, (old, old))
+            recovered = RunFence(tmp_path / "room.db", "codex").try_recover()
+        finally:
+            resume.set()
+            future.result(timeout=5)
+            if owner.present():
+                owner.release()
+            elif owner._file is not None:
+                owner._file.close()
+        assert not recovered
+
+
+def test_recovery_after_creator_dies_before_flock_allows_next_launcher(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+
+    code = """
+import os
+import sys
+from pathlib import Path
+from agent_lease_mcp.run_fence import RunFence
+real_open = os.open
+def die_after_create(path, flags, *args, **kwargs):
+    fd = real_open(path, flags, *args, **kwargs)
+    if flags & os.O_EXCL:
+        os._exit(23)
+    return fd
+os.open = die_after_create
+RunFence(Path(sys.argv[1]), 'codex').acquire(1, cgroup=True)
+"""
+    result = subprocess.run([sys.executable, "-c", code, str(tmp_path / "room.db")],
+                            check=False, timeout=5)
+    assert result.returncode == 23
+    fence = RunFence(tmp_path / "room.db", "codex")
+    assert fence.path.read_bytes() == b""
+    old = time.time() - 120
+    os.utime(fence.path, (old, old))
+    assert fence.try_recover()
+    fence.acquire(2, cgroup=True)
+    fence.release()
+
+
 def test_record_replaces_pending_marker_completely(tmp_path, monkeypatch):
     import json
 

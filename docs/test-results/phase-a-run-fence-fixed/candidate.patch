@@ -1,0 +1,139 @@
+diff --git a/src/agent_lease_mcp/run_fence.py b/src/agent_lease_mcp/run_fence.py
+index 33e7305..db83fcd 100644
+--- a/src/agent_lease_mcp/run_fence.py
++++ b/src/agent_lease_mcp/run_fence.py
+@@ -17,12 +17,14 @@ import json
+ import os
+ import stat
+ import time
++from contextlib import contextmanager
+ from pathlib import Path
+ 
+ from .cgroup import recover_cgroup
+ 
+-# An owner locks the marker right after creating it; an empty file older than
+-# this cannot belong to a live `acquire`.
++# Keep a grace period for empty markers left by older versions. Age alone
++# cannot prove the creator died: the directory lock below protects live creators
++# even when they pause between creating the marker and locking its inode.
+ EMPTY_MARKER_GRACE = 30.0
+ 
+ 
+@@ -64,7 +66,23 @@ class RunFence:
+         finally:
+             os.close(fd)
+ 
++    @contextmanager
++    def _directory_lock(self, *, blocking: bool = True):
++        # The parent directory is stable even when the marker is removed and
++        # replaced. Holding its lock closes the create-before-flock gap: recovery
++        # must never unlink a live creator's not-yet-locked marker.
++        fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
++        try:
++            fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
++            yield
++        finally:
++            os.close(fd)
++
+     def acquire(self, message_id: int, *, cgroup: bool = False) -> None:
++        with self._directory_lock():
++            self._acquire_locked(message_id, cgroup=cgroup)
++
++    def _acquire_locked(self, message_id: int, *, cgroup: bool) -> None:
+         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+         fd = os.open(self.path, flags, 0o600)
+         try:
+@@ -102,6 +120,13 @@ class RunFence:
+ 
+     def try_recover(self) -> bool:
+         """Recover only a dead owner's recorded cgroup within our current scope."""
++        try:
++            with self._directory_lock(blocking=False):
++                return self._try_recover_locked()
++        except OSError:
++            return False
++
++    def _try_recover_locked(self) -> bool:
+         flags = os.O_RDWR | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+         try:
+             fd = os.open(self.path, flags)
+diff --git a/tests/test_run_fence.py b/tests/test_run_fence.py
+index 7f8f872..0bd69a4 100644
+--- a/tests/test_run_fence.py
++++ b/tests/test_run_fence.py
+@@ -141,6 +141,75 @@ def test_empty_marker_is_cleared_only_after_grace(tmp_path):
+     assert fence.try_recover() and not fence.present()
+ 
+ 
++def test_recovery_cannot_remove_marker_while_live_owner_is_before_flock(tmp_path, monkeypatch):
++    """A slow creator still owns its empty marker, even beyond the age grace."""
++    import os
++    import time
++    from threading import Event
++
++    owner = RunFence(tmp_path / "room.db", "codex")
++    created, resume = Event(), Event()
++    real_open = os.open
++
++    def pause_after_create(path, flags, *args, **kwargs):
++        fd = real_open(path, flags, *args, **kwargs)
++        if path == owner.path and flags & os.O_EXCL:
++            created.set()
++            if not resume.wait(5):
++                os.close(fd)
++                raise TimeoutError("test did not resume the creator")
++        return fd
++
++    monkeypatch.setattr(os, "open", pause_after_create)
++    with ThreadPoolExecutor(max_workers=1) as pool:
++        future = pool.submit(owner.acquire, 1, cgroup=True)
++        try:
++            assert created.wait(5)
++            old = time.time() - 120
++            os.utime(owner.path, (old, old))
++            recovered = RunFence(tmp_path / "room.db", "codex").try_recover()
++        finally:
++            resume.set()
++            future.result(timeout=5)
++            if owner.present():
++                owner.release()
++            elif owner._file is not None:
++                owner._file.close()
++        assert not recovered
++
++
++def test_recovery_after_creator_dies_before_flock_allows_next_launcher(tmp_path):
++    import os
++    import subprocess
++    import sys
++    import time
++
++    code = """
++import os
++import sys
++from pathlib import Path
++from agent_lease_mcp.run_fence import RunFence
++real_open = os.open
++def die_after_create(path, flags, *args, **kwargs):
++    fd = real_open(path, flags, *args, **kwargs)
++    if flags & os.O_EXCL:
++        os._exit(23)
++    return fd
++os.open = die_after_create
++RunFence(Path(sys.argv[1]), 'codex').acquire(1, cgroup=True)
++"""
++    result = subprocess.run([sys.executable, "-c", code, str(tmp_path / "room.db")],
++                            check=False, timeout=5)
++    assert result.returncode == 23
++    fence = RunFence(tmp_path / "room.db", "codex")
++    assert fence.path.read_bytes() == b""
++    old = time.time() - 120
++    os.utime(fence.path, (old, old))
++    assert fence.try_recover()
++    fence.acquire(2, cgroup=True)
++    fence.release()
++
++
+ def test_record_replaces_pending_marker_completely(tmp_path, monkeypatch):
+     import json
+ 

@@ -1,0 +1,9 @@
+{
+  "stage": "short",
+  "status": "passed",
+  "started_at": "2026-11-05T15:59:24.700938+01:00",
+  "finished_at": "2026-11-05T16:18:09.487760+01:00",
+  "exit_code": 0,
+  "log": "/home/buggy1111/dev/work/agent-lease-chaos-20261105-fixed/short.log",
+  "log_sha256": "16b036620a01db00daf0f12b9eb112b73671c5541cc374c4530ef66e44a74cbb"
+}
