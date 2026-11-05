@@ -699,7 +699,7 @@ def test_fence_write_failure_does_not_launch_command(store, tmp_path, monkeypatc
     mid = store.send("michal", "codex", "first", kind="task")
     marker = tmp_path / "command-ran"
     bridge = Bridge(store, "codex", fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')"))
-    monkeypatch.setattr(bridge._run_fence, "acquire", lambda *_: (_ for _ in ()).throw(
+    monkeypatch.setattr(bridge._run_fence, "acquire", lambda *_, **__: (_ for _ in ()).throw(
         OSError("disk failure")
     ))
     assert bridge.step()

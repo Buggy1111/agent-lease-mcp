@@ -578,7 +578,7 @@ class Bridge:
             result = self._supervised_runner(prompt, tick)
         else:
             try:
-                self._run_fence.acquire(mid)
+                self._run_fence.acquire(mid, cgroup=self.use_cgroup)
             except OSError:
                 self._cleanup_blocked = True
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,

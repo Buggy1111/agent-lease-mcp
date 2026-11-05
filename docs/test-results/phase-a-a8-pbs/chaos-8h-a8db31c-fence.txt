@@ -1,0 +1,3 @@
+Pozůstalá pojistka po bridge (task 16832), obsah:
+Unverified command attempt for task 16832.
+(žádný záznam cgroup → bridge od 05:56 fail-closed, 50 pending po dojezdu)
