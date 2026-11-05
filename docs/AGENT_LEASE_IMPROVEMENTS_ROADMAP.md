@@ -69,6 +69,21 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 
 | D7 | **Rozpočet výzkumu**: limity tokenů, počtu subagentů, času a souběhu; malá zadání bez zbytečného výzkumu | limity vynucené a bezpečné zastavení při vyčerpání |
 
+## Inspirace z rozboru Davida Strejce (5. 11. 2026) – návrhy pro fázi D
+
+**Status: pouze inspirace a backlog, nikoliv schválení implementace.** Navazuje na D1–D7; neopakovat již plánované sdílené znalosti (D1), výzkumné agenty (D3), ověřování zdrojů (D5) ani rozpočtové limity (C3/D7). Pořadí **A → B → C → D** zůstává beze změny.
+
+| # | Návrh | Vztah ke stávajícím úkolům | Ověření / akceptační kritéria |
+|---|---|---|---|
+| D8 | **Agent sleep / řízený self-audit harnessu**: po úkolu nebo v plánovaném intervalu zkontrolovat stav memory, MCP, skills, hooks, dostupnosti nástrojů, chyb a zbytečných volání; vytvořit návrhy optimalizací | Rozšíření D1, D2 a C3; nejde o skutečný „spánek“ modelu | V izolovaném testu odhalí záměrně rozbité nastavení, doloží příčinu a vytvoří audit report; bez schválení nemění hooks, oprávnění, systémové instrukce, produkční služby ani bezpečnostní pravidla |
+| D9 | **Memory recall benchmark**: měřit přesnost vyhledání projektových informací (ověřené řešení, původní zdroj, platnost a identita projektu), ne jen množství uloženého textu | Rozšíření D1 a D5 | Sada kontrolních dotazů s očekávanými odpověďmi; precision/recall, chybné vybavení a zastaralé informace; neověřená paměť se nepovyšuje na instrukci ani fakt; porovnání před/po |
+| D10 | **Adaptivní effort / kontext a měření efektivity**: pro různé typy práce porovnat dostupné modely a úrovně úsilí; volbu zdůvodnit podle složitosti, rizika a rozpočtu | Rozšíření C3, D2 a D7 | Na stejných úlohách porovnat úspěšnost testů, opravy, dobu, tokeny a cenu *za správně dokončený úkol*; žádná univerzální hodnota 450k ani automatické tvrzení, že Medium vždy stačí; respektovat aktuální možnosti poskytovatele |
+| D11 | **Codebase health / graf závislostí a AI-slop audit**: odhalovat duplicitní implementace, mrtvý kód, nekonzistentní názvy a rizikové vazby mezi moduly; prozkoumat GitNexus či obdobný nástroj jen jako volitelný pilot | Doplňuje B3/B6 a C2; neinstalovat další systém naslepo | Pilot v izolované kopii nad známými nálezy, vyhodnocení false positives a nákladů; pouze návrhy a diffy, žádné hromadné mazání bez testů, nezávislého review a lidského souhlasu s rizikovými zásahy |
+
+**Bezpečnostní podmínky:** Self-audit není self-approval. Agent smí sbírat důkazy a navrhovat změny, ale nesmí si sám rozšiřovat oprávnění, měnit bezpečnostní brány, mazat auditní historii či automaticky označit fázi jako schválenou. Zachovat existující lease/owner, karanténu, emergency stop, worktree izolaci, testy, rollback a lidské schvalování. Měřit přínos proti baseline a vyřadit funkce, které zvyšují náklady nebo složitost bez doloženého užitku.
+
+**Poznámka k podkladu:** Jde o inspiraci z uživatelsky dodaného přepisu, nikoli o nezávisle ověřené výsledky Davida Strejce. Údaje typu „450 000 tokenů je nejlepší nastavení“, „bez subagentů je to vždy rychlejší“ nebo „10× více práce“ nepovažovat za obecná fakta.
+
 **Rozšíření D3–D6 – reverzní inženýrství (plánované, bez nové fáze):** Pokud úkol vyžaduje porozumět existujícímu softwaru, firmwaru nebo protokolu bez zdrojových kódů, výzkumný tým může využít již dostupné nástroje agenta, např. Ada (Claude Code) → Ghidra přes MCP, pokud propojení projde ověřením dostupnosti a oprávnění. Ada provede nejprve pouze čtecí/statickou analýzu dodaných souborů a dokumentace, zaznamená použitou verzi a hashe artefaktů, funkce, rozhraní, důkazy, nejistoty a možnosti úprav. Nox nezávisle zkontroluje závěry, výstupy se archivují v `docs/research/` a ověřené poznatky navazují na D1. **Fail-closed:** bez oprávnění k analýze či dostupného nástroje se úloha eskaluje, neobcházejí se omezení. Zápis či flash firmwaru, zásah do fyzického zařízení a další rizikové změny vyžadují výslovné schválení uživatele, zálohu a plán obnovy; žádná automatická destruktivní akce. **Akceptační test:** na neškodném testovacím binárním souboru agent rozpozná dostupnost Ghidra MCP, provede čtecí analýzu, doloží závěry, druhý agent je zreviduje; bez schválení je zápis/flash zablokován. Toto rozšíření se řeší až ve fázi D po A → B → C.
 
 ---
