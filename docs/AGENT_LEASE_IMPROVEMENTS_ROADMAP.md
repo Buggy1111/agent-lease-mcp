@@ -79,6 +79,29 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | D9 | **Memory recall benchmark**: měřit přesnost vyhledání projektových informací (ověřené řešení, původní zdroj, platnost a identita projektu), ne jen množství uloženého textu | Rozšíření D1 a D5 | Sada kontrolních dotazů s očekávanými odpověďmi; precision/recall, chybné vybavení a zastaralé informace; neověřená paměť se nepovyšuje na instrukci ani fakt; porovnání před/po |
 | D10 | **Adaptivní effort / kontext a měření efektivity**: pro různé typy práce porovnat dostupné modely a úrovně úsilí; volbu zdůvodnit podle složitosti, rizika a rozpočtu | Rozšíření C3, D2 a D7 | Na stejných úlohách porovnat úspěšnost testů, opravy, dobu, tokeny a cenu *za správně dokončený úkol*; žádná univerzální hodnota 450k ani automatické tvrzení, že Medium vždy stačí; respektovat aktuální možnosti poskytovatele |
 | D11 | **Codebase health / graf závislostí a AI-slop audit**: odhalovat duplicitní implementace, mrtvý kód, nekonzistentní názvy a rizikové vazby mezi moduly; prozkoumat GitNexus či obdobný nástroj jen jako volitelný pilot | Doplňuje B3/B6 a C2; neinstalovat další systém naslepo | Pilot v izolované kopii nad známými nálezy, vyhodnocení false positives a nákladů; pouze návrhy a diffy, žádné hromadné mazání bez testů, nezávislého review a lidského souhlasu s rizikovými zásahy |
+| D12 | **Karpathy-inspired coding discipline pro Adu (Claude Code) a Noxe (Codex)**: čtyři zásady Think Before Coding, Simplicity First, Surgical Changes a Goal-Driven Execution aplikovat konzistentně, bez ztráty současných instrukcí | Rozšíření D2 a kontrol B3/B6; nejprve porovnat existující `CLAUDE.md`, `AGENTS.md`, skills a hooks, neduplikovat pravidla | Pilot s baseline na shodných úlohách; sledovat nesouvisející změny, počet oprav, úspěšnost testů, čas a tokeny; dokumentovat konflikty a výsledky review druhým agentem |
+
+### D12 – Podrobné zadání: Karpathy-inspired pravidla pro Adu a Noxe
+
+**Zdroj inspirace:** komunitní repozitář [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills), inspirovaný postřehy Andreje Karpathyho. **Není to oficiální Karpathyho plugin** a jeho popularita není důkazem účinnosti. Není třeba automaticky instalovat balíček; podstatné je otestovat konkrétní pracovní zásady.
+
+**Pravidla chování (pro oba agenty):**
+
+1. **Think Before Coding / Nejdřív porozumět:** přečíst relevantní kód, zjistit existující řešení a souvislosti, nepředstírat jistotu; u podstatné nejasnosti formulovat předpoklady, rizika a potřebné ověření. Respektovat již schválený rozsah úkolu; u běžných, jasných změn nezdržovat zbytečnými otázkami.
+2. **Simplicity First / Nejjednodušší dostačující řešení:** bez důvodu nepřidávat nové vrstvy, konfigurace, abstrakce, závislosti či duplikované pomocné funkce. Jednoduchost nesmí obejít bezpečnost, robustnost, testovatelnost ani stávající architektonické smlouvy.
+3. **Surgical Changes / Jen relevantní změny:** před zásahem identifikovat dotčené soubory a funkce; neupravovat nesouvisející části a nedělat plošný refaktoring jen „při příležitosti“. Když je širší změna skutečně nutná, zdůvodnit ji a řešit podle existujících pravidel schvalování a rezervací Agent Lease.
+4. **Goal-Driven Execution / Doložený výsledek:** před úpravou určit pozorovatelná kritéria dokončení; po úpravě spustit přiměřené testy, lint a relevantní regresní scénáře, uvést přesně co prošlo, co nešlo ověřit a proč. Nepopisovat neotestovanou opravu jako potvrzeně funkční. U mobilních/GUI chyb nenahrazovat skutečné testy zařízení jen zeleným unit testem.
+
+**Postup pro Adu a Noxe, až bude fáze D schválena:**
+
+1. **Read-only inventura:** prohlédnout projektové i uživatelské instrukce `CLAUDE.md` a `AGENTS.md` (včetně relevantních nadřazených souborů), aktivní skills, hooky a pravidla Agent Lease. Sepsat co už existuje, co se překrývá, co je v konfliktu a co opravdu chybí. Nezveřejňovat soukromé instrukce nebo tajemství v commitech.
+2. **Jednotný minimální návrh:** připravit krátké, modelově neutrální zásady; navrhnout jejich minimální adaptaci pro Adu a Noxe, bez vytváření další konkurenční autority. Explicitně zachovat lease/claim/edit-gate, lidská schválení, sandbox, karanténu, emergency stop, checkpointy a nezávislý review.
+3. **Pilot v izolované pracovní kopii:** zvolit několik reprezentativních oprav (malá, střední, rizikovější) se stejnými vstupy a kritérii. Porovnat baseline bez změn instrukcí s variantou s pravidly, při stejných dostupných limitech a nástrojích.
+4. **Vyhodnocení:** měřit úspěšnost testů, nesouvisející změněné řádky/soubory, duplicity, počet opravných kol, dodržení bezpečnostních bran, čas a spotřebu tokenů, pokud ji poskytovatel zpřístupní. Nox kontroluje návrh Ady a naopak; autor neschvaluje sám sebe.
+5. **Rozhodnutí:** připravit diff, důkazy, rizika a rollback; teprve po výslovném souhlasu Michala aplikovat změny do správných instrukčních souborů. Žádná automatická globální instalace pluginu ani změna konfigurace klientů.
+
+**Akceptace:** pravidla jsou srozumitelná a neodporují prioritám bezpečnost → stabilita → automatizace → inteligentní spolupráce; alespoň jedna pilotní úloha pro každého agenta doloží testy a review; změna neoslabí žádnou existující bezpečnostní pojistku. Když přínos nebude prokazatelný, jen archivovat výsledky a nic netlačit do produkce.
+
 
 **Bezpečnostní podmínky:** Self-audit není self-approval. Agent smí sbírat důkazy a navrhovat změny, ale nesmí si sám rozšiřovat oprávnění, měnit bezpečnostní brány, mazat auditní historii či automaticky označit fázi jako schválenou. Zachovat existující lease/owner, karanténu, emergency stop, worktree izolaci, testy, rollback a lidské schvalování. Měřit přínos proti baseline a vyřadit funkce, které zvyšují náklady nebo složitost bez doloženého užitku.
 
