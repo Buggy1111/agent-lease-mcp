@@ -579,8 +579,14 @@ class Bridge:
         else:
             try:
                 self._run_fence.acquire(mid, cgroup=self.use_cgroup)
-            except OSError:
-                self._cleanup_blocked = True
+            except OSError as exc:
+                # FileExistsError = the fence belongs to another attempt (a sibling worker
+                # or a dead one awaiting recovery); this worker launched nothing, so it
+                # must not block itself for good (8h chaos 5. 11.: all workers blocked,
+                # nobody left to recover the fence). Any other failure may have left a
+                # partial marker of our own: stay blocked.
+                if not isinstance(exc, FileExistsError):
+                    self._cleanup_blocked = True
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Task #{mid} not started: command fence unavailable.",
                                     error="command fence unavailable")

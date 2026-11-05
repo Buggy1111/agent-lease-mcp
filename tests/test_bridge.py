@@ -708,6 +708,20 @@ def test_fence_write_failure_does_not_launch_command(store, tmp_path, monkeypatc
     assert bridge.step() is False
 
 
+def test_fence_held_by_another_attempt_does_not_block_the_worker(store, tmp_path, monkeypatch):
+    """8h chaos 5. 11.: souběh workerů o pojistku nesmí worker zablokovat natrvalo."""
+    mid = store.send("michal", "codex", "first", kind="task")
+    marker = tmp_path / "command-ran"
+    bridge = Bridge(store, "codex", fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')"))
+    monkeypatch.setattr(bridge._run_fence, "acquire", lambda *_, **__: (_ for _ in ()).throw(
+        FileExistsError("held by a sibling worker")
+    ))
+    assert bridge.step()
+    assert not marker.exists()
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "needs_review"
+    assert bridge._cleanup_blocked is False
+
+
 def test_required_cgroup_failure_does_not_launch_command(tmp_path, monkeypatch):
     import agent_lease_mcp.bridge as br
 
