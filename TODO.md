@@ -53,6 +53,19 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
   - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
 
+### B7.0 – FAST-TRACK AUDIT (první podúkol)
+
+- [ ] **Před implementací B7** podle [roadmapy](docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) inventarizovat existující kontroly a provést read-only průzkum Gitleaks, Semgrep, coverage/CRAP, Gas Town, Gas City a Crewship. Izolovaný pilot jen v platném schváleném scope. Ada připraví kandidáty a baseline; Nox prověří licence, bezpečnost a skutečnou úsporu. Výstup POUŽÍT / INSPIROVAT SE / VYNECHAT s testy, náklady a rollbackem; neinstalovat hromadně frameworky a nevytvářet druhý orchestrátor.
+
+### Licence a compliance – sjednocení MIT (6. 11. 2026)
+
+- [x] Ověřit stav: `pyproject.toml` i README deklarují MIT, ale ve stromu chyběl plný kořenový licenční text.
+- [x] Doplnit standardní `LICENSE` (MIT), sjednotit metadata na SPDX `license = "MIT"` + `license-files = ["LICENSE"]`, odstranit zastaralý MIT classifier. Autorský údaj použít podle aktuálního `pyproject.toml`: **Michal Bugy**.
+- [ ] **Kontrola vlastníka:** potvrdit přesné jméno držitele práv uvedené v `LICENSE`, oprávnění ke všem příspěvkům a případné další spoluautory; při nesouladu upravit copyright řádek. Licence se vztahuje k vlastnímu kódu; nevydává práva k cizímu kódu.
+- [ ] Audit externích závislostí a případného převzatého/vendorovaného kódu; podle potřeby `THIRD_PARTY_NOTICES` a odpovídající licence, žádné kopírování licencovaného kódu bez kontroly kompatibility.
+- [ ] Ověřit build wheel/sdist v izolovaném prostředí, že licence je obsažena v distribuci, PyPI metadata ukazují MIT, a GitHub ji rozpoznává. Nevydávat novou verzi PyPI ani měnit dosavadní publikovaná artefakta bez schválení.
+- [ ] Pokud bude chtít vlastník v budoucnu jiný obchodní model, samostatně posoudit dual-licensing / změnu licence nových verzí. Již udělená oprávnění pro vydané verze nelze jednostranně odvolat.
+
 ### Požadované automatické fungování napříč projekty (akceptační specifikace B)
 
 **Cíl:** Michal pošle Adu, Noxe nebo oba do libovolného podporovaného Git repozitáře; Quality Gate běží bez ručního opakování zadání a jeho výsledek je vidět v centrálním Agent Lease dashboardu. Toto je cílové chování, ne současná implementace.
