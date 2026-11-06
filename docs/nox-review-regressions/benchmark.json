@@ -1,0 +1,26 @@
+{
+  "captured_at": "2026-11-06T19:13:13.970725+00:00",
+  "python": "3.13.13",
+  "sqlite": "3.50.4",
+  "scenario": "synthetic B1 reservation benchmark",
+  "results": [
+    {
+      "active_tasks": 200,
+      "blocked_pending": 200,
+      "lease_next_seconds": 0.2238,
+      "busy_timeout_ms": 5000,
+      "no_lease": true,
+      "pending_unchanged": true,
+      "reservation_selects": 200
+    },
+    {
+      "active_tasks": 1000,
+      "blocked_pending": 1000,
+      "lease_next_seconds": 7.271008,
+      "busy_timeout_ms": 5000,
+      "no_lease": true,
+      "pending_unchanged": true,
+      "reservation_selects": 1000
+    }
+  ]
+}
