@@ -313,4 +313,8 @@ uv sync --extra dev
 .venv/bin/python -m ruff check src tests
 ```
 
-MIT.
+## Licence
+
+Copyright (c) 2026 Michal Buggy. Projekt je poskytován pod [licencí MIT](LICENSE).
+
+Podmínky použití cizích knihoven a oprávněné technické analýzy popisuje [Open-source compliance](docs/OPEN_SOURCE_COMPLIANCE.md).
