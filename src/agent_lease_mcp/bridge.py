@@ -123,7 +123,13 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 gate=None, can_launch=None, use_cgroup: bool = False,
-                on_cgroup_created=None) -> RunResult:
+                on_cgroup_created=None, idle_timeout: float | None = None,
+                progress=None) -> RunResult:
+    """
+    `timeout` je absolutní strop běhu. S `idle_timeout` (B5) se běh ukončí i dřív,
+    když tak dlouho nevykázal žádný postup: výstup, `progress()` (např. nový
+    checkpoint) nebo spotřebu CPU v delegované cgroup.
+    """
     with tempfile.TemporaryDirectory(prefix="agent-lease-run-") as tmp:
         last = os.path.join(tmp, "last-message.txt")
         try:
@@ -137,7 +143,8 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
             if group is not None:
                 watchdog = CgroupWatchdog(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
-                          gate=gate, can_launch=can_launch, group=group, watchdog=watchdog)
+                          gate=gate, can_launch=can_launch, group=group, watchdog=watchdog,
+                          idle_timeout=idle_timeout, progress=progress)
         except BaseException:
             try:
                 if watchdog is not None:
@@ -166,9 +173,28 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
         return result
 
 
+# B5: kolik CPU za jedno okno vzorkování znamená, že příkaz pořád pracuje.
+PROGRESS_SAMPLE_SECONDS = 30.0
+PROGRESS_CPU_USEC = 1_000_000
+
+
+def _cgroup_cpu_usec(group: CommandCgroup | None) -> int | None:
+    if group is None:
+        return None
+    try:
+        for line in (group.path / "cpu.stat").read_text().splitlines():
+            key, _, value = line.partition(" ")
+            if key == "usage_usec":
+                return int(value)
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
          gate=None, can_launch=None, group: CommandCgroup | None = None,
-         watchdog: CgroupWatchdog | None = None) -> RunResult:
+         watchdog: CgroupWatchdog | None = None, idle_timeout: float | None = None,
+         progress=None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     if _PRCTL is None:
@@ -231,11 +257,25 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
         return RunResult(False, f"cannot start {argv[0] if argv else '<empty command>'}: {exc}",
                          cleanup_failed=not gone)
     started = time.monotonic()
-    chunks: list[str] = []
-    reader = threading.Thread(
-        target=lambda: chunks.append(proc.stdout.read() if proc.stdout else ""), daemon=True
-    )
+    chunks: list[bytes] = []
+    activity = [started]  # poslední doložený postup (B5)
+
+    def read_output() -> None:
+        # Po kouscích, ať je vidět, že příkaz pořád něco dělá; konec = EOF všech zapisovatelů.
+        fd = proc.stdout.fileno() if proc.stdout else None
+        while fd is not None:
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+            activity[0] = time.monotonic()
+
+    reader = threading.Thread(target=read_output, daemon=True)
     reader.start()
+    sampled_at, cpu_seen = started, _cgroup_cpu_usec(group)
     tick_error = None
     try:
         while proc.poll() is None:
@@ -244,10 +284,25 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                 reader.join(2)
                 return RunResult(False, "cgroup watchdog stopped during command",
                                  aborted=True, cleanup_failed=True)
-            if time.monotonic() - started > timeout:
+            now = time.monotonic()
+            if now - started > timeout:
                 gone = _kill_group(proc)
                 reader.join(2)
                 return RunResult(False, f"timed out after {int(timeout)} s",
+                                 cleanup_failed=not gone or reader.is_alive())
+            if idle_timeout is not None and now - sampled_at >= PROGRESS_SAMPLE_SECONDS:
+                sampled_at = now
+                cpu_now = _cgroup_cpu_usec(group)
+                if cpu_now is not None and cpu_seen is not None and cpu_now - cpu_seen >= PROGRESS_CPU_USEC:
+                    activity[0] = now
+                cpu_seen = cpu_now if cpu_now is not None else cpu_seen
+                if progress is not None and progress():
+                    activity[0] = now
+            if idle_timeout is not None and now - activity[0] > idle_timeout:
+                gone = _kill_group(proc)
+                reader.join(2)
+                return RunResult(False, f"stalled: no progress for {int(idle_timeout)} s "
+                                 f"(output, checkpoint or CPU) after {int(now - started)} s",
                                  cleanup_failed=not gone or reader.is_alive())
             # on_tick vrátí False = worker přišel o lease → okamžitě zastavit.
             if on_tick and on_tick() is False:
@@ -274,7 +329,7 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
             return RunResult(False, "cannot confirm process cleanup after a worker error",
                              aborted=True, cleanup_failed=True)
         raise tick_error
-    output = "".join(chunks).strip()
+    output = b"".join(chunks).decode("utf-8", errors="replace").strip()
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
                          cleanup_failed=not gone)
@@ -388,7 +443,7 @@ class Bridge:
                  after_message_id: int = 0, provider_probe=None,
                  provider_probe_interval: float = 60, worker_identity: str | None = None,
                  interactive_grace: float = 300, read_only: bool | None = None,
-                 use_cgroup: bool = False) -> None:
+                 use_cgroup: bool = False, max_runtime: float | None = None) -> None:
         self.store, self.agent, self.command = store, agent, command
         # Read-only běh nic nemění, takže ho po limitu jde bezpečně spustit znovu.
         # Vlastní příkaz může zapisovat → po limitu needs_review (audit #535 bod 2c).
@@ -409,6 +464,10 @@ class Bridge:
         self.runner = runner  # volitelný callable(prompt) -> RunResult místo subprocessu
         self.use_cgroup = use_cgroup
         self.lease_seconds, self.timeout, self.max_per_hour = lease_seconds, timeout, max_per_hour
+        # B5: s `max_runtime` je `timeout` limit NEČINNOSTI a `max_runtime` absolutní strop,
+        # takže dlouhý, ale prokazatelně aktivní úkol doběhne. Bez něj platí jen `timeout`.
+        self.max_runtime = (max(float(max_runtime), float(timeout))
+                            if max_runtime else None)
         self.after_message_id = max(0, int(after_message_id))
         self.provider_probe = provider_probe
         self.provider_probe_interval = provider_probe_interval
@@ -592,11 +651,14 @@ class Bridge:
                                     error="command fence unavailable")
                 return True
             try:
-                result = run_command(self.command, prompt, timeout=self.timeout, on_tick=tick,
+                result = run_command(self.command, prompt,
+                                     timeout=self.max_runtime or self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
                                      can_launch=lambda: self.store.holds(mid, self.agent, token),
                                      use_cgroup=self.use_cgroup,
-                                     on_cgroup_created=self._run_fence.record_cgroup)
+                                     on_cgroup_created=self._run_fence.record_cgroup,
+                                     idle_timeout=self.timeout if self.max_runtime else None,
+                                     progress=self._checkpoint_progress(mid))
             except BaseException:
                 # Even an unexpected exception cannot prove the command is gone.
                 self._cleanup_blocked = True
@@ -680,6 +742,26 @@ class Bridge:
                                 f"Task #{mid} selhal:\n{body}", error=body[:300])
         return True
 
+    def _checkpoint_progress(self, mid: int):
+        """Nový checkpoint úkolu = postup (B5). Starší checkpoint ani chyba čtení se nepočítají."""
+        def stamp():
+            try:
+                cp = self.store.get_checkpoint(mid, self.agent)
+            except Exception:  # noqa: BLE001 — výpadek brokeru: postup neprokázán
+                return None
+            return cp["updated_at"] if cp else None
+
+        last = [stamp()]
+
+        def changed() -> bool:
+            now = stamp()
+            if now is None or now == last[0]:
+                return False
+            last[0] = now
+            return True
+
+        return changed
+
     def _supervised_runner(self, prompt: str, tick) -> RunResult:
         """
         Runner (OpenRouter, testy) ve vlákně pod dohledem lease a timeoutu. Callable
@@ -744,7 +826,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--lease-seconds", type=int, default=120,
                    help="task lease length; renewed while the command runs")
-    p.add_argument("--timeout", type=float, default=1800)
+    p.add_argument("--timeout", type=float, default=1800,
+                   help="seconds; with --max-runtime this is the limit for NO progress")
+    p.add_argument("--max-runtime", type=float,
+                   default=float(os.environ.get("AGENT_LEASE_MAX_RUNTIME", "0")),
+                   help="absolute ceiling for an active command (0 = only --timeout)")
     p.add_argument("--cgroup", action="store_true",
                    help="require a delegated cgroup v2 for each CLI command")
     p.add_argument("--once", action="store_true", help="process one pass and exit")
@@ -782,7 +868,7 @@ def main(argv: list[str] | None = None) -> int:
                     lease_seconds=args.lease_seconds,
                     after_message_id=after_message_id,
                     interactive_grace=args.interactive_grace,
-                    use_cgroup=args.cgroup,
+                    use_cgroup=args.cgroup, max_runtime=args.max_runtime or None,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()
