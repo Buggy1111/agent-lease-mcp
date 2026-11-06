@@ -53,13 +53,13 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 
 **Rozhodnutí vlastníka, 6. 11. 2026:** začlenit jako první podúkol B7, bez změny pořadí A → B → C → D. Po dokončení B6 provést nejprve **read-only průzkum a malý izolovaný pilot**, teprve potom implementaci vybraných komponent B7. Žádný automatický přechod do C, produkční nasazení ani změny oprávnění.
 
-- [ ] Ada: inventura aktuálního CI, nástrojů, hooků, review, zabezpečení a checkpointů. Vypíše pro každý kandidát existující ekvivalent a riziko duplicity.
+- [ ] Ada: inventura aktuálního CI, nástrojů, hooků, review, zabezpečení a checkpointů. Vypíše pro každý kandidát existující ekvivalent a riziko duplicity. **Volitelně reverzní inženýrství**: pokud je analýza opravdu potřebná a oprávněná, využít dostupné read-only nástroje včetně Ghidra MCP pro autorizované lokální binárky/protokoly; nejprve zkusit zdrojový kód, testy, dokumentaci a veřejná API. Nevydávat analýzu za právo převzít kód.
 - [ ] B7: porovnat **Gitleaks** (detekce tajemství), **Semgrep** (pravidla SAST), stávající Ruff/pytest/coverage, TypeScript typecheck/build a dostupné nástroje pro cyklomatickou složitost + CRAP. Ověřit konkrétní verze, licence, možnosti offline provozu, čas běhu, false positives a reálný přínos. Nic neinstalovat do globálního prostředí bez schválení.
 - [ ] C: pouze read-only srovnat Git worktree, stavové přechody a opravné smyčky s **Gas Town/Gas City**; nenahrazovat stávající broker, lease ani checkpoint systém.
 - [ ] D: pouze read-only zmapovat **Crewship/Gas Town** z hlediska memory, cost budget, audit trail, research orchestration; nepřipojovat cizí orchestrátor vedle Agent Lease.
-- [ ] Nox: nezávisle ověřit technická tvrzení na konkrétních souborech/commitech, licence a sublicenční povinnosti, dodavatelská rizika, náklady, testy a kompatibilitu. Nezaměňovat screenshot/marketing za implementaci.
+- [ ] Nox: nezávisle ověřit technická tvrzení na konkrétních souborech/commitech, licence a sublicenční povinnosti, dodavatelská rizika, náklady, testy a kompatibilitu. Nezaměňovat screenshot/marketing za implementaci; u reverse engineeringu ověřit původ artefaktu, rozsah oprávnění a že výstupy neobsahují převzaté chráněné části.
 - [ ] Rozhodovací tabulka: **POUŽÍT / INSPIROVAT SE / VYNECHAT** s odkazy, baseline vs pilot (čas, tokeny, testy, rizika), odhadem práce a rollbackem; jakmile přínos není prokazatelný, ponechat existující architekturu.
-- [ ] Výsledek uložit do `docs/research/` s datem a odkazy; následný implementační úkol B7 má používat jen schválené nástroje. Pilot nesmí porušit fázi B6 nebo human approval.
+- [ ] Výsledek uložit do `docs/research/` s datem, odkazy, hashi analyzovaných artefaktů (pokud relevantní), licenčními podmínkami a rozhodnutím POUŽÍT / INSPIROVAT SE / VYNECHAT; následný implementační úkol B7 má používat jen schválené nástroje. Pilot nesmí porušit fázi B6 nebo human approval. Dodržet [OPEN_SOURCE_COMPLIANCE.md](OPEN_SOURCE_COMPLIANCE.md).
 
 ### B6 → B7: návaznost při noční práci bez dozoru (6. 11. 2026)
 
