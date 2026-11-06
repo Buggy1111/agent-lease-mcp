@@ -4,7 +4,8 @@ version = "0.2.0"
 description = "Keep Claude Code and Codex from overwriting each other's work: hook-enforced path leases, presence and a shared message log over MCP."
 authors = [{ name = "Michal Bugy", email = "michalbugy12@gmail.com" }]
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 keywords = ["mcp", "model-context-protocol", "multi-agent", "coordination", "file-locking", "leases", "hooks", "claude-code", "codex", "ai-agents"]
 classifiers = [
@@ -12,7 +13,6 @@ classifiers = [
     "Environment :: Console",
     "Operating System :: POSIX",
     "Topic :: Software Development",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
