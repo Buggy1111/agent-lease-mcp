@@ -18,7 +18,7 @@ Nepřepisuj historický audit novým tvrzením o dokončení.
   `sqlite_fastmcp` (konzistence a migrace), `security` (karanténa, stop,
   izolace oprávnění).
 - **B:** `review_state_machine`, `retry_budget`, `diff_security_scan`,
-  `routing_and_locks`.
+  `routing_and_locks`, následně **B7 `quality_gate_cross_project`** (E2E Python/TS, globální připojení, CRAP pilot, dashboard). Navázání B6 → B7 jen v již schváleném pracovním běhu; dokument není autonomní scheduler.
 - **C:** `isolated_worktree`, `repair_loop`, `budget_enforcement`,
   `write_mode_human_approval`. Poslední bod vyžaduje **výslovné schválení**
   uživatele, nikoli domnělé schválení ze samotné roadmapy.
