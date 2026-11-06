@@ -40,6 +40,19 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   kolize, limity, restarty, chyby.
 - ⬜ 17. **Třetí agent – koordinátor** — rozděluje práci, hlídá agenty, testy, limity.
 
+
+## Priorita B — Quality Gate pro AI změny (plán)
+
+- ⬜ **B: Centrální Quality Gate (CRAP score + automatické kontroly)** — navázat na existující body 12 (pytest/ruff/CI), 13 (Ada ↔ Nox review) a 14 (security audit), nebudovat duplicitní systém. Nejde o blokátor dokončení MVP do 2. 12. 2026.
+  - [ ] Nejprve audit stávajícího CI, testů a hooků; vypsat, co už funguje a co skutečně chybí.
+  - [ ] MVP: zobrazit výsledky testů, lint/format, type check (kde relevantní), build, coverage a bezpečnostních kontrol jako jeden report PASS / REVIEW / FAIL; při chybějící metrice zobrazit N/A, nikoli falešné PASS.
+  - [ ] Ověřit podporu CRAP metriky pro konkrétní jazyky a projekty. Výpočet postavit na cyklomatické složitosti a relevantním pokrytí testy; nevydávat ji za samostatnou bezpečnostní metriku. Nejprve report-only, hranice kalibrovat na reálných datech; vyšší skóre označit k review, ne automaticky blokovat.
+  - [ ] Kontrola změn testů, CI konfigurace a bezpečnostních pravidel: upozornit na mazání či oslabování testů a požadovat lidské potvrzení kritických výjimek. Oddělit práva agenta píšícího kód od schvalování gate.
+  - [ ] Teprve po pilotu vynucovat FAIL u rozbitého buildu/testů a potvrzených kritických nálezů; zabránit tomu, aby agent přepsal prahy kontrol jen kvůli průchodu.
+  - [ ] Nox: nezávislé review návrhu i výsledků Ady; minimalizovat tokeny tím, že deterministické testy běží lokálně/CI, nikoli přes LLM.
+  - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
+  - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
