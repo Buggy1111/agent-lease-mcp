@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -83,7 +84,8 @@ def _hardened_env() -> dict:
     """Jen lokální konfigurace repa: globální a systémová (a jejich filtry) se nečtou."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_ATTR_NOSYSTEM="1",
-               GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+               GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0",
+               GIT_NO_LAZY_FETCH="1", GIT_ALLOW_PROTOCOL="")
     return env
 
 
@@ -97,8 +99,12 @@ def _repo_runs_programs(top: Path) -> bool:
     """Definuje repo filtr nebo diff program? Pak `status` nespouštět (mohl by ho zavolat)."""
     # Účinná konfigurace repa včetně include/includeIf (bez --includes by filtr ve
     # vloženém souboru prošel). Globální a systémovou vypíná _hardened_env.
-    found = _git_hardened(top, "config", "--includes", "--get-regexp", _EXEC_CONFIG)
-    return bool(found and found.strip())
+    # --list rozliší prázdnou konfiguraci od chyby čtení (get-regexp vrací 1 i bez shod).
+    keys = _git_hardened(top, "config", "--includes", "--name-only", "--null", "--list")
+    return keys is None or any(
+        re.fullmatch(_EXEC_CONFIG, os.fsdecode(key), re.IGNORECASE)
+        for key in keys.split(b"\0") if key
+    )
 
 
 def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
@@ -120,5 +126,10 @@ def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
     if _repo_runs_programs(top):
         # Necommitnuté změny bez spuštění cizích filtrů zjistit nejde; raději varovat.
         return str(top), sha.decode().strip(), True
+    index = _git_hardened(top, "ls-files", "--stage", "-z")
+    if index is None or any(entry.startswith(b"160000 ") for entry in index.split(b"\0")):
+        # Status by vstoupil do submodulu, jehož vlastní config může spustit filtr.
+        # Ignorování submodulů by naopak skrylo jejich rozpracované změny.
+        return str(top), sha.decode().strip(), True
     status = _git_hardened(top, "status", "--porcelain", "--untracked-files=normal")
-    return str(top), sha.decode().strip(), bool(status and status.strip())
+    return str(top), sha.decode().strip(), status is None or bool(status.strip())

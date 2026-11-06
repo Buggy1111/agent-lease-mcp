@@ -240,3 +240,90 @@ def test_resolve_commit_never_runs_repo_filters(tmp_path):
     git2("config", "include.path", str(included))
     assert workspace.resolve_commit(hidden)[2] is True
     assert not hidden_marker.exists()
+
+
+def test_resolve_commit_never_runs_submodule_filters(tmp_path):
+    import subprocess
+    import time
+
+    from agent_lease_mcp import workspace
+
+    for name in ("control", "hardened"):
+        parent = tmp_path / name
+        git = _git_repo(parent)
+        sub = parent / "sub"
+        subgit = _git_repo(sub)
+        (sub / ".gitattributes").write_text("*.txt filter=x\n")
+        subgit("add", ".gitattributes")
+        subgit("commit", "-qm", "attrs")
+        git("add", "sub")
+        git("commit", "-qm", "gitlink")
+        marker = tmp_path / f"{name}-sub-filter"
+        subgit("config", "filter.x.clean", f"sh -c 'touch {marker}; cat'")
+        time.sleep(1.1)
+        (sub / "f.txt").write_text("2")
+        if name == "control":
+            subprocess.run(["git", "status", "--porcelain"], cwd=parent,
+                           capture_output=True, check=True)
+            assert marker.exists()
+        else:
+            assert workspace.resolve_commit(parent) == (
+                str(parent), git("rev-parse", "HEAD"), True)
+            assert not marker.exists()
+
+
+def test_resolve_commit_never_runs_promisor_helper(tmp_path):
+    import subprocess
+
+    from agent_lease_mcp import workspace
+
+    for name in ("control", "hardened"):
+        repo = tmp_path / name
+        git = _git_repo(repo)
+        first = git("rev-parse", "HEAD")
+        (repo / "f.txt").write_text("2")
+        git("commit", "-qam", "two")
+        missing = git("rev-parse", "HEAD")
+        git("reset", "--hard", first)
+        (repo / ".git" / "objects" / missing[:2] / missing[2:]).unlink()
+        marker = tmp_path / f"{name}-promisor"
+        helper = tmp_path / f"{name}-helper"
+        helper.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        helper.chmod(0o700)
+        git("config", "remote.evil.promisor", "true")
+        git("config", "remote.evil.url", f"ext::{helper}")
+        git("config", "protocol.ext.allow", "always")
+        if name == "control":
+            result = subprocess.run(["git", "rev-parse", "--verify", f"{missing}^{{commit}}"],
+                                    cwd=repo, capture_output=True, timeout=20, check=False)
+            assert result.returncode != 0
+            assert marker.exists()
+        else:
+            with pytest.raises(ValueError, match="not a commit"):
+                workspace.resolve_commit(repo, missing)
+            assert not marker.exists()
+
+
+@pytest.mark.parametrize("failed_command", ["config", "ls-files", "status"])
+def test_resolve_commit_warns_on_inspection_failure(tmp_path, monkeypatch, failed_command):
+    from agent_lease_mcp import workspace
+
+    repo = tmp_path / "repo"
+    git = _git_repo(repo)
+    original = workspace._git_hardened
+
+    def fail_inspection(cwd, *args):
+        return None if args[0] == failed_command else original(cwd, *args)
+
+    monkeypatch.setattr(workspace, "_git_hardened", fail_inspection)
+    assert workspace.resolve_commit(repo) == (str(repo), git("rev-parse", "HEAD"), True)
+
+
+def test_resolve_commit_distinguishes_clean_and_dirty_repo(tmp_path):
+    from agent_lease_mcp import workspace
+
+    repo = tmp_path / "repo"
+    _git_repo(repo)
+    assert workspace.resolve_commit(repo)[2] is False
+    (repo / "f.txt").write_text("changed")
+    assert workspace.resolve_commit(repo)[2] is True
