@@ -47,6 +47,17 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | B4 | **Max. 3 opravné cykly**, trvale, pak člověk | Orka (max 2) | 4. pokus se nespustí ani po restartu |
 | B5 | **Progress-aware detekce zaseknutí**: výstup/milník resetuje nečinnost + absolutní strop | Orka | dlouhý ale aktivní úkol ≠ zaseknutý |
 | B6 | Povinný bezpečnostní verdikt nad diffem + secret scan (před autonomními zápisy) | Orka security-review | podvržené tajemství zablokuje |
+| B7 | **Centrální Quality Gate pro všechny podporované projekty**: automatická detekce repo/jazyka, testy, build, lint, coverage, CRAP pilot, bezpečnost a PASS/REVIEW/FAIL v dashboardu; plná specifikace v kořenovém [TODO](../TODO.md) | Michal, 6. 11. 2026 | Ada i Nox samostatně; Python + TS E2E PASS/FAIL/REVIEW; neznámé projekty SETUP REQUIRED; kritické změny vyžadují člověka |
+
+### B6 → B7: návaznost při noční práci bez dozoru (6. 11. 2026)
+
+**Po dokončení a nezávislém ověření B6 automaticky pokračovat úkolem B7 v rámci již existujícího oprávněného pracovního běhu a platných scope/lease.** Neznamená to nový souhlas k rozšíření oprávnění, obejití pause/stop, novému běhu workeru ani spuštění externích služeb. Pokud existující automatika na další úkol navázat neumí, uložit checkpoint, přehled dokončeného a připravený následný úkol; netvrdit, že dokument sám agenty probouzí.
+
+**Rozdělení:** Ada nejprve přečte existující Quality Gate zadání z kořenového TODO, zkontroluje CI/hooky a připraví minimální implementační návrh a kód v izolovaném rozsahu. Nox nezávisle ověřuje testy, rizika, kompatibilitu a neobcházení pravidel. Pokud je jeden agent v limitu, deterministické kontroly a bezpečné pokračování v již schválené práci mohou běžet, ale neprovedené nezávislé review se nesmí vykazovat jako PASS.
+
+**Noční hranice:** povolené jsou pouze změny v již schváleném rozsahu, lokální testy, bezpečné commity na pracovních větvích, dokumentace a reporty. Bez lidského schválení se **nesmí**: merge do chráněné větve, produkční deploy, změnit globální hooks/politiky či oprávnění, přidat externí placenou službu, zapnout autonomní zápisový režim, obejít security check nebo zvýšit limity/opravné cykly. Nejasnosti, kritické chyby a vyžadovaná schválení → `needs_review` a pokračovat pouze na jiných bezpečných úkolech.
+
+**Po B7:** zaznamenat výsledky, testy, logy a otevřená rizika; **nepřecházet do C bez ověřených bran a výslovného rozhodnutí Michala**. Neprohlašovat B7 za hotový jen podle implementace, dokud neproběhnou E2E scénáře z TODO.
 
 ## Fáze C – P1/P2: automatizace (až po A + B)
 
