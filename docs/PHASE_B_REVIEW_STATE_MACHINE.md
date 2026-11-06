@@ -43,7 +43,8 @@ Retence je nemaže.
 ## Rozhraní
 
 - **MCP:** `review(action=request|submit|close|show|list|check, …)` a `verdict(review_id, verdict, commit, note)`.
-  Všechny akce berou repo z aktuálního adresáře. `submit` nejdřív ověří autora a pak vyžaduje, aby
+  Repo určuje agent parametrem `repo` (jinak adresář, kde relace začala; ten se během relace
+  nemění, proto je parametr nutný — zjištěno živým testem po nasazení). `submit` nejdřív ověří autora a pak vyžaduje, aby
   cwd bylo repo review: git se nikdy nespouští v cestě ze sdílené DB (cizí repo by přes svou
   konfiguraci mohlo spustit kód). Git běží s `core.fsmonitor=false`, `core.hooksPath=/dev/null` a
   `--no-optional-locks`. Necommitnuté

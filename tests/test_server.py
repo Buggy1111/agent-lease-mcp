@@ -178,3 +178,19 @@ def test_review_submit_checks_author_before_running_git(server, tmp_path, monkey
     with pytest.raises(PermissionError):
         server.review("submit", review_id=other["id"])
     assert calls == []
+
+
+def test_review_takes_repo_path_instead_of_session_cwd(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "work")
+    monkeypatch.chdir(tmp_path)  # relace začala mimo repo (jako /home/…/dev)
+    with pytest.raises(ValueError, match="not inside a git repository"):
+        server.review("request", topic="t", reviewer="codex")
+    opened = server.review("request", topic="t", reviewer="codex", repo=str(tmp_path / "work"))
+    assert opened["head_commit"] == git("rev-parse", "HEAD")
+    assert server.review("check", repo="work")["approved"] is False  # relativně k cwd
+    server._store.review_verdict("codex", opened["id"], "changes_requested", opened["head_commit"], "x")
+    (tmp_path / "work" / "f.txt").write_text("3")
+    git("commit", "-qam", "three")
+    with pytest.raises(ValueError, match="pass repo="):
+        server.review("submit", review_id=opened["id"], repo=str(_git_repo(tmp_path / "other") and tmp_path / "other"))
+    assert server.review("submit", review_id=opened["id"], repo=str(tmp_path / "work"))["fix_cycles"] == 1

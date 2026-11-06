@@ -373,15 +373,20 @@ _REVIEW_ACTIONS = ("request", "submit", "close", "show", "list", "check")
 
 @mcp.tool
 def review(action: str, review_id: int | None = None, topic: str = "", reviewer: str = "",
-           commit: str = "HEAD", base: str = "", note: str = "", state: str | None = None) -> dict:
+           commit: str = "HEAD", base: str = "", note: str = "", state: str | None = None,
+           repo: str = "") -> dict:
     """
     Code review between agents, bound to exact commits. At most 3 fix rounds,
     then it goes to the human. The author never approves their own work.
 
     action:
-      request – open a review of `topic` for the git repo you are in, at `commit`
+    `repo` = path to the git repository you work in (absolute, or relative to
+    the directory this session started in). Your session's start directory is
+    used when it is empty.
+
+      request – open a review of `topic` for that repository, at `commit`
                 (default HEAD), addressed to `reviewer` (e.g. "codex").
-      submit  – you are the author, in the review's repository: put a new `commit`
+      submit  – you are the author, `repo` is the review's repository: put a new `commit`
                 up for review `review_id`.
                 After changes_requested this uses one fix round; a new commit
                 after approval voids the approval.
@@ -396,6 +401,8 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
     if action not in _REVIEW_ACTIONS:
         raise ValueError(f"action must be one of {', '.join(_REVIEW_ACTIONS)}")
     me = _settings.agent
+    # Cestu volí sám agent (ne sdílená DB); bez ní adresář, kde relace začala.
+    where = os.path.join(os.getcwd(), os.path.expanduser(repo)) if repo else os.getcwd()
     if action == "list":
         return {"reviews": _store.reviews(state=state)}
     if action in ("show", "submit", "close") and review_id is None:
@@ -410,13 +417,14 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
         current = _store.review_get(review_id, events=False)
         if current["author"] != me:
             raise PermissionError(f"only the author ({current['author']}) can submit to review #{review_id}")
-        repo, sha, dirty = workspace.resolve_commit(os.getcwd(), commit)
-        if repo != current["repo"]:
-            raise ValueError(f"review #{review_id} is for {current['repo']}; run submit from that repository")
+        repo_root, sha, dirty = workspace.resolve_commit(where, commit)
+        if repo_root != current["repo"]:
+            raise ValueError(f"review #{review_id} is for {current['repo']}; pass repo= that repository")
+        repo = repo_root
         base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
         result = _store.review_submit(me, review_id, sha, base_sha, note)
     else:
-        repo, sha, dirty = workspace.resolve_commit(os.getcwd(), commit)
+        repo, sha, dirty = workspace.resolve_commit(where, commit)
         if action == "check":
             approved = _store.review_approved(repo, sha)
             return {"repo": repo, "commit": sha, "approved": bool(approved),
