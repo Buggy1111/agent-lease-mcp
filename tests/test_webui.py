@@ -564,3 +564,8 @@ def test_human_review_actions_only_in_web_ui(tmp_path: Path):
                              headers={}, body={"id": review["id"]})
     assert status == 403
     assert "renderReviews(r.reviews)" in PAGE_HTML
+
+
+def test_review_card_shows_secret_scan_without_values():
+    assert "function scanTag(v)" in PAGE_HTML and "${scanTag(v)}" in PAGE_HTML
+    assert "tajné údaje" in PAGE_HTML

@@ -133,3 +133,25 @@ def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
         return str(top), sha.decode().strip(), True
     status = _git_hardened(top, "status", "--porcelain", "--untracked-files=normal")
     return str(top), sha.decode().strip(), status is None or bool(status.strip())
+
+
+def commit_diff(top: str | Path, head: str, base: str = "") -> str:
+    """
+    Diff, který review pokrývá (B6): `base..head`, bez base jen samotný commit `head`.
+    Žádné externí diff programy ani textconv; selhání = ValueError (fail closed).
+    """
+    top = Path(top)
+    common = ("--no-ext-diff", "--no-textconv", "--no-color", "-U0", "--no-renames")
+    if base:
+        out = _git_hardened(top, "diff", *common, base, head, "--")
+    else:
+        out = _git_hardened(top, "diff-tree", "-p", "-r", "--root", *common, head, "--")
+    if out is None:
+        raise ValueError(f"cannot read the diff of {head[:12]} in {top}")
+    return os.fsdecode(out)
+
+
+def parent_commit(top: str | Path, sha: str) -> str:
+    """První rodič commitu, u kořenového commitu prázdný řetězec."""
+    out = _git_hardened(Path(top), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{sha}^1")
+    return out.decode().strip() if out else ""

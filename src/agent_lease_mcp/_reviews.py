@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import time
@@ -44,6 +45,27 @@ _SUBMITTABLE = frozenset({WORKING, AWAITING, CHANGES, APPROVED})
 # Co smí autor sám zavřít: schválené (sloučeno) a rozpracované, které nikdo neviděl.
 _AUTHOR_CLOSABLE = frozenset({WORKING, APPROVED})
 _COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+SECURITY_VERDICTS = ("pass", "fail")
+
+
+def check_findings(findings: list[dict] | None) -> str | None:
+    """B6: výsledek secret scanu jako JSON pro DB; jen soubor, řádek a druh, žádné hodnoty."""
+    if findings is None:
+        return None
+    if not isinstance(findings, list) or len(findings) > 50:
+        raise ValueError("secret_findings must be a list of at most 50 findings")
+    clean = []
+    for item in findings:
+        if not isinstance(item, dict):
+            raise TypeError("each finding must be an object")
+        kind = str(item.get("kind", ""))
+        if not re.fullmatch(r"[a-z0-9-]{1,40}", kind):
+            raise ValueError(f"invalid finding kind {kind[:40]!r}")
+        clean.append({"file": check_path(str(item.get("file", ""))[:500]),
+                      "line": int(item.get("line", 0)), "kind": kind})
+    return json.dumps(clean, ensure_ascii=False)
 
 
 def check_commit(label: str, value: str, *, optional: bool = False) -> str:
@@ -83,6 +105,10 @@ class ReviewsMixin:
     def _review_dict(row: sqlite3.Row) -> dict:
         data = dict(row)
         data["cycles_left"] = max(0, data["max_fix_cycles"] - data["fix_cycles"])
+        raw = data.pop("scan_findings", None)
+        # B6: None = commit nebyl zkontrolován; [] = čistý; jinak nálezy (bez hodnot)
+        data["secret_findings"] = (json.loads(raw) if raw and data.get("scan_commit") == data["head_commit"]
+                                   else None)
         return data
 
     def _review_notify(self, sender: str, recipient: str, text: str) -> None:
@@ -95,7 +121,8 @@ class ReviewsMixin:
             pass
 
     def review_open(self, author: str, repo: str, topic: str, reviewer: str = "",
-                    base_commit: str = "", head_commit: str = "") -> dict:
+                    base_commit: str = "", head_commit: str = "",
+                    secret_findings: list[dict] | None = None) -> dict:
         """Založí review. S `head_commit` rovnou čeká na recenzenta, jinak je ve stavu working."""
         self._check_review_agent(author)
         if reviewer:
@@ -109,6 +136,7 @@ class ReviewsMixin:
         base = check_commit("base_commit", base_commit, optional=True)
         head = check_commit("head_commit", head_commit, optional=True)
         state = AWAITING if head else WORKING
+        scan = check_findings(secret_findings) if head else None
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -120,8 +148,10 @@ class ReviewsMixin:
                 raise ValueError(f"review #{busy['id']} for this topic is still open")
             cur = con.execute(
                 "INSERT INTO reviews(repo, topic, author, reviewer, state, base_commit, head_commit, "
-                "fix_cycles, max_fix_cycles, created_at, updated_at) VALUES(?,?,?,?,?,?,?,0,?,?,?)",
-                (repo, topic, author, reviewer, state, base, head, MAX_FIX_CYCLES, now, now),
+                "fix_cycles, max_fix_cycles, created_at, updated_at, scan_commit, scan_findings) "
+                "VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?)",
+                (repo, topic, author, reviewer, state, base, head, MAX_FIX_CYCLES, now, now,
+                 head if scan is not None else None, scan),
             )
             review_id = cur.lastrowid
             self._review_event(con, review_id, author, "open", "", state, head)
@@ -132,7 +162,7 @@ class ReviewsMixin:
         return self._review_dict(row)
 
     def review_submit(self, author: str, review_id: int, head_commit: str, base_commit: str = "",
-                      note: str = "") -> dict:
+                      note: str = "", secret_findings: list[dict] | None = None) -> dict:
         """
         Autor předloží commit k review. Po žádosti o změny je to další opravné kolo;
         nový commit po schválení schválení ruší (starý verdikt neplatí pro nový diff).
@@ -141,6 +171,7 @@ class ReviewsMixin:
         head = check_commit("head_commit", head_commit)
         base = check_commit("base_commit", base_commit, optional=True)
         note = check_short("note", note)
+        scan = check_findings(secret_findings)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = self._review_row(con, review_id)
@@ -158,8 +189,10 @@ class ReviewsMixin:
             con.execute(
                 "UPDATE reviews SET state=?, head_commit=?, base_commit=CASE WHEN ?='' THEN base_commit ELSE ? END, "
                 "fix_cycles=?, verdict=NULL, verdict_by=NULL, verdict_commit=NULL, verdict_note=NULL, "
-                "verdict_at=NULL, updated_at=? WHERE id=?",
-                (AWAITING, head, base, base, cycles, time.time(), review_id),
+                "verdict_at=NULL, security=NULL, security_by=NULL, scan_commit=?, scan_findings=?, "
+                "updated_at=? WHERE id=?",
+                (AWAITING, head, base, base, cycles, head if scan is not None else None, scan,
+                 time.time(), review_id),
             )
             event = "fix" if state == CHANGES else ("resubmit-after-approval" if state == APPROVED else "submit")
             self._review_event(con, review_id, author, event, state, AWAITING, head, note)
@@ -171,8 +204,12 @@ class ReviewsMixin:
         return self._review_dict(row)
 
     def review_verdict(self, reviewer: str, review_id: int, verdict: str, commit: str,
-                       note: str = "") -> dict:
-        """Verdikt `approved` nebo `changes_requested` přesně na předložený commit."""
+                       note: str = "", security: str = "") -> dict:
+        """
+        Verdikt `approved` nebo `changes_requested` přesně na předložený commit.
+        B6: `approved` vyžaduje výslovné `security="pass"` recenzenta a čistý secret scan
+        právě tohoto commitu; nezkontrolovaný nebo nálezový commit schválit nejde.
+        """
         self._check_review_agent(reviewer)
         commit = check_commit("commit", commit)
         note = check_text(note)
@@ -180,6 +217,11 @@ class ReviewsMixin:
             raise ValueError("verdict must be 'approved' or 'changes_requested'")
         if verdict == CHANGES and not note.strip():
             raise ValueError("changes_requested needs a note saying what to change")
+        if security and security not in SECURITY_VERDICTS:
+            raise ValueError("security must be 'pass' or 'fail'")
+        if verdict == APPROVED and security != "pass":
+            raise PermissionError("approval needs your security verdict: security='pass' "
+                                  "(no secrets, no unsafe change in this diff)")
         human = human_name(self.db_path)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -194,13 +236,22 @@ class ReviewsMixin:
                 raise ValueError(
                     f"stale verdict: review #{review_id} is at {row['head_commit'][:12]}, "
                     f"not {commit[:12]}; review the current commit")
+            if verdict == APPROVED:
+                if row["scan_commit"] != commit or row["scan_findings"] is None:
+                    raise PermissionError(f"commit {commit[:12]} has no secret scan; the author must "
+                                          "submit it again with the current tools")
+                found = json.loads(row["scan_findings"])
+                if found:
+                    raise PermissionError(f"secret scan found {len(found)} possible secret(s) in "
+                                          f"{commit[:12]}; it cannot be approved")
             new_state = verdict
             if verdict == CHANGES and row["fix_cycles"] >= row["max_fix_cycles"]:
                 new_state = ESCALATED  # B4: další kolo by bylo nad strop → člověk
             con.execute(
                 "UPDATE reviews SET state=?, verdict=?, verdict_by=?, verdict_commit=?, verdict_note=?, "
-                "verdict_at=?, updated_at=? WHERE id=?",
-                (new_state, verdict, reviewer, commit, note, time.time(), time.time(), review_id),
+                "verdict_at=?, security=?, security_by=?, updated_at=? WHERE id=?",
+                (new_state, verdict, reviewer, commit, note, time.time(), security or None,
+                 reviewer if security else None, time.time(), review_id),
             )
             self._review_event(con, review_id, reviewer, verdict, AWAITING, new_state, commit, note[:500])
             self._record(con, reviewer, "review-verdict", row["repo"], f"#{review_id} {verdict} {commit[:12]}")
@@ -306,7 +357,8 @@ class ReviewsMixin:
         with self._connect() as con:
             row = con.execute(
                 "SELECT * FROM reviews WHERE repo=? AND state IN (?,?) AND head_commit=? "
-                "AND verdict=? AND verdict_commit=? ORDER BY updated_at DESC LIMIT 1",
+                "AND verdict=? AND verdict_commit=? AND security='pass' "
+                "ORDER BY updated_at DESC LIMIT 1",
                 (repo, APPROVED, CLOSED, commit, APPROVED, commit),
             ).fetchone()
         return self._review_dict(row) if row else None

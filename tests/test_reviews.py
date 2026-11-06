@@ -26,7 +26,8 @@ def store(tmp_path: Path) -> Store:
 
 
 def opened(store: Store, tmp_path: Path, head: str = A, reviewer: str = REVIEWER) -> dict:
-    return store.review_open(AUTHOR, str(tmp_path), "fix: run_fence", reviewer=reviewer, head_commit=head)
+    return store.review_open(AUTHOR, str(tmp_path), "fix: run_fence", reviewer=reviewer, head_commit=head,
+                             secret_findings=[])
 
 
 def test_open_with_commit_waits_for_reviewer_and_notifies(store, tmp_path):
@@ -40,14 +41,14 @@ def test_open_with_commit_waits_for_reviewer_and_notifies(store, tmp_path):
 def test_open_without_commit_is_working(store, tmp_path):
     review = store.review_open(AUTHOR, str(tmp_path), "wip")
     assert review["state"] == "working"
-    review = store.review_submit(AUTHOR, review["id"], A)
+    review = store.review_submit(AUTHOR, review["id"], A, secret_findings=[])
     assert review["state"] == "awaiting_review"
 
 
 def test_author_cannot_approve_own_work(store, tmp_path):
     review = opened(store, tmp_path, reviewer="")
     with pytest.raises(PermissionError):
-        store.review_verdict(AUTHOR, review["id"], "approved", A)
+        store.review_verdict(AUTHOR, review["id"], "approved", A, security="pass")
     with pytest.raises(PermissionError):
         store.review_open(AUTHOR, str(tmp_path), "other", reviewer=AUTHOR)
 
@@ -55,23 +56,23 @@ def test_author_cannot_approve_own_work(store, tmp_path):
 def test_only_assigned_reviewer_gives_verdict(store, tmp_path):
     review = opened(store, tmp_path)
     with pytest.raises(PermissionError):
-        store.review_verdict("gemini", review["id"], "approved", A)
-    assert store.review_verdict(REVIEWER, review["id"], "approved", A)["state"] == "approved"
+        store.review_verdict("gemini", review["id"], "approved", A, security="pass")
+    assert store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")["state"] == "approved"
 
 
 def test_verdict_on_other_commit_is_rejected(store, tmp_path):
     review = opened(store, tmp_path)
-    store.review_submit(AUTHOR, review["id"], B)  # autor mezitím předložil nový commit
+    store.review_submit(AUTHOR, review["id"], B, secret_findings=[])  # autor mezitím předložil nový commit
     with pytest.raises(ValueError, match="stale verdict"):
-        store.review_verdict(REVIEWER, review["id"], "approved", A)
+        store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
     assert store.review_get(review["id"])["state"] == "awaiting_review"
 
 
 def test_new_commit_after_approval_voids_the_approval(store, tmp_path):
     review = opened(store, tmp_path)
-    store.review_verdict(REVIEWER, review["id"], "approved", A)
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
     assert store.review_approved(str(tmp_path), A)
-    again = store.review_submit(AUTHOR, review["id"], B)
+    again = store.review_submit(AUTHOR, review["id"], B, secret_findings=[])
     assert again["state"] == "awaiting_review" and again["verdict"] is None
     assert store.review_approved(str(tmp_path), A) is None
     assert store.review_approved(str(tmp_path), B) is None
@@ -80,8 +81,8 @@ def test_new_commit_after_approval_voids_the_approval(store, tmp_path):
 
 def test_same_commit_resubmitted_is_a_no_op(store, tmp_path):
     review = opened(store, tmp_path)
-    store.review_verdict(REVIEWER, review["id"], "approved", A)
-    assert store.review_submit(AUTHOR, review["id"], A)["state"] == "approved"
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
+    assert store.review_submit(AUTHOR, review["id"], A, secret_findings=[])["state"] == "approved"
 
 
 def test_only_author_submits(store, tmp_path):
@@ -120,7 +121,7 @@ def test_three_fix_cycles_then_human_even_after_restart(tmp_path):
 
     restarted = make(tmp_path)  # nový proces, stejná DB
     with pytest.raises(PermissionError, match="fix cycles"):
-        restarted.review_submit(AUTHOR, rid, E)
+        restarted.review_submit(AUTHOR, rid, E, secret_findings=[])
     with pytest.raises(PermissionError):
         restarted.review_close(AUTHOR, rid, "vzdávám")
     assert restarted.review_get(rid)["head_commit"] == D
@@ -138,7 +139,7 @@ def test_human_grants_one_more_cycle(store, tmp_path):
         store.review_grant_cycle("michal", rid, "")
     granted = store.review_grant_cycle("michal", rid, "poslední pokus")
     assert granted["state"] == "changes_requested" and granted["max_fix_cycles"] == 4
-    assert store.review_submit(AUTHOR, rid, E)["fix_cycles"] == 4
+    assert store.review_submit(AUTHOR, rid, E, secret_findings=[])["fix_cycles"] == 4
     escalated = store.review_verdict(REVIEWER, rid, "changes_requested", E, "ne")
     assert escalated["state"] == "escalated"
 
@@ -147,7 +148,7 @@ def test_agents_cannot_act_as_the_human(store, tmp_path):
     review = opened(store, tmp_path)
     for name in ("michal", "human", "broker"):
         with pytest.raises(PermissionError):
-            store.review_verdict(name, review["id"], "approved", A)
+            store.review_verdict(name, review["id"], "approved", A, security="pass")
         with pytest.raises(PermissionError):
             store.review_open(name, str(tmp_path), "t")
     # Lidské metody nejsou dostupné přes broker.
@@ -162,12 +163,12 @@ def test_close_rules_and_one_open_review_per_topic(store, tmp_path):
         opened(store, tmp_path, head=B)
     with pytest.raises(PermissionError):
         store.review_close(REVIEWER, review["id"])
-    store.review_verdict(REVIEWER, review["id"], "approved", A)
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
     closed = store.review_close(AUTHOR, review["id"], "sloučeno")
     assert closed["state"] == "closed"
     assert store.review_approved(str(tmp_path), A)  # sloučený schválený commit zůstává schválený
     with pytest.raises(ValueError):
-        store.review_submit(AUTHOR, review["id"], B)
+        store.review_submit(AUTHOR, review["id"], B, secret_findings=[])
     assert opened(store, tmp_path, head=B)["state"] == "awaiting_review"  # téma je zase volné
     assert store.review_human_close("michal", review["id"])["state"] == "closed"
 
@@ -175,8 +176,8 @@ def test_close_rules_and_one_open_review_per_topic(store, tmp_path):
 def test_history_records_every_transition(store, tmp_path):
     review = opened(store, tmp_path)
     store.review_verdict(REVIEWER, review["id"], "changes_requested", A, "chybí test")
-    store.review_submit(AUTHOR, review["id"], B)
-    store.review_verdict(REVIEWER, review["id"], "approved", B)
+    store.review_submit(AUTHOR, review["id"], B, secret_findings=[])
+    store.review_verdict(REVIEWER, review["id"], "approved", B, security="pass")
     events = store.review_get(review["id"])["events"]
     assert [e["event"] for e in events] == ["open", "changes_requested", "fix", "approved"]
     assert [e["commit_sha"] for e in events] == [A, A, B, B]
@@ -220,12 +221,12 @@ def test_concurrent_verdicts_and_submits_serialize(tmp_path):
     def verdict(s, kind):
         barrier.wait()
         try:
-            s.review_verdict(REVIEWER, rid, kind, A, "x")
+            s.review_verdict(REVIEWER, rid, kind, A, "x", security="pass")
             results.append(kind)
         except ValueError:
             results.append("rejected")
 
-    threads = [threading.Thread(target=verdict, args=(stores[0], "approved")),
+    threads = [threading.Thread(target=verdict, args=(stores[0], "approved")),  # security níže
                threading.Thread(target=verdict, args=(stores[1], "changes_requested"))]
     for th in threads:
         th.start()
@@ -235,13 +236,13 @@ def test_concurrent_verdicts_and_submits_serialize(tmp_path):
 
     final = stores[2].review_get(rid)
     if final["state"] == "approved":
-        stores[2].review_submit(AUTHOR, rid, B)
+        stores[2].review_submit(AUTHOR, rid, B, secret_findings=[])
         stores[2].review_verdict(REVIEWER, rid, "changes_requested", B, "x")
     barrier2 = threading.Barrier(2)
 
     def submit(s, head):
         barrier2.wait()
-        s.review_submit(AUTHOR, rid, head)
+        s.review_submit(AUTHOR, rid, head, secret_findings=[])
 
     threads = [threading.Thread(target=submit, args=(stores[2], C)),
                threading.Thread(target=submit, args=(stores[3], D))]

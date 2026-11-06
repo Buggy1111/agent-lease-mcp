@@ -898,6 +898,14 @@ const REVIEW = {
   changes_requested: ["požadované změny", "warn"], approved: ["schváleno", "ok"],
   escalated: ["ČEKÁ NA TEBE", "bad"], closed: ["uzavřeno", "gone"],
 };
+// B6: výsledek kontroly tajných údajů a bezpečnostní verdikt (bez hodnot tajemství)
+function scanTag(v) {
+  if (!v.head_commit || v.state === "closed") return "";
+  const f = v.secret_findings;
+  if (f === null || f === undefined) return tag("bez kontroly tajemství", "warn");
+  if (f.length) return tag(`tajné údaje: ${f.length} (${[...new Set(f.map(x => x.file))].slice(0, 2).join(", ")})`, "bad");
+  return v.security === "pass" ? tag("bezpečnost OK", "ok") : tag("bez tajemství", "ok");
+}
 function renderReviews(list) {
   if (list === undefined) return;
   const el = document.getElementById("reviews");
@@ -913,7 +921,7 @@ function renderReviews(list) {
     const why = v.verdict_note && v.state !== "approved" ? `<div class="line">„${esc(v.verdict_note.slice(0, 240))}"</div>` : "";
     card.innerHTML = `<div class="name">#${v.id} ${esc(v.topic)}</div>`
       + `<div class="line">${who}${sha}</div>${why}`
-      + `<div class="tags">${tag(st[0], st[1])}${tag(`kolo oprav ${v.fix_cycles}/${v.max_fix_cycles}`, v.cycles_left ? "" : "bad")}</div>`;
+      + `<div class="tags">${tag(st[0], st[1])}${tag(`kolo oprav ${v.fix_cycles}/${v.max_fix_cycles}`, v.cycles_left ? "" : "bad")}${scanTag(v)}</div>`;
     if (v.state === "escalated") {
       const btns = document.createElement("div");
       btns.className = "btns";

@@ -18,7 +18,7 @@ import uuid
 
 from fastmcp import FastMCP
 
-from . import workspace
+from . import secret_scan, workspace
 from .broker import open_store
 from .config import Settings, human_name
 from .hygiene import check_text, heuristic_risk, redact
@@ -422,30 +422,43 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
             raise ValueError(f"review #{review_id} is for {current['repo']}; pass repo= that repository")
         repo = repo_root
         base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
-        result = _store.review_submit(me, review_id, sha, base_sha, note)
+        findings = secret_scan.scan_diff(workspace.commit_diff(repo, sha, base_sha or current["base_commit"]))
+        result = _store.review_submit(me, review_id, sha, base_sha, note, findings)
     else:
         repo, sha, dirty = workspace.resolve_commit(where, commit)
         if action == "check":
             approved = _store.review_approved(repo, sha)
             return {"repo": repo, "commit": sha, "approved": bool(approved),
                     "review": approved["id"] if approved else None}
-        base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
-        result = _store.review_open(me, repo, topic, reviewer, base_sha, sha)
+        if base:
+            base_sha = workspace.resolve_commit(repo, base)[1]
+        else:
+            # Bez base = rodič prvního commitu: další kola pak kontrolují celý rozsah
+            # base..head, ne jen poslední commit (tajemství ze staršího commitu by prošlo).
+            base_sha = workspace.parent_commit(repo, sha)
+        findings = secret_scan.scan_diff(workspace.commit_diff(repo, sha, base_sha))
+        result = _store.review_open(me, repo, topic, reviewer, base_sha, sha, findings)
     if dirty:
         result["warning"] = ("the working tree has uncommitted changes; the review covers only "
                              f"commit {sha[:12]}")
+    if result.get("secret_findings"):
+        result["blocked"] = (f"secret scan: {len(result['secret_findings'])} possible secret(s) in "
+                             "the diff; remove them and submit a new commit (cannot be approved)")
     return result
 
 
 @mcp.tool
-def verdict(review_id: int, verdict: str, commit: str, note: str = "") -> dict:
+def verdict(review_id: int, verdict: str, commit: str, note: str = "", security: str = "") -> dict:
     """
     Your verdict on a review assigned to you: `approved` or `changes_requested`.
     `commit` = the FULL hash you actually reviewed (no HEAD/branch names). If the
     author has submitted a newer commit since, the verdict is rejected — review
     the new one. changes_requested needs a `note` saying exactly what to fix.
+    `security` = your security verdict on this diff: "pass" (no secrets, no unsafe
+    change) or "fail". Approval REQUIRES security="pass" and a clean automatic
+    secret scan of exactly this commit.
     """
-    return _store.review_verdict(_settings.agent, review_id, verdict, commit, note)
+    return _store.review_verdict(_settings.agent, review_id, verdict, commit, note, security)
 
 
 @mcp.tool

@@ -158,7 +158,7 @@ def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
     assert submitted["head_commit"] == second and submitted["fix_cycles"] == 1
     assert "uncommitted" in submitted["warning"]
 
-    server._store.review_verdict("codex", opened["id"], "approved", second)
+    server._store.review_verdict("codex", opened["id"], "approved", second, security="pass")
     assert server.review("check")["approved"] is True
     assert server.review("check", commit=first)["approved"] is False
     assert [e["event"] for e in server.review("show", review_id=opened["id"])["events"]] == [
@@ -327,3 +327,46 @@ def test_resolve_commit_distinguishes_clean_and_dirty_repo(tmp_path):
     assert workspace.resolve_commit(repo)[2] is False
     (repo / "f.txt").write_text("changed")
     assert workspace.resolve_commit(repo)[2] is True
+
+
+def test_review_blocks_a_committed_secret_end_to_end(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "leaky")
+    secret = "sk-or-v1-" + "9f8e7d6c" * 6
+    (tmp_path / "leaky" / "config.py").write_text(f'OPENROUTER_API_KEY = "{secret}"\n')
+    git("add", "config.py")
+    git("commit", "-qm", "add config")
+    monkeypatch.chdir(tmp_path / "leaky")
+    opened = server.review("request", topic="config", reviewer="codex")
+    assert opened["secret_findings"] == [{"file": "config.py", "line": 1, "kind": "api-key-sk"}]
+    assert "blocked" in opened and secret not in str(opened)
+    with pytest.raises(PermissionError):
+        server._store.review_verdict("codex", opened["id"], "approved", opened["head_commit"],
+                                     security="pass")
+    server._store.review_verdict("codex", opened["id"], "changes_requested", opened["head_commit"],
+                                 "klíč do proměnné prostředí")
+    (tmp_path / "leaky" / "config.py").write_text('import os\nKEY = os.environ["OPENROUTER_API_KEY"]\n')
+    git("commit", "-qam", "use env")
+    fixed = server.review("submit", review_id=opened["id"])
+    assert fixed["secret_findings"] == [] and "blocked" not in fixed
+    server._store.review_verdict("codex", opened["id"], "approved", fixed["head_commit"],
+                                 security="pass")
+    assert server.review("check")["approved"] is True
+
+
+def test_fix_round_scans_the_whole_range_not_only_the_last_commit(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "range")
+    monkeypatch.chdir(tmp_path / "range")
+    (tmp_path / "range" / "a.py").write_text("x = 1\n")
+    git("add", "a.py")
+    git("commit", "-qm", "clean start")
+    opened = server.review("request", topic="range", reviewer="codex")
+    assert opened["base_commit"] and opened["secret_findings"] == []
+    server._store.review_verdict("codex", opened["id"], "changes_requested", opened["head_commit"], "x")
+    (tmp_path / "range" / "b.py").write_text('TOKEN = "ghp_' + "A1b2C3d4E5" * 4 + '"\n')
+    git("add", "b.py")
+    git("commit", "-qm", "leak")
+    (tmp_path / "range" / "c.py").write_text("y = 2\n")
+    git("add", "c.py")
+    git("commit", "-qm", "unrelated")
+    again = server.review("submit", review_id=opened["id"])
+    assert [f["file"] for f in again["secret_findings"]] == ["b.py"]
