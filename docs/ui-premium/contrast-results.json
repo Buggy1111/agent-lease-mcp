@@ -1,0 +1,102 @@
+[
+  {
+    "label": "--text / --bg",
+    "ratio": 17.89057897298027
+  },
+  {
+    "label": "--text / --surface",
+    "ratio": 16.7238206846075
+  },
+  {
+    "label": "--text / --surface-2",
+    "ratio": 15.319067800701498
+  },
+  {
+    "label": "--text-dim / --bg",
+    "ratio": 7.959363242413056
+  },
+  {
+    "label": "--text-dim / --surface",
+    "ratio": 7.440282610797925
+  },
+  {
+    "label": "--text-dim / --surface-2",
+    "ratio": 6.815320250120751
+  },
+  {
+    "label": "--accent-text / --bg",
+    "ratio": 9.627467921395919
+  },
+  {
+    "label": "--accent-text / --surface",
+    "ratio": 8.999599588554569
+  },
+  {
+    "label": "--accent-text / --surface-2",
+    "ratio": 8.243659082228936
+  },
+  {
+    "label": "--blue-text / --bg",
+    "ratio": 9.90832107099522
+  },
+  {
+    "label": "--blue-text / --surface",
+    "ratio": 9.262136520405663
+  },
+  {
+    "label": "--blue-text / --surface-2",
+    "ratio": 8.484143666168341
+  },
+  {
+    "label": "--ok / --bg",
+    "ratio": 11.378909525311403
+  },
+  {
+    "label": "--ok / --surface",
+    "ratio": 10.63681856104736
+  },
+  {
+    "label": "--ok / --surface-2",
+    "ratio": 9.74335636535611
+  },
+  {
+    "label": "--warn / --bg",
+    "ratio": 11.185504839958174
+  },
+  {
+    "label": "--warn / --surface",
+    "ratio": 10.45602702365244
+  },
+  {
+    "label": "--warn / --surface-2",
+    "ratio": 9.577750797622722
+  },
+  {
+    "label": "--bad-text / --bg",
+    "ratio": 8.951965988924412
+  },
+  {
+    "label": "--bad-text / --surface",
+    "ratio": 8.368151427607911
+  },
+  {
+    "label": "--bad-text / --surface-2",
+    "ratio": 7.665250752422263
+  },
+  {
+    "label": "primary 78%",
+    "ratio": 6.009399710779952
+  },
+  {
+    "label": "primary 82%",
+    "ratio": 5.639355701672551
+  },
+  {
+    "label": "primary 88%",
+    "ratio": 5.106758101142758
+  },
+  {
+    "label": "primary 91%",
+    "ratio": 4.8431255105118085
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "checks": [
+    "Comparison screenshots use the same observed Agent Lease records",
+    "Task metrics use loaded task records; bridges/operators excluded from agents",
+    "Reference navigation opens actual sections and task filter",
+    "Kind filters, system events, search, keyboard focus",
+    "Untrusted message/review text is escaped, never executed",
+    "Detail shows only the selected task and actual linked records",
+    "SSE updates state without duplicate messages, preserves expanded text",
+    "Existing cancel, retry, quarantine, checkpoint and review actions keep payloads",
+    "Composer preserves message/task/broadcast payloads and Enter/Shift+Enter",
+    "Failed sends preserve the composer text and re-enable retry",
+    "Emergency stop/resume, missing pause state and stream reconnect",
+    "History is capped at 200 unique messages; missing data stays explicit",
+    "Quality Gate starts empty, never treats reviews or task success as quality results",
+    "Explicit demo presents every result type, repository details and independent review without backend writes",
+    "Quality tabs, Analytics/Settings placeholders, mobile overflow and keyboard navigation",
+    "Motion: history never enters; only new live messages enter for 210 ms",
+    "Live status updates keep existing message text, agents, review controls and stop button",
+    "Completion is one 450 ms opacity overlay; errors never flash",
+    "Timeline tones reflect only actual task states; switching fades once",
+    "Only active interactive agent dots pulse, offline and bridges remain still",
+    "Reduced motion cancels current animations and suppresses new effects",
+    "Tablet drawer traps keyboard focus, closes with Escape, and retains the one emergency control",
+    "Desktop/notebook/tablet/mobile breakpoints and 44 px mobile targets",
+    "200% zoom reflows without page-wide horizontal scrolling or inaccessible stop control",
+    "Palette text and control surfaces meet 4.5:1 including primary button hover",
+    "No script errors, external requests or horizontal overflow"
+  ],
+  "errors": [],
+  "externalRequests": [],
+  "viewports": [
+    320,
+    375,
+    390,
+    768,
+    1024,
+    1280,
+    1440,
+    1920
+  ],
+  "screenshotData": "Actual observed agent-lease snapshot; synthetic fixture used only for behavior assertions"
+}

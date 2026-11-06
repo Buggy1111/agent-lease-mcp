@@ -64,6 +64,11 @@ function fixture() {
     browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
     const context=await browser.newContext({viewport:{width:1440,height:1000},locale:'cs-CZ',timezoneId:'Europe/Prague',colorScheme:'dark',reducedMotion:'reduce'});
     const page=await context.newPage();
+    await page.addInitScript(()=>{
+      window.__motionRecords=[];
+      const animate=Element.prototype.animate;
+      Element.prototype.animate=function(frames,options){window.__motionRecords.push({id:this.id,className:typeof this.className==='string'?this.className:'svg',frames,duration:typeof options==='number'?options:options.duration});return animate.call(this,frames,options);};
+    });
     page.on('pageerror',e=>errors.push(e.message));
     const external=[];
     page.on('request',r=>{if(!r.url().startsWith(origin)) external.push(r.url());});
@@ -91,6 +96,26 @@ function fixture() {
       await noOverflow(page,1280);
       await page.screenshot({path:path.join(outDir,'after-laptop.png')});
       for(const width of [320,375,390,768,1024,1280,1440,1920]) await noOverflow(page,width);
+      if(process.env.UI_PREMIUM==='1') {
+        for(const [name,width,height] of [['desktop-1920',1920,1080],['laptop-1366',1366,768],['tablet-768',768,1024],['mobile-390',390,844]]) {
+          await page.setViewportSize({width,height}); await page.screenshot({path:path.join(outDir,'after-'+name+'.png')});
+        }
+        await page.setViewportSize({width:768,height:1024}); await page.click('#openDetail');
+        await page.screenshot({path:path.join(outDir,'after-tablet-detail.png')}); await page.getByRole('button',{name:'Zavřít panel'}).click();
+        await page.setViewportSize({width:390,height:844}); await page.click('#openAgents');
+        await page.screenshot({path:path.join(outDir,'after-mobile-agents.png')}); await page.getByRole('button',{name:'Zavřít panel'}).click();
+        await page.setViewportSize({width:1920,height:1080});
+        await page.locator('.primary-nav [data-view="quality"]').click();
+        await page.screenshot({path:path.join(outDir,'quality-gate-empty.png')});
+        await page.locator('#qualityPage [data-qg-demo]').click();
+        await page.locator('#qgProjectTable [data-qg-project="0"]').click();
+        await page.screenshot({path:path.join(outDir,'quality-gate-demo.png')});
+        await page.setViewportSize({width:390,height:844});
+        await page.screenshot({path:path.join(outDir,'quality-gate-mobile.png')});
+        await page.locator('#qualityPage [data-qg-demo]').click();
+        await page.locator('.primary-nav [data-view="overview"]').click();
+        await page.setViewportSize({width:1920,height:1080});
+      }
     });
     snapshot=fixture();
     await load('/after');
@@ -105,9 +130,9 @@ function fixture() {
     await check('Reference navigation opens actual sections and task filter',async()=>{
       await page.click('#navTasks'); assert.equal(await page.locator('[data-filter="task"]').getAttribute('aria-pressed'),'true');
       await page.click('[data-filter="all"]');
-      assert.equal(await page.locator('.primary-nav a[href="#side"]').count(),1);
-      assert.equal(await page.locator('.primary-nav a[href="#projectPanel"]').count(),1);
-      assert.equal(await page.locator('.primary-nav a[href="#historyPanel"]').count(),1);
+      assert.equal(await page.locator('#navAgents').count(),1);
+      assert.equal(await page.locator('#navProjects').count(),1);
+      assert.equal(await page.locator('#navHistory').count(),1);
     });
     await check('Kind filters, system events, search, keyboard focus',async()=>{
       await page.click('[data-filter="task"]'); assert.equal(await page.locator('.bubble:visible').count(),8);
@@ -205,6 +230,8 @@ function fixture() {
       assert.equal(await text(page,'#metricAgents'),'0'); assert.equal(await text(page,'#metricDone'),'0');
       assert((await text(page,'#filterEmpty')).includes('zatím nemá'));
     });
+    if(process.env.UI_PREMIUM==='1') await require('./quality_gate_checks.cjs')({page,check,load,text,calls,outDir,fixture,setSnapshot:s=>{snapshot=s;}});
+    if(process.env.UI_PREMIUM==='1') await require('./premium_checks.cjs')({page,check,load,fixture,emit,wait,text,getSnapshot:()=>snapshot,setSnapshot:s=>{snapshot=s;},outDir});
     await check('No script errors, external requests or horizontal overflow',async()=>{
       assert.deepEqual(errors,[]); assert.deepEqual(external,[]);
       for(const width of [320,390,768,1024,1280,1440,1920]) await noOverflow(page,width);
