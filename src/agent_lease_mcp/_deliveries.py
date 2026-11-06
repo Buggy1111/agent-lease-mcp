@@ -133,7 +133,10 @@ class DeliveriesMixin:
         """
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
-            return self._expire_leases(con, time.time())
+            now = time.time()
+            changed = self._expire_leases(con, now)
+            self._prune(con, now)  # B1: úklid prošlých nájmů i bez nového claim
+            return changed
 
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
@@ -160,6 +163,7 @@ class DeliveriesMixin:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()  # lock wait must not shorten a new lease or revive expired tasks
             self._expire_leases(con, now, recipient)
+            self._prune(con, now)  # B1: prošlý cizí nájem nesmí úkol blokovat
             # nouzové zastavení se kontroluje v TÉŽE transakci jako převzetí (A10)
             if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
                 return None
@@ -193,7 +197,9 @@ class DeliveriesMixin:
                     "SELECT path FROM task_paths WHERE message_id=? ORDER BY path",
                     (candidate["id"],),
                 ).fetchall()]
-                if paths and self._conflicts(con, paths, recipient):
+                # B1: cizí nájem i rozběhnutý úkol nad stejnými cestami → zatím ne.
+                # Kontrola i převzetí jsou v jedné transakci, takže vyhraje jen jeden.
+                if paths and self._conflicts(con, paths, recipient, task_id=candidate["id"]):
                     continue
                 risk = self._quarantined(con, candidate["id"], recipient)
                 if risk:

@@ -114,14 +114,35 @@ class ClaimsMixin:
                 self._upsert_claim(con, target, agent, purpose[:500], now, ttl)
         return None
 
-    def _conflicts(self, con: sqlite3.Connection, wanted: list[str], agent: str) -> list[Claim]:
+    def _conflicts(self, con: sqlite3.Connection, wanted: list[str], agent: str, *,
+                   task_id: int | None = None) -> list[Claim]:
         """
         Kolize v OBOU směrech: cizí nájem na adresář nade mnou i cizí nájem na
         soubor uvnitř adresáře, který si beru.
+
+        B1: rozběhnutý úkol (leased/started s platným lease) drží svoje `task_paths`
+        jako nájem svého adresáta, dokud lease platí. Rezervace tak nevyžaduje nové
+        řádky ani úklid: skončí sama s koncem lease. Pro převzetí úkolu (`task_id`)
+        brání i úkoly téhož adresáta, ať dvě session stejného jména nepracují nad
+        stejnými soubory souběžně.
         """
+        now = time.time()
         held = [
             _row_to_claim(r)
-            for r in con.execute("SELECT * FROM claims WHERE agent <> ?", (agent,)).fetchall()
+            for r in con.execute(
+                "SELECT * FROM claims WHERE agent <> ? AND expires_at > ?", (agent, now)
+            ).fetchall()
+        ]
+        held += [
+            Claim(path=r["path"], agent=r["recipient"], purpose=f"task #{r['message_id']}",
+                  claimed_at=r["updated_at"], expires_at=r["lease_until"])
+            for r in con.execute(
+                "SELECT tp.path, d.recipient, d.message_id, d.updated_at, d.lease_until "
+                "FROM task_paths tp JOIN deliveries d ON d.message_id=tp.message_id "
+                "WHERE d.state IN ('leased','started') AND d.lease_until > ? "
+                "AND (d.recipient <> ? OR (? IS NOT NULL AND d.message_id <> ?))",
+                (now, agent, task_id, task_id),
+            ).fetchall()
         ]
         found: list[Claim] = []
         for target in wanted:
@@ -160,6 +181,16 @@ class ClaimsMixin:
                 claim_ = _row_to_claim(row)
                 if covers(claim_.path, target):
                     return claim_
+            # B1: rezervace rozběhnutého úkolu (hook ji vynucuje, má ji vidět i `owner`)
+            for r in con.execute(
+                "SELECT tp.path, d.recipient, d.message_id, d.updated_at, d.lease_until "
+                "FROM task_paths tp JOIN deliveries d ON d.message_id=tp.message_id "
+                "WHERE d.state IN ('leased','started') AND d.lease_until > ?", (now,),
+            ).fetchall():
+                if covers(r["path"], target):
+                    return Claim(path=r["path"], agent=r["recipient"],
+                                 purpose=f"task #{r['message_id']}",
+                                 claimed_at=r["updated_at"], expires_at=r["lease_until"])
         return None
 
     def claims(self) -> list[Claim]:
