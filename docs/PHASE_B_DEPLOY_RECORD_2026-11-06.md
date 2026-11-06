@@ -36,5 +36,5 @@ spustit služby, restartovat relace. Nové tabulky `reviews`/`review_events` sta
 
 ## Zbývá
 
-- A11 (restart Windows/WSL) s Michalem podle `PHASE_A_PREDEPLOY_REVIEW.md`.
+- A11 hotovo (restart WSL PASS), viz `PHASE_A_A11_RESULT_2026-11-06.md`; zbývá trvalá unita webu a samostart WSL po přihlášení.
 - Dál podle roadmapy: B1, B2, B5, B6.
