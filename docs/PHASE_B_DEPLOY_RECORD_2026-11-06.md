@@ -16,6 +16,19 @@ pushnuto na `origin/main`.
 | 8 Živý test | #667 na claude-code bridge: jedno dokončení, přesná odpověď, procesy v podskupině bridge. Nouzový stop během #670 ukončil 17 procesů do 3 s, úkol v karanténě (`needs_review`, pak zrušen). Michal stop zrušil ve webu. |
 | Relace | Michal restartoval Claude Code i Codex. Nové `agent-lease-mcp` (Codex pid 7467, Claude pid 8276) mají `exe` = `runtime-fdc39b8`. Nástroje `review` a `verdict` jsou k dispozici. |
 
+## Druhé nasazení: runtime-d01bf3e (6. 11., 18:42)
+
+Živý test po prvním nasazení ukázal, že `review` bral repo z adresáře, kde relace začala (8a2413d: parametr `repo`, Nox PASS #678).
+Bezpečnostní kontrola a Nox pak našli cesty, kudy by `git` v cizím repu spustil program: clean filtr (3abe2d6), filtr ve vloženém
+configu (d8c8859, 5a35e3e), filtr v submodulu a promisor lazy fetch (Nox d01bf3e, review Ady PASS #700).
+
+| Krok | Výsledek |
+|---|---|
+| Runtime | `runtime-d01bf3e`, stejný archiv CPython a závislosti shodné s `runtime-fdc39b8`. V runtime 529 passed, 1 xfailed; `verify_sqlite_runtime.py` 20 nástrojů MCP, SQLite 3.53.1, integrita ok. |
+| Okno | Žádné leased/started (25 pending, 5 needs_review), `emergency_stop`. |
+| Záloha | `/home/buggy1111/.local/share/agent-lease/deploy-backup-20261106-184202` (adresář DB, drop-iny, konfigurace klientů, snímek fronty 30 řádků, `previous-current.txt` = `runtime-fdc39b8`), `agent-lease backup` ok. |
+| Přepnutí a start | `current → runtime-d01bf3e`, všechny 4 služby z nového runtime, bridge `Delegate=yes`. Integrita ok, fronta shodná. Web `agent-lease-webui-deploy` před nasazením neběžel (příčina nezjištěna), znovu spuštěn z runtime. |
+
 ## Návrat zpět
 
 `emergency_stop`, zastavit služby, `ln -sfn runtime-b483265 current.new && mv -T current.new current`,
