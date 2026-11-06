@@ -292,10 +292,15 @@ def main(argv: list[str] | None = None) -> int:
 
     elif args.cmd == "send":
         if args.recipient == "auto":
-            from . import jev
+            from . import jev, routing
 
-            candidates = [p["agent"] for p in store.peers() if p["agent"] != me and p["active"]]
-            chosen = jev.route(args.text, candidates) if jev.enabled() else None
+            # B2: jen skuteční agenti (ne most, budík, broker ani člověk)
+            candidates = routing.candidates(store.peers(), me, settings.db_path)
+            if len(candidates) == 1:
+                chosen = candidates[0]  # jediný dosažitelný agent: není co rozhodovat
+            else:
+                chosen = (jev.route(args.text, candidates, routing.capabilities())
+                          if jev.enabled() else None)
             if not chosen:
                 print("auto: cannot decide (Jev off/unavailable or no candidate) — "
                       "zadej --to <agent>.", file=sys.stderr)

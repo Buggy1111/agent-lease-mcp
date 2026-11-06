@@ -170,12 +170,13 @@ def result_matches_task(task: str, result: str) -> float | None:
     return max(0.0, base * (1.0 - (refusal or 0.0)))
 
 
-def route(text: str, agents: list[str]) -> str | None:
+def route(text: str, agents: list[str], descriptions: dict[str, str] | None = None) -> str | None:
     """Který agent má úkol vzít; bez jisté odpovědi None (člověk zadá `--to`)."""
     if len(agents) < 2:
         return agents[0] if agents else None
+    about = "".join(f"\n- {a}: {descriptions[a]}" for a in agents if descriptions and a in descriptions)
     ans = ask(
-        f"Task:\n{text}",
+        f"Task:\n{text}" + (f"\n\nAgents:{about}" if about else ""),
         [{"id": "who", "type": "choice", "options": agents[:255],
           "prompt": "Which agent is best suited for this task?"}],
     )
