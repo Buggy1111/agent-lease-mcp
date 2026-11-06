@@ -192,6 +192,7 @@ class DeliveriesMixin:
                  owner, owner),
             ).fetchall()
             row = None
+            held = self._held(con) if rows else []  # jeden snímek pro všechny kandidáty
             for candidate in rows:
                 paths = [r["path"] for r in con.execute(
                     "SELECT path FROM task_paths WHERE message_id=? ORDER BY path",
@@ -199,7 +200,8 @@ class DeliveriesMixin:
                 ).fetchall()]
                 # B1: cizí nájem i rozběhnutý úkol nad stejnými cestami → zatím ne.
                 # Kontrola i převzetí jsou v jedné transakci, takže vyhraje jen jeden.
-                if paths and self._conflicts(con, paths, recipient, task_id=candidate["id"]):
+                if paths and self._conflicts(con, paths, recipient, task_id=candidate["id"],
+                                             held=held):
                     continue
                 risk = self._quarantined(con, candidate["id"], recipient)
                 if risk:

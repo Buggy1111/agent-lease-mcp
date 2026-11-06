@@ -109,3 +109,16 @@ def test_reconcile_prunes_expired_claims(store, tmp_path):
     store.reconcile()
     with store._connect() as con:
         assert con.execute("SELECT COUNT(*) FROM claims").fetchone()[0] == 0
+
+
+def test_lease_next_loads_reservations_once(store, tmp_path, monkeypatch):
+    """Nox #2: snímek rezervací jednou na lease_next, ne pro každého kandidáta."""
+    blocker = store.send("michal", "codex", "hold", kind="task", paths=[str(tmp_path)])
+    store.lease_next("codex", lease_seconds=600)
+    for i in range(20):
+        store.send("michal", "claude-code", f"t{i}", kind="task", paths=[str(tmp_path / f"f{i}")])
+    calls = []
+    real = type(store)._held
+    monkeypatch.setattr(type(store), "_held", staticmethod(lambda con: calls.append(1) or real(con)))
+    assert store.lease_next("claude-code") is None
+    assert len(calls) == 1 and blocker

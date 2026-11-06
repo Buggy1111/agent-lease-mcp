@@ -114,41 +114,51 @@ class ClaimsMixin:
                 self._upsert_claim(con, target, agent, purpose[:500], now, ttl)
         return None
 
+    @staticmethod
+    def _held(con: sqlite3.Connection) -> list[tuple[Claim, int | None]]:
+        """
+        Všechno, co právě blokuje cesty: platné nájmy (task id None) a rezervace
+        rozběhnutých úkolů (B1: leased/started s platným lease drží své `task_paths`
+        jako nájem adresáta; končí samy s lease, bez vlastních řádků a úklidu).
+        Jeden snímek stačí na celé `lease_next` (Nox #2: dřív se načítal pro každého
+        kandidáta znovu pod zápisovým zámkem).
+        """
+        now = time.time()
+        held: list[tuple[Claim, int | None]] = [
+            (_row_to_claim(r), None)
+            for r in con.execute("SELECT * FROM claims WHERE expires_at > ?", (now,)).fetchall()
+        ]
+        held += [
+            (Claim(path=r["path"], agent=r["recipient"], purpose=f"task #{r['message_id']}",
+                   claimed_at=r["updated_at"], expires_at=r["lease_until"]), r["message_id"])
+            for r in con.execute(
+                "SELECT tp.path, d.recipient, d.message_id, d.updated_at, d.lease_until "
+                "FROM task_paths tp JOIN deliveries d ON d.message_id=tp.message_id "
+                "WHERE d.state IN ('leased','started') AND d.lease_until > ?", (now,),
+            ).fetchall()
+        ]
+        return held
+
     def _conflicts(self, con: sqlite3.Connection, wanted: list[str], agent: str, *,
-                   task_id: int | None = None) -> list[Claim]:
+                   task_id: int | None = None,
+                   held: list[tuple[Claim, int | None]] | None = None) -> list[Claim]:
         """
         Kolize v OBOU směrech: cizí nájem na adresář nade mnou i cizí nájem na
         soubor uvnitř adresáře, který si beru.
 
-        B1: rozběhnutý úkol (leased/started s platným lease) drží svoje `task_paths`
-        jako nájem svého adresáta, dokud lease platí. Rezervace tak nevyžaduje nové
-        řádky ani úklid: skončí sama s koncem lease. Pro převzetí úkolu (`task_id`)
-        brání i úkoly téhož adresáta, ať dvě session stejného jména nepracují nad
-        stejnými soubory souběžně.
+        Vlastní nájmy neblokují. Rezervace úkolů téhož adresáta blokují jen při
+        převzetí jiného úkolu (`task_id`), ať dvě session stejného jména nepracují
+        nad stejnými soubory souběžně.
         """
-        now = time.time()
-        held = [
-            _row_to_claim(r)
-            for r in con.execute(
-                "SELECT * FROM claims WHERE agent <> ? AND expires_at > ?", (agent, now)
-            ).fetchall()
-        ]
-        held += [
-            Claim(path=r["path"], agent=r["recipient"], purpose=f"task #{r['message_id']}",
-                  claimed_at=r["updated_at"], expires_at=r["lease_until"])
-            for r in con.execute(
-                "SELECT tp.path, d.recipient, d.message_id, d.updated_at, d.lease_until "
-                "FROM task_paths tp JOIN deliveries d ON d.message_id=tp.message_id "
-                "WHERE d.state IN ('leased','started') AND d.lease_until > ? "
-                "AND (d.recipient <> ? OR (? IS NOT NULL AND d.message_id <> ?))",
-                (now, agent, task_id, task_id),
-            ).fetchall()
-        ]
         found: list[Claim] = []
-        for target in wanted:
-            for claim_ in held:
-                if covers(claim_.path, target) or covers(target, claim_.path):
-                    found.append(claim_)
+        for claim_, mid in (self._held(con) if held is None else held):
+            if mid is None:
+                if claim_.agent == agent:
+                    continue
+            elif claim_.agent == agent and (task_id is None or mid == task_id):
+                continue
+            if any(covers(claim_.path, target) or covers(target, claim_.path) for target in wanted):
+                found.append(claim_)
         return found
 
     def release(self, paths: list[str], agent: str) -> list[str]:

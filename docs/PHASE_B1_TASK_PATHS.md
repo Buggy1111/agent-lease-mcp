@@ -37,3 +37,10 @@ předchozím kódu selže. Plná sada: 536 passed, 1 xfailed.
 
 - Rezervace platí jen pro deklarované `task_paths`. Úkol bez cest nic nerezervuje (stejně jako dosud).
 - Bash z workeru hook nehlídá (beze změny, viz globální pravidla).
+
+## Po review Noxe #2 (výkon)
+
+Snímek nájmů a rezervací se v `lease_next` načte **jednou** pro všechny kandidáty (`_held`),
+ne pro každý čekající úkol znovu pod zápisovým zámkem. Benchmark Noxe
+(`scripts/benchmark_nox_b1_reservations.py`): 1000 aktivních + 1000 blokovaných
+7,2 s → 0,6 s, 1 dotaz na rezervace. Regrese `test_lease_next_loads_reservations_once`.
