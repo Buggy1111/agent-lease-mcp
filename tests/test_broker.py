@@ -430,8 +430,8 @@ def test_review_state_machine_over_broker_and_human_methods_refused(broker, tmp_
     review = remote.review_open("claude-code", str(tmp_path), "B3", "codex", "", head, [])
     assert review["state"] == "awaiting_review"
     with pytest.raises(PermissionError):
-        remote.review_verdict("claude-code", review["id"], "approved", head, security="pass")
-    assert remote.review_verdict("codex", review["id"], "approved", head, security="pass")["state"] == "approved"
+        remote.review_verdict("claude-code", review["id"], "approved", head, security="pass", reviewer_findings=[])
+    assert remote.review_verdict("codex", review["id"], "approved", head, security="pass", reviewer_findings=[])["state"] == "approved"
     assert remote.review_approved(str(tmp_path), head)["id"] == review["id"]
     for method in ("review_grant_cycle", "review_human_close"):
         with socket.socket(socket.AF_UNIX) as s:

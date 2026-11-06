@@ -10,6 +10,13 @@ Stav: implementováno 6. 11. 2026 (Ada), čeká na review Noxe. Nenasazeno.
   řetězci s písmeny i číslicemi. Ukládá se jen soubor, řádek a druh, **nikdy hodnota**.
 - Review bez zadaného `base` dostane jako base rodiče prvního commitu, takže každé kolo kontroluje
   celý rozsah (tajemství ze staršího commitu série neproklouzne).
+- Zadaný `base` musí být skutečný předek `head` (ne `head` sám) a po založení review ho nejde
+  změnit. Každý další commit musí na `base` stavět. Autor si tak rozsah kontroly nezúží.
+- **Scan je nezávislý dvakrát:** u autora při předložení a znovu u recenzenta při schválení, v jeho
+  vlastním procesu nástroje `verdict` (recenzent předá `repo=` svou cestu k repu review). Podvržený
+  „čistý“ scan autora schválení neprojde.
+- Parser diffu se řídí počty řádků z hlaviček úseků. Přidaný řádek, který v diffu začíná `+++`
+  (obsah „++ …“), se tedy kontroluje, ne přeskočí.
 - **Schválit (`approved`) jde jen**, když:
   1. secret scan proběhl právě na tomto commitu a nic nenašel (nezkontrolovaný commit, třeba
      review založené před B6, je potřeba předložit znovu),
@@ -29,7 +36,8 @@ Git pro diff běží se stejným zpřísněním jako `resolve_commit` (žádná 
 se nepočítají, běžný kód není tajemství, soulad s redakcí v `hygiene`, schválení jen s `security=pass`
 a čistým scanem, nezkontrolovaný commit, validace nálezů, migrace starší tabulky. V `test_server.py`
 konec-konec: commit s klíčem → zablokováno → oprava → schváleno; tajemství ve starším commitu série
-se najde i v dalším kole. Plná sada: 568 passed, 1 xfailed.
+se najde i v dalším kole. Opravy po automatické bezpečnostní kontrole (podvržený scan, posunutý base, parser) mají
+vlastní testy, které na předchozím kódu selžou. Plná sada: 574 passed, 1 xfailed.
 
 ## Omezení
 

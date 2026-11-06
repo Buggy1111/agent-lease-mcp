@@ -422,7 +422,10 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
             raise ValueError(f"review #{review_id} is for {current['repo']}; pass repo= that repository")
         repo = repo_root
         base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
-        findings = secret_scan.scan_diff(workspace.commit_diff(repo, sha, base_sha or current["base_commit"]))
+        scope = base_sha or current["base_commit"]
+        if scope and not workspace.is_strict_ancestor(repo, scope, sha):
+            raise ValueError(f"commit {sha[:12]} does not build on the review base {scope[:12]}")
+        findings = secret_scan.scan_diff(workspace.commit_diff(repo, sha, scope))
         result = _store.review_submit(me, review_id, sha, base_sha, note, findings)
     else:
         repo, sha, dirty = workspace.resolve_commit(where, commit)
@@ -432,6 +435,9 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
                     "review": approved["id"] if approved else None}
         if base:
             base_sha = workspace.resolve_commit(repo, base)[1]
+            if not workspace.is_strict_ancestor(repo, base_sha, sha):
+                raise ValueError(f"base {base_sha[:12]} must be an ancestor of {sha[:12]} "
+                                 "(and not the same commit)")
         else:
             # Bez base = rodič prvního commitu: další kola pak kontrolují celý rozsah
             # base..head, ne jen poslední commit (tajemství ze staršího commitu by prošlo).
@@ -448,7 +454,8 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
 
 
 @mcp.tool
-def verdict(review_id: int, verdict: str, commit: str, note: str = "", security: str = "") -> dict:
+def verdict(review_id: int, verdict: str, commit: str, note: str = "", security: str = "",
+            repo: str = "") -> dict:
     """
     Your verdict on a review assigned to you: `approved` or `changes_requested`.
     `commit` = the FULL hash you actually reviewed (no HEAD/branch names). If the
@@ -456,9 +463,22 @@ def verdict(review_id: int, verdict: str, commit: str, note: str = "", security:
     the new one. changes_requested needs a `note` saying exactly what to fix.
     `security` = your security verdict on this diff: "pass" (no secrets, no unsafe
     change) or "fail". Approval REQUIRES security="pass" and a clean automatic
-    secret scan of exactly this commit.
+    secret scan of exactly this commit — done again here, by you, independently
+    of the author. `repo` = your path to the review's repository (default: the
+    directory this session started in).
     """
-    return _store.review_verdict(_settings.agent, review_id, verdict, commit, note, security)
+    findings = None
+    if verdict == "approved":
+        current = _store.review_get(review_id, events=False)
+        if current["author"] == _settings.agent:
+            raise PermissionError("the author cannot review their own work")
+        where = os.path.join(os.getcwd(), os.path.expanduser(repo)) if repo else os.getcwd()
+        top, sha, _ = workspace.resolve_commit(where, commit)
+        if top != current["repo"]:
+            raise ValueError(f"review #{review_id} is for {current['repo']}; pass repo= that repository")
+        findings = secret_scan.scan_diff(workspace.commit_diff(top, sha, current["base_commit"]))
+    return _store.review_verdict(_settings.agent, review_id, verdict, commit, note, security,
+                                 findings)
 
 
 @mcp.tool

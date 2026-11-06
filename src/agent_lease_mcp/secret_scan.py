@@ -23,26 +23,36 @@ _PATTERNS = (
         r"(?i)\b[\w.-]*(api[_-]?key|secret|token|passw(or)?d|pwd)[\w.-]*\s*[:=]\s*"
         r"[\"']?(?=[^\"'\s]*[0-9])(?=[^\"'\s]*[A-Za-z])[^\"'\s]{16,}")),
 )
-_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 MAX_FINDINGS = 50
 
 
 def scan_diff(diff: str) -> list[dict]:
-    """Nálezy v přidaných řádcích unified diffu: [{file, line, kind}], bez hodnot."""
+    """
+    Nálezy v přidaných řádcích unified diffu: [{file, line, kind}], bez hodnot.
+
+    Hlavičky (`diff --git`, `---`, `+++`) se poznají jen MIMO úsek: uvnitř úseku se řídí
+    počty z `@@ -a,b +c,d @@`. Jinak by přidaný řádek „++ tajemství“ (v diffu „+++ …“)
+    vypadal jako hlavička a prošel bez kontroly.
+    """
     findings: list[dict] = []
-    path, line_no = "", 0
+    path, line_no, old_left, new_left = "", 0, 0, 0
     for raw in diff.splitlines():
-        if raw.startswith("+++ "):
-            target = raw[4:].strip()
-            path = target.removeprefix("b/")
-            continue
-        if raw.startswith(("--- ", "diff --git")):
-            continue
-        hunk = _HUNK.match(raw)
-        if hunk:
-            line_no = int(hunk.group(1))
-            continue
+        if old_left <= 0 and new_left <= 0:
+            if raw.startswith("+++ "):
+                target = raw[4:].strip()
+                path = target.removeprefix("b/")
+                continue
+            hunk = _HUNK.match(raw)
+            if hunk:
+                line_no = int(hunk.group(3))
+                old_left = int(hunk.group(2)) if hunk.group(2) is not None else 1
+                new_left = int(hunk.group(4)) if hunk.group(4) is not None else 1
+            continue  # ostatní hlavičky a metadata mezi úseky
+        if raw.startswith("\\"):
+            continue  # „\ No newline at end of file“ se do počtů nepočítá
         if raw.startswith("+"):
+            new_left -= 1
             added = raw[1:]
             for kind, pattern in _PATTERNS:
                 if pattern.search(added):
@@ -51,6 +61,10 @@ def scan_diff(diff: str) -> list[dict]:
             line_no += 1
             if len(findings) >= MAX_FINDINGS:
                 break
-        elif not raw.startswith(("-", "\\")):
+        elif raw.startswith("-"):
+            old_left -= 1
+        else:
+            old_left -= 1
+            new_left -= 1
             line_no += 1
     return findings

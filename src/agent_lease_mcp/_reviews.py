@@ -183,6 +183,10 @@ class ReviewsMixin:
                     f"review #{review_id} used all {row['max_fix_cycles']} fix cycles and waits for the human")
             if state not in _SUBMITTABLE:
                 raise ValueError(f"review #{review_id} is {state}; nothing can be submitted")
+            if base and row["base_commit"] and base != row["base_commit"]:
+                # B6: základ určuje rozsah kontroly; po založení ho autor nesmí posunout
+                raise ValueError(f"review #{review_id} has base {row['base_commit'][:12]}; "
+                                 "the base cannot change after the review is opened")
             if state in (APPROVED, AWAITING) and head == row["head_commit"]:
                 return self._review_dict(row)  # stejný commit znovu: nic se nemění
             cycles = row["fix_cycles"] + (1 if state == CHANGES else 0)
@@ -204,11 +208,14 @@ class ReviewsMixin:
         return self._review_dict(row)
 
     def review_verdict(self, reviewer: str, review_id: int, verdict: str, commit: str,
-                       note: str = "", security: str = "") -> dict:
+                       note: str = "", security: str = "",
+                       reviewer_findings: list[dict] | None = None) -> dict:
         """
         Verdikt `approved` nebo `changes_requested` přesně na předložený commit.
         B6: `approved` vyžaduje výslovné `security="pass"` recenzenta a čistý secret scan
         právě tohoto commitu; nezkontrolovaný nebo nálezový commit schválit nejde.
+        Scan musí být čistý dvakrát: u autora (při předložení) i nezávisle u recenzenta
+        (`reviewer_findings`, spočítá ho recenzentův nástroj), aby ho autor nemohl podvrhnout.
         """
         self._check_review_agent(reviewer)
         commit = check_commit("commit", commit)
@@ -222,6 +229,12 @@ class ReviewsMixin:
         if verdict == APPROVED and security != "pass":
             raise PermissionError("approval needs your security verdict: security='pass' "
                                   "(no secrets, no unsafe change in this diff)")
+        own_scan = check_findings(reviewer_findings)
+        if verdict == APPROVED and own_scan is None:
+            raise PermissionError("approval needs the reviewer's own secret scan of the diff")
+        if verdict == APPROVED and own_scan != "[]":
+            raise PermissionError(f"your secret scan found {len(json.loads(own_scan))} possible "
+                                  "secret(s); it cannot be approved")
         human = human_name(self.db_path)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")

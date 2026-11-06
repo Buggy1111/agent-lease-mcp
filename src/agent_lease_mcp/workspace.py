@@ -155,3 +155,10 @@ def parent_commit(top: str | Path, sha: str) -> str:
     """První rodič commitu, u kořenového commitu prázdný řetězec."""
     out = _git_hardened(Path(top), "rev-parse", "--verify", "--quiet", "--end-of-options", f"{sha}^1")
     return out.decode().strip() if out else ""
+
+
+def is_strict_ancestor(top: str | Path, base: str, head: str) -> bool:
+    """Je `base` skutečný předek `head` (a ne `head` sám)? Jen pak smí být základem review."""
+    if not base or base == head:
+        return False
+    return _git_hardened(Path(top), "merge-base", "--is-ancestor", base, head) is not None

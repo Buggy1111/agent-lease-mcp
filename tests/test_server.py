@@ -142,8 +142,8 @@ def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
     opened = server.review("request", topic="B3 smoke", reviewer="codex")
     assert opened["head_commit"] == first and opened["state"] == "awaiting_review"
     assert "warning" not in opened
-    with pytest.raises(ValueError):
-        server.verdict(opened["id"], "approved", "HEAD")  # jen plný hash
+    with pytest.raises(PermissionError):
+        server.verdict(opened["id"], "approved", first, security="pass")  # autor sám ne
     server._store.review_verdict("codex", opened["id"], "changes_requested", first, "doplň test")
 
     (tmp_path / "repo" / "f.txt").write_text("2")
@@ -158,7 +158,7 @@ def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
     assert submitted["head_commit"] == second and submitted["fix_cycles"] == 1
     assert "uncommitted" in submitted["warning"]
 
-    server._store.review_verdict("codex", opened["id"], "approved", second, security="pass")
+    server._store.review_verdict("codex", opened["id"], "approved", second, security="pass", reviewer_findings=[])
     assert server.review("check")["approved"] is True
     assert server.review("check", commit=first)["approved"] is False
     assert [e["event"] for e in server.review("show", review_id=opened["id"])["events"]] == [
@@ -341,7 +341,7 @@ def test_review_blocks_a_committed_secret_end_to_end(server, tmp_path, monkeypat
     assert "blocked" in opened and secret not in str(opened)
     with pytest.raises(PermissionError):
         server._store.review_verdict("codex", opened["id"], "approved", opened["head_commit"],
-                                     security="pass")
+                                     security="pass", reviewer_findings=[])
     server._store.review_verdict("codex", opened["id"], "changes_requested", opened["head_commit"],
                                  "klíč do proměnné prostředí")
     (tmp_path / "leaky" / "config.py").write_text('import os\nKEY = os.environ["OPENROUTER_API_KEY"]\n')
@@ -349,7 +349,7 @@ def test_review_blocks_a_committed_secret_end_to_end(server, tmp_path, monkeypat
     fixed = server.review("submit", review_id=opened["id"])
     assert fixed["secret_findings"] == [] and "blocked" not in fixed
     server._store.review_verdict("codex", opened["id"], "approved", fixed["head_commit"],
-                                 security="pass")
+                                 security="pass", reviewer_findings=[])
     assert server.review("check")["approved"] is True
 
 
@@ -370,3 +370,44 @@ def test_fix_round_scans_the_whole_range_not_only_the_last_commit(server, tmp_pa
     git("commit", "-qm", "unrelated")
     again = server.review("submit", review_id=opened["id"])
     assert [f["file"] for f in again["secret_findings"]] == ["b.py"]
+
+
+def test_reviewer_tool_rescans_and_ignores_a_faked_author_scan(server, tmp_path, monkeypatch):
+    import dataclasses
+
+    git = _git_repo(tmp_path / "fake")
+    (tmp_path / "fake" / "k.py").write_text('KEY = "sk-' + "q1w2e3r4" * 4 + '"\n')
+    git("add", "k.py")
+    git("commit", "-qm", "key")
+    head = git("rev-parse", "HEAD")
+    base = git("rev-parse", "HEAD^")
+    # autor obejde svůj nástroj a do úložiště rovnou zapíše „čistý“ scan
+    review = server._store.review_open("claude-code", str(tmp_path / "fake"), "fake", "test-agent",
+                                       base, head, [])
+    assert review["secret_findings"] == []
+    monkeypatch.chdir(tmp_path / "fake")
+    with pytest.raises(ValueError):
+        server.verdict(review["id"], "approved", "HEAD", security="pass")  # jen plný hash
+    with pytest.raises(PermissionError, match="your secret scan found 1"):
+        server.verdict(review["id"], "approved", head, security="pass")
+    monkeypatch.setattr(server, "_settings", dataclasses.replace(server._settings, agent="gemini"))
+    with pytest.raises(PermissionError):  # jiný než přidělený recenzent
+        server.verdict(review["id"], "approved", head, security="pass")
+
+
+def test_base_must_be_a_strict_ancestor_and_cannot_move(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "anc")
+    monkeypatch.chdir(tmp_path / "anc")
+    head = git("rev-parse", "HEAD")
+    with pytest.raises(ValueError, match="ancestor"):
+        server.review("request", topic="t", reviewer="codex", base=head)  # base == head
+    (tmp_path / "anc" / "g.txt").write_text("2")
+    git("add", "g.txt")
+    git("commit", "-qm", "two")
+    opened = server.review("request", topic="t", reviewer="codex", base=head)
+    server._store.review_verdict("codex", opened["id"], "changes_requested", opened["head_commit"], "x")
+    (tmp_path / "anc" / "h.txt").write_text("3")
+    git("add", "h.txt")
+    git("commit", "-qm", "three")
+    with pytest.raises(ValueError, match="cannot change"):
+        server.review("submit", review_id=opened["id"], base="HEAD^")

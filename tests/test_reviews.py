@@ -48,7 +48,7 @@ def test_open_without_commit_is_working(store, tmp_path):
 def test_author_cannot_approve_own_work(store, tmp_path):
     review = opened(store, tmp_path, reviewer="")
     with pytest.raises(PermissionError):
-        store.review_verdict(AUTHOR, review["id"], "approved", A, security="pass")
+        store.review_verdict(AUTHOR, review["id"], "approved", A, security="pass", reviewer_findings=[])
     with pytest.raises(PermissionError):
         store.review_open(AUTHOR, str(tmp_path), "other", reviewer=AUTHOR)
 
@@ -56,21 +56,21 @@ def test_author_cannot_approve_own_work(store, tmp_path):
 def test_only_assigned_reviewer_gives_verdict(store, tmp_path):
     review = opened(store, tmp_path)
     with pytest.raises(PermissionError):
-        store.review_verdict("gemini", review["id"], "approved", A, security="pass")
-    assert store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")["state"] == "approved"
+        store.review_verdict("gemini", review["id"], "approved", A, security="pass", reviewer_findings=[])
+    assert store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass", reviewer_findings=[])["state"] == "approved"
 
 
 def test_verdict_on_other_commit_is_rejected(store, tmp_path):
     review = opened(store, tmp_path)
     store.review_submit(AUTHOR, review["id"], B, secret_findings=[])  # autor mezitím předložil nový commit
     with pytest.raises(ValueError, match="stale verdict"):
-        store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
+        store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass", reviewer_findings=[])
     assert store.review_get(review["id"])["state"] == "awaiting_review"
 
 
 def test_new_commit_after_approval_voids_the_approval(store, tmp_path):
     review = opened(store, tmp_path)
-    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass", reviewer_findings=[])
     assert store.review_approved(str(tmp_path), A)
     again = store.review_submit(AUTHOR, review["id"], B, secret_findings=[])
     assert again["state"] == "awaiting_review" and again["verdict"] is None
@@ -81,7 +81,7 @@ def test_new_commit_after_approval_voids_the_approval(store, tmp_path):
 
 def test_same_commit_resubmitted_is_a_no_op(store, tmp_path):
     review = opened(store, tmp_path)
-    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass", reviewer_findings=[])
     assert store.review_submit(AUTHOR, review["id"], A, secret_findings=[])["state"] == "approved"
 
 
@@ -148,7 +148,7 @@ def test_agents_cannot_act_as_the_human(store, tmp_path):
     review = opened(store, tmp_path)
     for name in ("michal", "human", "broker"):
         with pytest.raises(PermissionError):
-            store.review_verdict(name, review["id"], "approved", A, security="pass")
+            store.review_verdict(name, review["id"], "approved", A, security="pass", reviewer_findings=[])
         with pytest.raises(PermissionError):
             store.review_open(name, str(tmp_path), "t")
     # Lidské metody nejsou dostupné přes broker.
@@ -163,7 +163,7 @@ def test_close_rules_and_one_open_review_per_topic(store, tmp_path):
         opened(store, tmp_path, head=B)
     with pytest.raises(PermissionError):
         store.review_close(REVIEWER, review["id"])
-    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass")
+    store.review_verdict(REVIEWER, review["id"], "approved", A, security="pass", reviewer_findings=[])
     closed = store.review_close(AUTHOR, review["id"], "sloučeno")
     assert closed["state"] == "closed"
     assert store.review_approved(str(tmp_path), A)  # sloučený schválený commit zůstává schválený
@@ -177,7 +177,7 @@ def test_history_records_every_transition(store, tmp_path):
     review = opened(store, tmp_path)
     store.review_verdict(REVIEWER, review["id"], "changes_requested", A, "chybí test")
     store.review_submit(AUTHOR, review["id"], B, secret_findings=[])
-    store.review_verdict(REVIEWER, review["id"], "approved", B, security="pass")
+    store.review_verdict(REVIEWER, review["id"], "approved", B, security="pass", reviewer_findings=[])
     events = store.review_get(review["id"])["events"]
     assert [e["event"] for e in events] == ["open", "changes_requested", "fix", "approved"]
     assert [e["commit_sha"] for e in events] == [A, A, B, B]
@@ -221,7 +221,7 @@ def test_concurrent_verdicts_and_submits_serialize(tmp_path):
     def verdict(s, kind):
         barrier.wait()
         try:
-            s.review_verdict(REVIEWER, rid, kind, A, "x", security="pass")
+            s.review_verdict(REVIEWER, rid, kind, A, "x", security="pass", reviewer_findings=[])
             results.append(kind)
         except ValueError:
             results.append("rejected")

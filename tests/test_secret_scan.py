@@ -80,11 +80,11 @@ def test_approval_needs_security_pass_and_a_clean_scan(store, tmp_path):
     with pytest.raises(ValueError):
         store.review_verdict("codex", review["id"], "approved", A, security="maybe")
     with pytest.raises(PermissionError, match="1 possible secret"):
-        store.review_verdict("codex", review["id"], "approved", A, security="pass")
+        store.review_verdict("codex", review["id"], "approved", A, security="pass", reviewer_findings=[])
     store.review_verdict("codex", review["id"], "changes_requested", A, "smaž klíč", security="fail")
     clean = store.review_submit("claude-code", review["id"], B, secret_findings=[])
     assert clean["secret_findings"] == [] and clean["security"] is None
-    approved = store.review_verdict("codex", review["id"], "approved", B, security="pass")
+    approved = store.review_verdict("codex", review["id"], "approved", B, security="pass", reviewer_findings=[])
     assert approved["security"] == "pass" and approved["security_by"] == "codex"
     assert store.review_approved(str(tmp_path), B)["id"] == review["id"]
 
@@ -93,9 +93,9 @@ def test_unscanned_commit_cannot_be_approved(store, tmp_path):
     review = store.review_open("claude-code", str(tmp_path), "t", "codex", "", A)
     assert review["secret_findings"] is None
     with pytest.raises(PermissionError, match="no secret scan"):
-        store.review_verdict("codex", review["id"], "approved", A, security="pass")
+        store.review_verdict("codex", review["id"], "approved", A, security="pass", reviewer_findings=[])
     store.review_submit("claude-code", review["id"], B, secret_findings=[])
-    store.review_verdict("codex", review["id"], "approved", B, security="pass")
+    store.review_verdict("codex", review["id"], "approved", B, security="pass", reviewer_findings=[])
     store.review_submit("claude-code", review["id"], A)  # nový commit bez scanu
     assert store.review_get(review["id"])["secret_findings"] is None
 
@@ -117,3 +117,16 @@ def test_old_reviews_table_gets_the_new_columns(tmp_path):
     with sqlite3.connect(db) as con:
         cols = {r[1] for r in con.execute("PRAGMA table_info(reviews)")}
     assert {"scan_commit", "scan_findings", "security", "security_by"} <= cols
+
+
+def test_added_line_that_looks_like_a_header_is_still_scanned():
+    sneaky = "+++ " + "sk-" + "z9y8x7w6" * 4  # přidaný řádek „++ sk-…“
+    diff = ("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,0 +1,2 @@\n"
+            f"{sneaky}\n+ok\n")
+    assert scan_diff(diff) == [{"file": "x", "line": 1, "kind": "api-key-sk"}]
+
+
+def test_hunk_counts_follow_multiple_files():
+    diff = ("diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n"
+            "diff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -5,0 +6 @@\n+key = " + repr("ghp_" + "X1y2Z3" * 6) + "\n")
+    assert scan_diff(diff) == [{"file": "b", "line": 6, "kind": "github-token"}]
