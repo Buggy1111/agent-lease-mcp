@@ -67,6 +67,18 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
 - [ ] **E2E testy:** jeden Python projekt a jeden TS projekt, každý ve scénáři Ada sama, Nox sám a oba; ověřit detekci, PASS, FAIL, review, chybějící coverage, neznámý projekt i nemožnost obejít gate změnou testů. Další reálné projekty zapojovat postupně po dokončení jádra.
 - [ ] **Dokumentace:** návod jednorázové instalace, volby pro jednotlivá repo, podporované jazyky, security model, recovery při výpadku a postup, jak zapojit Earth Pulse, LILI a Silikon Manager. Neodsunout implementaci samotného Agent Lease za termín 2. 12. 2026.
 
+## Po dokončení fází A → B → C → D — desktopová aplikace (budoucí etapa)
+
+- [ ] **Agent Lease Desktop pro Windows 11** — začít **až po dokončení a ověření celé fáze D**. Není součástí současného rozsahu A/B/C/D ani blokátorem termínu 2. 12. 2026.
+  - Využít **stávající dashboard a jeho aktuální vizuální styl**; nepřepisovat rozhraní od nuly. Nejprve posoudit vhodný lehký desktopový obal (např. Tauri) a ověřit kompatibilitu s existující architekturou.
+  - Desktopové okno otevřít přímo z ikony na ploše / nabídky Start **bez nutnosti prohlížeče**; zobrazit plný dashboard, úkoly, Adu, Noxe, projekty a Quality Gate.
+  - **Minimalizace do systémové lišty vedle hodin (system tray)**; kliknutím zobrazit malý přehledový panel (stav Ady a Noxe, běžící úkoly, čekající schválení, chyby), s možností otevřít celý dashboard. Ukázkový design je pouze vizuální koncept, ne potvrzená implementace.
+  - Rozlišit **minimalizovat / zavřít okno / ukončit desktopovou aplikaci / zastavit agenty**. Ukončení UI samo o sobě nesmí ukončit běžící úkoly nebo služby; zastavení agentů vyžaduje samostatnou výslovnou akci s potvrzením.
+  - Připojit UI bezpečně k existujícím službám Agent Lease ve **WSL** (přednostně lokální autentizované spojení), bez druhého backendu, paralelního stavu nebo oslabení security guardů.
+  - Volitelný autostart po přihlášení do Windows, upozornění na důležité události, znovupřipojení po restartu WSL; bez automatického produkčního nasazení.
+  - Ověřit instalaci, aktualizace, minimální spotřebu prostředků, chování po ztrátě spojení, ovládání klávesnicí, tray popup, zavírání a přepínání desktop/UI na Windows 11.
+  - **Brána zahájení:** A, B, C, D dokončené a otestované; nejprve revize architektury a schválení Michalem. Nezasahovat do aktuální práce Ady a Noxe před dokončením D.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
