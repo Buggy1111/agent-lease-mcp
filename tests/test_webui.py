@@ -538,3 +538,29 @@ def test_pause_banner_sits_on_top_and_ignores_missing_state():
     assert "if (p === undefined) return;" in PAGE_HTML
     assert "Pustit agenty znovu" in PAGE_HTML
     assert '<select id="to">' in PAGE_HTML  # komu se vybírá, nepíše
+
+
+def test_human_review_actions_only_in_web_ui(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    head = "a" * 40
+    review = store.review_open("claude-code", str(tmp_path), "B4", "codex", "", head)
+    for _ in range(3):
+        store.review_verdict("codex", review["id"], "changes_requested", head, "x")
+        head = format(int(head, 16) + 1, "040x")
+        store.review_submit("claude-code", review["id"], head)
+    store.review_verdict("codex", review["id"], "changes_requested", head, "x")
+    handler_type = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://127.0.0.1:8765",
+              "Host": "127.0.0.1:8765"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/review-grant",
+                             headers=cookie, body={"id": review["id"]}, handler_type=handler_type)
+    assert status == 409  # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/review-grant",
+                               headers=cookie, body={"id": review["id"], "reason": "ještě jednou"},
+                               handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["state"] == "changes_requested"
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/review-close",
+                             headers={}, body={"id": review["id"]})
+    assert status == 403
+    assert "renderReviews(r.reviews)" in PAGE_HTML

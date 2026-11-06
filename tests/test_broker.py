@@ -419,3 +419,23 @@ def test_rpc_start_cannot_skip_the_checkpoint_hold(broker):
     assert remote.lease_next("codex", start=True) is None
     job = next(j for j in remote.jobs("codex", viewer="codex") if j["id"] == mid)
     assert job["state"] == "needs_review" and job["last_error"].startswith("checkpoint:")
+
+
+def test_review_state_machine_over_broker_and_human_methods_refused(broker, tmp_path):
+    import json
+    import socket
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    head = "a" * 40
+    review = remote.review_open("claude-code", str(tmp_path), "B3", "codex", "", head)
+    assert review["state"] == "awaiting_review"
+    with pytest.raises(PermissionError):
+        remote.review_verdict("claude-code", review["id"], "approved", head)
+    assert remote.review_verdict("codex", review["id"], "approved", head)["state"] == "approved"
+    assert remote.review_approved(str(tmp_path), head)["id"] == review["id"]
+    for method in ("review_grant_cycle", "review_human_close"):
+        with socket.socket(socket.AF_UNIX) as s:
+            s.connect(str(sock))
+            s.sendall(json.dumps({"method": method, "args": ["michal", review["id"], "x"]}).encode() + b"\n")
+            reply = json.loads(s.makefile().readline())
+        assert reply["ok"] is False and reply["error"] == "PermissionError"

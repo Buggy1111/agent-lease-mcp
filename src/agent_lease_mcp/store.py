@@ -8,7 +8,8 @@ místo je soubor na disku.
 Proč tu není abstraktní úložiště: jedno je, druhé v dohledu není. `Store` je
 jedna fasáda se stálým veřejným API (volá ho broker podle `METHODS`); metody
 jsou podle oblastí v mixinech: `_claims` (nájmy), `_messaging` (zprávy a příjmy),
-`_availability` (přítomnost, limity, failover), `_deliveries` (fronta úkolů).
+`_availability` (přítomnost, limity, failover), `_deliveries` (fronta úkolů),
+`_reviews` (review jako stavový automat).
 Tady zůstává schéma, migrace, připojení, audit a retence.
 """
 
@@ -24,6 +25,7 @@ from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
 from ._messaging import MessagingMixin
+from ._reviews import ReviewsMixin
 from ._store_common import (
     BRIDGE_ACCEPT_NOTE,
     _limit,
@@ -209,10 +211,45 @@ CREATE TABLE IF NOT EXISTS failover_activations (
     after_message_id  INTEGER NOT NULL,
     activated_at      REAL NOT NULL
 );
+
+-- Review jako stavový automat (B3) se stropem opravných kol (B4), viz _reviews.py.
+-- Retence ho nemaže: je to záznam rozhodnutí, ne zpráva.
+CREATE TABLE IF NOT EXISTS reviews (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo            TEXT NOT NULL,
+    topic           TEXT NOT NULL,
+    author          TEXT NOT NULL,
+    reviewer        TEXT NOT NULL DEFAULT '',
+    state           TEXT NOT NULL,
+    base_commit     TEXT NOT NULL DEFAULT '',
+    head_commit     TEXT NOT NULL DEFAULT '',
+    fix_cycles      INTEGER NOT NULL DEFAULT 0,
+    max_fix_cycles  INTEGER NOT NULL,
+    verdict         TEXT,
+    verdict_by      TEXT,
+    verdict_commit  TEXT,
+    verdict_note    TEXT,
+    verdict_at      REAL,
+    created_at      REAL NOT NULL,
+    updated_at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_topic ON reviews(repo, topic, state);
+
+CREATE TABLE IF NOT EXISTS review_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id   INTEGER NOT NULL REFERENCES reviews(id),
+    at          REAL NOT NULL,
+    actor       TEXT NOT NULL,
+    event       TEXT NOT NULL,
+    from_state  TEXT NOT NULL DEFAULT '',
+    to_state    TEXT NOT NULL DEFAULT '',
+    commit_sha  TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT ''
+);
 """
 
 
-class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin):
+class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i

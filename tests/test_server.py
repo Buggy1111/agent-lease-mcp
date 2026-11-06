@@ -16,6 +16,7 @@ EXPECTED_TOOLS = {
     "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
     "cancel",
     "inbox", "room", "history", "wait", "checkpoint", "emergency_stop",
+    "review", "verdict",
 }
 
 
@@ -115,3 +116,51 @@ def test_next_task_resumes_a_checkpoint_on_a_matching_workspace(server, monkeypa
     monkeypatch.setattr(server, "_workspace_state", lambda: ("h", "f"))
     result = server.next_task()
     assert result["task"]["id"] == mid and result["checkpoint"]["workspace_matches"] is True
+
+
+def _git_repo(path):
+    import subprocess
+
+    def git(*argv):
+        return subprocess.run(["git", *argv], cwd=path, check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    path.mkdir()
+    git("init", "-q")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    (path / "f.txt").write_text("1")
+    git("add", "f.txt")
+    git("commit", "-qm", "one")
+    return git
+
+
+def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "repo")
+    monkeypatch.chdir(tmp_path / "repo")
+    first = git("rev-parse", "HEAD")
+    opened = server.review("request", topic="B3 smoke", reviewer="codex")
+    assert opened["head_commit"] == first and opened["state"] == "awaiting_review"
+    assert "warning" not in opened
+    with pytest.raises(ValueError):
+        server.verdict(opened["id"], "approved", "HEAD")  # jen plný hash
+    server._store.review_verdict("codex", opened["id"], "changes_requested", first, "doplň test")
+
+    (tmp_path / "repo" / "f.txt").write_text("2")
+    git("commit", "-qam", "two")
+    (tmp_path / "repo" / "dirty.txt").write_text("x")
+    monkeypatch.chdir(tmp_path)  # submit si repo bere z review, ne z cwd
+    submitted = server.review("submit", review_id=opened["id"])
+    second = git("rev-parse", "HEAD")
+    assert submitted["head_commit"] == second and submitted["fix_cycles"] == 1
+    assert "uncommitted" in submitted["warning"]
+
+    server._store.review_verdict("codex", opened["id"], "approved", second)
+    monkeypatch.chdir(tmp_path / "repo")
+    assert server.review("check")["approved"] is True
+    assert server.review("check", commit=first)["approved"] is False
+    assert [e["event"] for e in server.review("show", review_id=opened["id"])["events"]] == [
+        "open", "changes_requested", "fix", "approved"]
+    assert server.review("close", review_id=opened["id"], note="merged")["state"] == "closed"
+    with pytest.raises(ValueError):
+        server.review("bogus")

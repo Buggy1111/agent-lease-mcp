@@ -6,7 +6,7 @@ je claim/release/state/broadcast/read — víc nástrojů znamená víc příle�
 aby si agent vybral ten špatný. Navíc je jen `room` (jedno levné volání na
 kontrolní bod) a `history` (odpověď na „proč mě to zablokovalo").
 
-Slupka nad `Store`, žádná servisní vrstva mezi tím: šest nástrojů, které jen
+Slupka nad `Store`, žádná servisní vrstva mezi tím: nástroje, které jen
 překládají argumenty na volání store. Vrstva navíc by tu byla jen na proklikávání.
 """
 
@@ -366,6 +366,71 @@ def checkpoint(message_id: int, lease_token: str, step_done: str, next_step: str
     ok = _store.checkpoint(message_id, _settings.agent, lease_token, step_done, next_step,
                            head, dirty, evidence)
     return {"ok": ok, "id": message_id, "git_head": head}
+
+
+_REVIEW_ACTIONS = ("request", "submit", "close", "show", "list", "check")
+
+
+@mcp.tool
+def review(action: str, review_id: int | None = None, topic: str = "", reviewer: str = "",
+           commit: str = "HEAD", base: str = "", note: str = "", state: str | None = None) -> dict:
+    """
+    Code review between agents, bound to exact commits. At most 3 fix rounds,
+    then it goes to the human. The author never approves their own work.
+
+    action:
+      request – open a review of `topic` for the git repo you are in, at `commit`
+                (default HEAD), addressed to `reviewer` (e.g. "codex").
+      submit  – you are the author: put a new `commit` up for review `review_id`.
+                After changes_requested this uses one fix round; a new commit
+                after approval voids the approval.
+      close   – you are the author: close after merging, or to abandon it.
+      show    – review `review_id` with its full history.
+      list    – open reviews (`state` filters: awaiting_review, changes_requested,
+                approved, escalated, closed).
+      check   – is `commit` (default HEAD) of this repo approved?
+    Commit first: the review covers the commit, not uncommitted files.
+    The reviewer answers with `verdict`.
+    """
+    if action not in _REVIEW_ACTIONS:
+        raise ValueError(f"action must be one of {', '.join(_REVIEW_ACTIONS)}")
+    me = _settings.agent
+    if action == "list":
+        return {"reviews": _store.reviews(state=state)}
+    if action in ("show", "submit", "close") and review_id is None:
+        raise ValueError(f"{action} needs review_id")
+    if action == "show":
+        return _store.review_get(review_id)
+    if action == "close":
+        return _store.review_close(me, review_id, note)
+    if action == "submit":
+        current = _store.review_get(review_id, events=False)
+        _, sha, dirty = workspace.resolve_commit(current["repo"], commit)
+        base_sha = workspace.resolve_commit(current["repo"], base)[1] if base else ""
+        result = _store.review_submit(me, review_id, sha, base_sha, note)
+    else:
+        repo, sha, dirty = workspace.resolve_commit(os.getcwd(), commit)
+        if action == "check":
+            approved = _store.review_approved(repo, sha)
+            return {"repo": repo, "commit": sha, "approved": bool(approved),
+                    "review": approved["id"] if approved else None}
+        base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
+        result = _store.review_open(me, repo, topic, reviewer, base_sha, sha)
+    if dirty:
+        result["warning"] = ("the working tree has uncommitted changes; the review covers only "
+                             f"commit {sha[:12]}")
+    return result
+
+
+@mcp.tool
+def verdict(review_id: int, verdict: str, commit: str, note: str = "") -> dict:
+    """
+    Your verdict on a review assigned to you: `approved` or `changes_requested`.
+    `commit` = the FULL hash you actually reviewed (no HEAD/branch names). If the
+    author has submitted a newer commit since, the verdict is rejected — review
+    the new one. changes_requested needs a `note` saying exactly what to fix.
+    """
+    return _store.review_verdict(_settings.agent, review_id, verdict, commit, note)
 
 
 @mcp.tool

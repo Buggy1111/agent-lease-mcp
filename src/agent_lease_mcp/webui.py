@@ -202,6 +202,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_approve_resume()
             if parts.path in ("/api/pause", "/api/resume"):
                 return self._handle_pause(parts.path.endswith("pause"))
+            if parts.path in ("/api/review-grant", "/api/review-close"):
+                return self._handle_review(parts.path.endswith("grant"))
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
@@ -259,6 +261,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "claims": [c.as_dict() for c in store.claims()],
                 "board": store.board(),
                 "paused": store.paused(),
+                "reviews": store.reviews(limit=30),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -384,6 +387,27 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._reject(409, "only a task held back by its checkpoint can be resumed")
             self._json_response({"id": message_id, "state": "pending", "resume_approved": True})
 
+        def _handle_review(self, grant: bool) -> None:
+            """Člověk u review (B4): povolit ještě jedno kolo po eskalaci, nebo uzavřít."""
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                review_id = int(data["id"])
+                reason = str(data.get("reason", "")).strip()
+            except (KeyError, TypeError, ValueError):
+                return self._reject(400, "review action needs a valid 'id'")
+            try:
+                if grant:
+                    result = store.review_grant_cycle(web_agent, review_id, reason)
+                else:
+                    result = store.review_human_close(web_agent, review_id, reason)
+            except KeyError:
+                return self._reject(404, "no such review")
+            except ValueError as exc:
+                return self._reject(409, str(exc))
+            self._json_response(result)
+
         def _handle_pause(self, stop: bool) -> None:
             """Nouzové zastavení / obnovení. Obnovit smí jen člověk – proto jen tady."""
             data = self._read_json()
@@ -444,6 +468,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             # Bez stavu pauzy by živá aktualizace přepsala tlačítko
                             # „Obnovit" na „Zastavit" a člověk by stop zapnul znovu.
                             "paused": store.paused(),
+                            "reviews": store.reviews(limit=30),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -568,7 +593,9 @@ PAGE_HTML = """<!doctype html>
   .card .line { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
   .card .tags { display: flex; flex-wrap: wrap; gap: 5px; }
   .card.offline { opacity: .65; }
-  #agents, #offline, #claims { display: flex; flex-direction: column; gap: 8px; }
+  .card.alert { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
+  .card .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  #agents, #offline, #claims, #reviews { display: flex; flex-direction: column; gap: 8px; }
   .empty { font-size: 12.5px; color: var(--text-faint); padding: 4px 2px; }
   .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
 
@@ -664,6 +691,7 @@ PAGE_HTML = """<!doctype html>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">místnost agentů</div></div></div>
   <div class="section"><h3>Agenti</h3><div id="agents"></div></div>
+  <div class="section"><h3>Review</h3><div id="reviews"></div></div>
   <div class="section"><h3>Zamčené cesty</h3><div id="claims"></div></div>
   <details class="section" id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details>
 </div>
@@ -865,8 +893,52 @@ function agentCard(p, b) {
     <div class="tags">${tags.join("")}</div></div>`;
 }
 
+const REVIEW = {
+  working: ["rozpracováno", ""], awaiting_review: ["čeká na review", "work"],
+  changes_requested: ["požadované změny", "warn"], approved: ["schváleno", "ok"],
+  escalated: ["ČEKÁ NA TEBE", "bad"], closed: ["uzavřeno", "gone"],
+};
+function renderReviews(list) {
+  if (list === undefined) return;
+  const el = document.getElementById("reviews");
+  el.innerHTML = "";
+  if (!list.length) { el.innerHTML = "<div class='empty'>žádné otevřené review</div>"; return; }
+  // Co čeká na člověka, nahoru.
+  [...list].sort((x, y) => (y.state === "escalated") - (x.state === "escalated")).forEach(v => {
+    const st = REVIEW[v.state] || [v.state, ""];
+    const card = document.createElement("div");
+    card.className = "card" + (v.state === "escalated" ? " alert" : "");
+    const who = `${esc(nameOf(v.author))}${v.reviewer ? " → " + esc(nameOf(v.reviewer)) : ""}`;
+    const sha = v.head_commit ? ` · ${esc(v.head_commit.slice(0, 10))}` : "";
+    const why = v.verdict_note && v.state !== "approved" ? `<div class="line">„${esc(v.verdict_note.slice(0, 240))}"</div>` : "";
+    card.innerHTML = `<div class="name">#${v.id} ${esc(v.topic)}</div>`
+      + `<div class="line">${who}${sha}</div>${why}`
+      + `<div class="tags">${tag(st[0], st[1])}${tag(`kolo oprav ${v.fix_cycles}/${v.max_fix_cycles}`, v.cycles_left ? "" : "bad")}</div>`;
+    if (v.state === "escalated") {
+      const btns = document.createElement("div");
+      btns.className = "btns";
+      const grant = document.createElement("button");
+      grant.className = "btn"; grant.textContent = "Povolit ještě 1 kolo";
+      grant.onclick = () => {
+        const reason = prompt("Proč povolit další kolo oprav? (zaznamená se)");
+        if (reason) post("/api/review-grant", {id: v.id, reason});
+      };
+      const close = document.createElement("button");
+      close.className = "btn"; close.textContent = "Uzavřít review";
+      close.onclick = () => {
+        const reason = prompt("Proč uzavřít? (zaznamená se)", "převezmu sám");
+        if (reason !== null) post("/api/review-close", {id: v.id, reason});
+      };
+      btns.append(grant, close);
+      card.appendChild(btns);
+    }
+    el.appendChild(card);
+  });
+}
+
 function renderRoom(r) {
   if (r.me) me = r.me;
+  renderReviews(r.reviews);
   (r.messages || []).forEach(renderMessage);
   renderPause(r.paused);
   const board = {};

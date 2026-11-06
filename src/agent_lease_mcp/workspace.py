@@ -71,3 +71,22 @@ def matches(cp: dict, head: str, dirty: str) -> bool:
     """Shoda jen při plně známém stavu na obou stranách."""
     return (UNKNOWN not in (head, dirty, cp.get("git_head"), cp.get("dirty"))
             and cp.get("git_head") == head and cp.get("dirty") == dirty)
+
+
+def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
+    """
+    Kořen repa, plný hash commitu `rev` a jestli jsou v kopii necommitnuté změny.
+    Review (B3) se váže na commit, ne na rozpracované soubory — proto to varování.
+    """
+    cwd = Path(cwd)
+    root = _git(cwd, "rev-parse", "--show-toplevel")
+    if root is None:
+        raise ValueError(f"{cwd} is not inside a git repository")
+    top = Path(os.fsdecode(root.rstrip(b"\n"))).resolve()
+    if rev.startswith("-"):
+        raise ValueError(f"invalid revision {rev!r}")
+    sha = _git(top, "rev-parse", "--verify", "--end-of-options", f"{rev}^{{commit}}")
+    if sha is None:
+        raise ValueError(f"{rev!r} is not a commit in {top}")
+    status = _git(top, "status", "--porcelain", "--untracked-files=normal")
+    return str(top), sha.decode().strip(), bool(status and status.strip())

@@ -40,6 +40,9 @@ METHODS = frozenset({
     "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
     "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "checkpoint_resume_approved", "paused", "pause",
     "checkpoint", "get_checkpoint", "backup_now",
+    # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
+    "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
+    "review_approved",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
