@@ -21,7 +21,7 @@ SAMPLES = {
     "bearer-token": "Authorization: Bearer " + "abcDEF123456ghiJKL789",
     "private-key": "-----BEGIN RSA " + "PRIVATE KEY-----",  # složené, ať scan nehlásí tento test
     "google-api-key": "AIza" + "B" * 35,
-    "assigned-secret": "DB_" + 'PASSWORD = "Tr0ub4dor&3xyzQWER"',
+    "assigned-secret": "DB_PASS" + 'WORD = "Tr0ub4dor&3xyzQWER"',
 }
 
 
