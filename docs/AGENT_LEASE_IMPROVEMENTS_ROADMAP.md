@@ -49,6 +49,18 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | B6 | Povinný bezpečnostní verdikt nad diffem + secret scan (před autonomními zápisy) | Orka security-review | podvržené tajemství zablokuje |
 | B7 | **Centrální Quality Gate pro všechny podporované projekty**: automatická detekce repo/jazyka, testy, build, lint, coverage, CRAP pilot, bezpečnost a PASS/REVIEW/FAIL v dashboardu; plná specifikace v kořenovém [TODO](../TODO.md) | Michal, 6. 11. 2026 | Ada i Nox samostatně; Python + TS E2E PASS/FAIL/REVIEW; neznámé projekty SETUP REQUIRED; kritické změny vyžadují člověka |
 
+### B7.0 – FAST-TRACK AUDIT před implementací B7 (bezpečné urychlení)
+
+**Rozhodnutí vlastníka, 6. 11. 2026:** začlenit jako první podúkol B7, bez změny pořadí A → B → C → D. Po dokončení B6 provést nejprve **read-only průzkum a malý izolovaný pilot**, teprve potom implementaci vybraných komponent B7. Žádný automatický přechod do C, produkční nasazení ani změny oprávnění.
+
+- [ ] Ada: inventura aktuálního CI, nástrojů, hooků, review, zabezpečení a checkpointů. Vypíše pro každý kandidát existující ekvivalent a riziko duplicity.
+- [ ] B7: porovnat **Gitleaks** (detekce tajemství), **Semgrep** (pravidla SAST), stávající Ruff/pytest/coverage, TypeScript typecheck/build a dostupné nástroje pro cyklomatickou složitost + CRAP. Ověřit konkrétní verze, licence, možnosti offline provozu, čas běhu, false positives a reálný přínos. Nic neinstalovat do globálního prostředí bez schválení.
+- [ ] C: pouze read-only srovnat Git worktree, stavové přechody a opravné smyčky s **Gas Town/Gas City**; nenahrazovat stávající broker, lease ani checkpoint systém.
+- [ ] D: pouze read-only zmapovat **Crewship/Gas Town** z hlediska memory, cost budget, audit trail, research orchestration; nepřipojovat cizí orchestrátor vedle Agent Lease.
+- [ ] Nox: nezávisle ověřit technická tvrzení na konkrétních souborech/commitech, licence a sublicenční povinnosti, dodavatelská rizika, náklady, testy a kompatibilitu. Nezaměňovat screenshot/marketing za implementaci.
+- [ ] Rozhodovací tabulka: **POUŽÍT / INSPIROVAT SE / VYNECHAT** s odkazy, baseline vs pilot (čas, tokeny, testy, rizika), odhadem práce a rollbackem; jakmile přínos není prokazatelný, ponechat existující architekturu.
+- [ ] Výsledek uložit do `docs/research/` s datem a odkazy; následný implementační úkol B7 má používat jen schválené nástroje. Pilot nesmí porušit fázi B6 nebo human approval.
+
 ### B6 → B7: návaznost při noční práci bez dozoru (6. 11. 2026)
 
 **Po dokončení a nezávislém ověření B6 automaticky pokračovat úkolem B7 v rámci již existujícího oprávněného pracovního běhu a platných scope/lease.** Neznamená to nový souhlas k rozšíření oprávnění, obejití pause/stop, novému běhu workeru ani spuštění externích služeb. Pokud existující automatika na další úkol navázat neumí, uložit checkpoint, přehled dokončeného a připravený následný úkol; netvrdit, že dokument sám agenty probouzí.
