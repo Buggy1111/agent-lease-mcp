@@ -36,13 +36,17 @@ Retence je nemaže.
 | Autor neschválí sám sebe | `author == reviewer` je odmítnuto při založení i při verdiktu. Je-li určen recenzent, verdikt dá jen on. |
 | Max. 3 opravná kola (B4) | Každé `submit` po `changes_requested` je kolo. Žádost o změny po 3. kole → `escalated` a vzkaz člověku i autorovi. Z `escalated` agent nic nepředloží ani neuzavře. Počítadlo je v SQLite, restart procesu ani brokeru ho nevynuluje. |
 | Další kolo jen od člověka | `review_grant_cycle` (+1 kolo, povinný důvod) a `review_human_close` nejsou v `METHODS` brokeru. Volá je jen web UI, které má přímý přístup k DB. Agentní metody odmítají rezervovaná jména (`michal`, `human`, `broker` …), takže se agent za člověka nevydá ani přes argumenty brokeru. |
+| Strop nejde obejít zavřením | Autor sám zavře jen `approved` (sloučeno) nebo `working` (nic nepředloženo). Rozběhnuté review zavře jen člověk, jinak by close + nové review téhož tématu vynulovalo kola (Nox #655/P1, regresní test). |
 | Jedno otevřené review na téma | Druhé `request` stejného tématu ve stejném repu je odmítnuto, dokud první není `closed`. |
 | Dotaz „je to schválené?“ | `review_approved(repo, commit)` → schvalující review jen pro přesně tento commit (i po uzavření po sloučení). Podklad pro C2 a pro budoucí bránu před pushem. |
 
 ## Rozhraní
 
 - **MCP:** `review(action=request|submit|close|show|list|check, …)` a `verdict(review_id, verdict, commit, note)`.
-  `request`/`check` berou repo z aktuálního adresáře, `submit` z repa review (ne z cwd). Necommitnuté
+  Všechny akce berou repo z aktuálního adresáře. `submit` nejdřív ověří autora a pak vyžaduje, aby
+  cwd bylo repo review: git se nikdy nespouští v cestě ze sdílené DB (cizí repo by přes svou
+  konfiguraci mohlo spustit kód). Git běží s `core.fsmonitor=false`, `core.hooksPath=/dev/null` a
+  `--no-optional-locks`. Necommitnuté
   změny → `warning`: review pokrývá jen commit.
 - **Vzkazy:** každý přechod pošle `chat` dotčenému (recenzentovi při předložení, autorovi po verdiktu,
   člověku při eskalaci). Úmyslně ne `task`, aby se zatím nic nespouštělo samo. Automatické review
@@ -58,10 +62,12 @@ Retence je nemaže.
 - Store neověřuje, že commit v repu existuje (nespouští git). Ověřuje to MCP nástroj při převodu na
   hash. Přímé volání přes broker s neexistujícím hashem projde, ale verdikt pak musí přijít na
   stejný hash.
+- Autor může strop obejít novým tématem se stejnými commity. Je to vidět v historii a ve webu, ale
+  automat to nebrání. Vazba rozpočtu na řadu commitů může přijít s C2.
 - Brána „bez schváleného review se nepushne / nesloučí“ zatím není. `review_approved` je na ni připravené (C2/B6).
 
 ## Testy
 
-`tests/test_reviews.py` (14), `test_server.py::test_review_tools_bind_to_commits` (skutečné git repo),
+`tests/test_reviews.py` (16, vč. close/reopen a souběhu verdiktů i submitů), `test_server.py::test_review_tools_bind_to_commits` (skutečné git repo),
 `test_broker.py::test_review_state_machine_over_broker_and_human_methods_refused`,
-`test_webui.py::test_human_review_actions_only_in_web_ui`. Plná sada: 518 passed, 1 xfailed.
+`test_webui.py::test_human_review_actions_only_in_web_ui`. Plná sada: 521 passed, 1 xfailed.

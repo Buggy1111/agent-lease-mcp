@@ -381,7 +381,8 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
     action:
       request – open a review of `topic` for the git repo you are in, at `commit`
                 (default HEAD), addressed to `reviewer` (e.g. "codex").
-      submit  – you are the author: put a new `commit` up for review `review_id`.
+      submit  – you are the author, in the review's repository: put a new `commit`
+                up for review `review_id`.
                 After changes_requested this uses one fix round; a new commit
                 after approval voids the approval.
       close   – you are the author: close after merging, or to abandon it.
@@ -404,9 +405,15 @@ def review(action: str, review_id: int | None = None, topic: str = "", reviewer:
     if action == "close":
         return _store.review_close(me, review_id, note)
     if action == "submit":
+        # Nejdřív oprávnění, pak git — a git jen ve vlastním cwd, nikdy v cestě ze sdílené DB
+        # (cizí repo by přes svou konfiguraci mohlo spustit kód).
         current = _store.review_get(review_id, events=False)
-        _, sha, dirty = workspace.resolve_commit(current["repo"], commit)
-        base_sha = workspace.resolve_commit(current["repo"], base)[1] if base else ""
+        if current["author"] != me:
+            raise PermissionError(f"only the author ({current['author']}) can submit to review #{review_id}")
+        repo, sha, dirty = workspace.resolve_commit(os.getcwd(), commit)
+        if repo != current["repo"]:
+            raise ValueError(f"review #{review_id} is for {current['repo']}; run submit from that repository")
+        base_sha = workspace.resolve_commit(repo, base)[1] if base else ""
         result = _store.review_submit(me, review_id, sha, base_sha, note)
     else:
         repo, sha, dirty = workspace.resolve_commit(os.getcwd(), commit)

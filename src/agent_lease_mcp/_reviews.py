@@ -7,6 +7,8 @@
 - Verdikt je vázaný na přesný commit. Verdikt na jiný commit než ten, který
   autor naposledy předložil, se odmítne; nový commit po schválení schválení ruší.
 - Autor neschválí sám sebe. Je-li určen recenzent, verdikt dá jen on (nebo člověk).
+- Autor sám zavře jen schválené nebo nepředložené review; jinak člověk. Tím
+  close + nové review téhož tématu strop kol nevynuluje.
 - Nejvýš `max_fix_cycles` (3) opravných kol. Žádost o změny po vyčerpání kol
   review rovnou eskaluje na člověka. Počítadlo je v SQLite, restart ho nevynuluje.
 - Člověk jedná jen přes metody `review_human_*`/`review_grant_cycle`, které NEJSOU
@@ -39,6 +41,8 @@ OPEN_REVIEW_STATES = (WORKING, AWAITING, CHANGES, APPROVED, ESCALATED)
 
 # Odkud smí autor předložit commit k review.
 _SUBMITTABLE = frozenset({WORKING, AWAITING, CHANGES, APPROVED})
+# Co smí autor sám zavřít: schválené (sloučeno) a rozpracované, které nikdo neviděl.
+_AUTHOR_CLOSABLE = frozenset({WORKING, APPROVED})
 _COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
@@ -212,7 +216,11 @@ class ReviewsMixin:
         return self._review_dict(row)
 
     def review_close(self, actor: str, review_id: int, note: str = "") -> dict:
-        """Autor uzavře review (sloučeno nebo opuštěno). Eskalované zavře jen člověk."""
+        """
+        Autor uzavře schválené review (sloučeno) nebo rozpracované, které ještě nikdo
+        neviděl. Rozběhnuté review (čeká, požadované změny, eskalace) zavře jen člověk:
+        jinak by close + nové review stejného tématu vynulovalo strop kol (Nox #655/P1).
+        """
         self._check_review_agent(actor)
         return self._close_review(actor, review_id, note, human=False)
 
@@ -229,8 +237,10 @@ class ReviewsMixin:
                 raise PermissionError(f"only the author ({row['author']}) or the human can close review #{review_id}")
             if row["state"] == CLOSED:
                 return self._review_dict(row)
-            if row["state"] == ESCALATED and not human:
-                raise PermissionError(f"review #{review_id} is escalated; only the human can close it")
+            if not human and row["state"] not in _AUTHOR_CLOSABLE:
+                raise PermissionError(
+                    f"review #{review_id} is {row['state']}; the author can close only an approved or "
+                    "unsubmitted review, anything else goes to the human")
             con.execute("UPDATE reviews SET state=?, updated_at=? WHERE id=?", (CLOSED, time.time(), review_id))
             self._review_event(con, review_id, actor, "close", row["state"], CLOSED, row["head_commit"], note)
             self._record(con, actor, "review-close", row["repo"], f"#{review_id} {note}")

@@ -149,14 +149,16 @@ def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
     (tmp_path / "repo" / "f.txt").write_text("2")
     git("commit", "-qam", "two")
     (tmp_path / "repo" / "dirty.txt").write_text("x")
-    monkeypatch.chdir(tmp_path)  # submit si repo bere z review, ne z cwd
+    monkeypatch.chdir(tmp_path)  # mimo repo review: git se v cestě z DB nespouští
+    with pytest.raises(ValueError):
+        server.review("submit", review_id=opened["id"])
+    monkeypatch.chdir(tmp_path / "repo")
     submitted = server.review("submit", review_id=opened["id"])
     second = git("rev-parse", "HEAD")
     assert submitted["head_commit"] == second and submitted["fix_cycles"] == 1
     assert "uncommitted" in submitted["warning"]
 
     server._store.review_verdict("codex", opened["id"], "approved", second)
-    monkeypatch.chdir(tmp_path / "repo")
     assert server.review("check")["approved"] is True
     assert server.review("check", commit=first)["approved"] is False
     assert [e["event"] for e in server.review("show", review_id=opened["id"])["events"]] == [
@@ -164,3 +166,15 @@ def test_review_tools_bind_to_commits(server, tmp_path, monkeypatch):
     assert server.review("close", review_id=opened["id"], note="merged")["state"] == "closed"
     with pytest.raises(ValueError):
         server.review("bogus")
+
+
+def test_review_submit_checks_author_before_running_git(server, tmp_path, monkeypatch):
+    import subprocess
+
+    from agent_lease_mcp import workspace
+    other = server._store.review_open("codex", str(tmp_path), "cizí", "", "", "a" * 40)
+    calls = []
+    monkeypatch.setattr(workspace, "_git", lambda *a: calls.append(a) or subprocess.CalledProcessError)
+    with pytest.raises(PermissionError):
+        server.review("submit", review_id=other["id"])
+    assert calls == []

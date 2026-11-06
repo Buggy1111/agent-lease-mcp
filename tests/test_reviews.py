@@ -182,3 +182,72 @@ def test_history_records_every_transition(store, tmp_path):
     assert [e["commit_sha"] for e in events] == [A, A, B, B]
     assert [r["id"] for r in store.reviews()] == [review["id"]]
     assert store.reviews(state="closed") == []
+
+
+def test_author_cannot_reset_the_cycle_budget_by_close_and_reopen(store, tmp_path):
+    """Nox #655/P1: close před eskalací + nové review téhož tématu vynulovalo kola."""
+    review = opened(store, tmp_path)
+    rid, current = review["id"], A
+    for head in (B, C, D):
+        store.review_verdict(REVIEWER, rid, "changes_requested", current, "x")
+        store.review_submit(AUTHOR, rid, head)
+        current = head
+    assert store.review_get(rid)["state"] == "awaiting_review"
+    with pytest.raises(PermissionError):
+        store.review_close(AUTHOR, rid, "zkusím znovu")
+    with pytest.raises(ValueError, match="still open"):
+        opened(store, tmp_path, head=D)
+    store.review_verdict(REVIEWER, rid, "changes_requested", current, "x")
+    assert store.review_get(rid)["state"] == "escalated"
+
+    second = store.review_open(AUTHOR, str(tmp_path), "jiné téma", reviewer=REVIEWER, head_commit=A)
+    store.review_verdict(REVIEWER, second["id"], "changes_requested", A, "x")
+    with pytest.raises(PermissionError):
+        store.review_close(AUTHOR, second["id"])  # ani z changes_requested
+    wip = store.review_open(AUTHOR, str(tmp_path), "rozpracované")
+    assert store.review_close(AUTHOR, wip["id"])["state"] == "closed"  # nic nepředloženo
+
+
+def test_concurrent_verdicts_and_submits_serialize(tmp_path):
+    import threading
+
+    stores = [make(tmp_path) for _ in range(4)]
+    review = opened(stores[0], tmp_path)
+    rid = review["id"]
+    results: list[str] = []
+    barrier = threading.Barrier(2)
+
+    def verdict(s, kind):
+        barrier.wait()
+        try:
+            s.review_verdict(REVIEWER, rid, kind, A, "x")
+            results.append(kind)
+        except ValueError:
+            results.append("rejected")
+
+    threads = [threading.Thread(target=verdict, args=(stores[0], "approved")),
+               threading.Thread(target=verdict, args=(stores[1], "changes_requested"))]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert sorted(results).count("rejected") == 1
+
+    final = stores[2].review_get(rid)
+    if final["state"] == "approved":
+        stores[2].review_submit(AUTHOR, rid, B)
+        stores[2].review_verdict(REVIEWER, rid, "changes_requested", B, "x")
+    barrier2 = threading.Barrier(2)
+
+    def submit(s, head):
+        barrier2.wait()
+        s.review_submit(AUTHOR, rid, head)
+
+    threads = [threading.Thread(target=submit, args=(stores[2], C)),
+               threading.Thread(target=submit, args=(stores[3], D))]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    after = stores[0].review_get(rid)
+    assert after["fix_cycles"] == 1 and after["state"] == "awaiting_review"
