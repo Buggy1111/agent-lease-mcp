@@ -1,0 +1,30 @@
+{
+  "checks": [
+    "Comparison screenshots use the same observed Agent Lease records",
+    "Task metrics use loaded task records; bridges/operators excluded from agents",
+    "Reference navigation opens actual sections and task filter",
+    "Kind filters, system events, search, keyboard focus",
+    "Untrusted message/review text is escaped, never executed",
+    "Detail shows only the selected task and actual linked records",
+    "SSE updates state without duplicate messages, preserves expanded text",
+    "Existing cancel, retry, quarantine, checkpoint and review actions keep payloads",
+    "Composer preserves message/task/broadcast payloads and Enter/Shift+Enter",
+    "Failed sends preserve the composer text and re-enable retry",
+    "Emergency stop/resume, missing pause state and stream reconnect",
+    "History is capped at 200 unique messages; missing data stays explicit",
+    "No script errors, external requests or horizontal overflow"
+  ],
+  "errors": [],
+  "externalRequests": [],
+  "viewports": [
+    320,
+    375,
+    390,
+    768,
+    1024,
+    1280,
+    1440,
+    1920
+  ],
+  "screenshotData": "Actual observed agent-lease snapshot; synthetic fixture used only for behavior assertions"
+}
