@@ -223,3 +223,20 @@ def test_resolve_commit_never_runs_repo_filters(tmp_path):
     _top, sha, dirty = workspace.resolve_commit(repo)
     assert sha == git("rev-parse", "HEAD") and dirty is True
     assert not marker.exists()
+
+    # Filtr schovaný ve vloženém konfiguračním souboru (include.path) taky ne.
+    hidden, git2, hidden_marker = scenario("hidden")
+    git2("config", "--unset", "filter.x.clean")
+    included = tmp_path / "included.cfg"
+    # V souboru config je `;` komentář, proto `&&`.
+    included.write_text(f"[filter \"x\"]\n\tclean = sh -c 'touch {hidden_marker} && cat'\n")
+    control2, git3, control2_marker = scenario("control2")
+    git3("config", "--unset", "filter.x.clean")
+    included2 = tmp_path / "included2.cfg"
+    included2.write_text(f"[filter \"x\"]\n\tclean = sh -c 'touch {control2_marker} && cat'\n")
+    git3("config", "include.path", str(included2))
+    subprocess.run(["git", "status", "--porcelain"], cwd=control2, capture_output=True, check=True)
+    assert control2_marker.exists()  # vložený filtr obyčejný status spustí
+    git2("config", "include.path", str(included))
+    assert workspace.resolve_commit(hidden)[2] is True
+    assert not hidden_marker.exists()

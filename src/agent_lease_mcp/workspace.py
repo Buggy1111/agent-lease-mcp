@@ -93,7 +93,9 @@ def _git_hardened(cwd: Path, *argv: str) -> bytes | None:
 
 def _repo_runs_programs(top: Path) -> bool:
     """Definuje repo filtr nebo diff program? Pak `status` nespouštět (mohl by ho zavolat)."""
-    found = _git_hardened(top, "config", "--local", "--get-regexp", _EXEC_CONFIG)
+    # Účinná konfigurace repa včetně include/includeIf (bez --includes by filtr ve
+    # vloženém souboru prošel). Globální a systémovou vypíná _hardened_env.
+    found = _git_hardened(top, "config", "--includes", "--get-regexp", _EXEC_CONFIG)
     return bool(found and found.strip())
 
 
