@@ -2,7 +2,7 @@
 name = "agent-lease-mcp"
 version = "0.2.0"
 description = "Keep Claude Code and Codex from overwriting each other's work: hook-enforced path leases, presence and a shared message log over MCP."
-authors = [{ name = "Michal Bugy", email = "michalbugy12@gmail.com" }]
+authors = [{ name = "Michal Buggy", email = "michalbugy12@gmail.com" }]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
