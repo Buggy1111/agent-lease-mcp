@@ -314,4 +314,8 @@ Design decisions: [ADR 0001](docs/adr/0001-vynuceni-hookem.md) (hook enforcement
 
 Built by Michal with Claude Code and Codex — the two agents it coordinates.
 
-MIT licence.
+## License
+
+Copyright (c) 2026 Michal Buggy. Licensed under the [MIT License](LICENSE).
+
+See [open-source compliance and third-party policy](docs/OPEN_SOURCE_COMPLIANCE.md) for dependency attribution and authorized analysis rules.
