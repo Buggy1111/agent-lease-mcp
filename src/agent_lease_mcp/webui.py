@@ -468,7 +468,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
 
 PAGE_HTML = """<!doctype html>
-<title>agent-lease · live chat</title>
+<html lang="cs">
+<title>agent-lease · místnost</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -477,7 +478,7 @@ PAGE_HTML = """<!doctype html>
     --bg: #0a0b10; --surface: #12141c; --surface-2: #171a24; --raised: #1d212c;
     --border: rgba(255,255,255,.08); --border-soft: rgba(255,255,255,.05);
     --text: #eef0f6; --text-dim: #9aa0b4; --text-faint: #676d82;
-    --accent-1: #8b7bff; --accent-2: #ff6fae; --accent-3: #37e0c4;
+    --accent-1: #8b7bff; --accent-2: #ff6fae;
     --grad: linear-gradient(135deg, var(--accent-1), var(--accent-2));
     --ok: #38d996; --warn: #ffb648; --bad: #ff5c7a;
     --shadow: 0 8px 28px rgba(0,0,0,.35);
@@ -485,235 +486,268 @@ PAGE_HTML = """<!doctype html>
   @media (prefers-color-scheme: light) {
     :root {
       --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f0f1f7; --raised: #ffffff;
-      --border: rgba(15,17,30,.09); --border-soft: rgba(15,17,30,.05);
-      --text: #14162a; --text-dim: #565c74; --text-faint: #9498ab;
+      --border: rgba(15,17,30,.10); --border-soft: rgba(15,17,30,.06);
+      --text: #14162a; --text-dim: #565c74; --text-faint: #8a8ea3;
+      --ok: #12a86a; --warn: #c27a00; --bad: #e0244a;
       --shadow: 0 8px 24px rgba(30,20,60,.08);
     }
   }
   * { box-sizing: border-box; }
   body {
     font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    margin: 0; height: 100vh; display: flex; background: var(--bg); color: var(--text);
-    -webkit-font-smoothing: antialiased;
+    margin: 0; height: 100vh; display: flex; flex-direction: column;
+    background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
   }
-  ::selection { background: var(--accent-1); color: #fff; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+  button { font: inherit; }
 
-  #side {
-    width: 280px; flex: none; padding: 18px 14px; overflow-y: auto;
-    background: var(--surface); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 18px;
-  }
-  #brand { display: flex; align-items: center; gap: 10px; padding: 0 2px 4px; }
-  #brand .mark {
-    width: 30px; height: 30px; border-radius: 9px; background: var(--grad);
-    box-shadow: var(--shadow); flex: none;
-  }
-  #brand .name { font-weight: 650; letter-spacing: -.01em; font-size: 15px; }
-  #brand .sub { font-size: 11px; color: var(--text-faint); }
-
-  h3 {
-    font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--text-faint); margin: 0 0 8px 2px;
-  }
-  .section { display: flex; flex-direction: column; gap: 8px; }
-
-  .peer {
-    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px;
-    background: var(--surface-2); border: 1px solid var(--border-soft); transition: transform .15s;
-  }
-  .peer:hover { transform: translateX(2px); }
-  .avatar {
-    width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
-    color: #fff; font-weight: 700; font-size: 12px; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,.25);
-  }
-  .avatar .dot {
-    position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
-    border: 2px solid var(--surface-2); background: var(--text-faint);
-  }
-  .avatar .dot.on { background: var(--ok); box-shadow: 0 0 0 0 rgba(56,217,150,.6); animation: pulse 2s infinite; }
-  @keyframes pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(56,217,150,.55); }
-    70%  { box-shadow: 0 0 0 6px rgba(56,217,150,0); }
-    100% { box-shadow: 0 0 0 0 rgba(56,217,150,0); }
-  }
-  .peer .who { min-width: 0; }
-  .peer .agent { font-weight: 600; font-size: 12.5px; }
-  .peer .meta { font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .peer .task { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .empty { font-size: 12px; color: var(--text-faint); padding: 6px 2px; }
-
-  .claim {
-    padding: 8px 10px; border-radius: 12px; background: var(--surface-2);
-    border: 1px solid var(--border-soft); font-size: 11.5px;
-  }
-  .claim .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; color: var(--text); overflow-wrap: anywhere; }
-  .claim .row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; color: var(--text-faint); }
-  .ttl { font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 999px; background: var(--border-soft); }
-
-  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  /* ── pruh pauzy: vždy nahoře přes celou šířku ── */
   #pause { flex: none; }
   .pausebar {
     display: flex; align-items: center; justify-content: space-between; gap: 14px;
     flex-wrap: wrap; padding: 12px 22px; border-bottom: 1px solid var(--border);
   }
-  .pausebar .msg { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .pausebar .big { font-weight: 700; font-size: 15px; }
-  .pausebar .why { font-size: 12.5px; opacity: .85; overflow-wrap: anywhere; }
+  .pausebar .ptext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .pausebar .big { font-weight: 750; font-size: 16px; }
+  .pausebar .why { font-size: 12.5px; opacity: .9; overflow-wrap: anywhere; }
   .pausebar.stopped { background: var(--bad); color: #fff; }
-  .pausebar.running { background: color-mix(in srgb, var(--ok) 14%, transparent); }
-  .pausebar.running .big { color: var(--ok); font-size: 13.5px; }
-  .pausebar button {
-    border: none; border-radius: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
-  }
+  .pausebar.running { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
+  .pausebar.running .big { color: var(--ok); font-size: 14px; }
+  .pausebar button { border-radius: 10px; font-weight: 700; cursor: pointer; white-space: nowrap; }
   .pausebar.stopped button {
-    padding: 11px 22px; font-size: 15px; background: #fff; color: #b3123a;
+    border: none; padding: 12px 24px; font-size: 15.5px; background: #fff; color: #b3123a;
     box-shadow: 0 4px 14px rgba(0,0,0,.25);
   }
   .pausebar.running button {
     padding: 7px 14px; font-size: 12.5px; background: transparent; color: var(--bad);
     border: 1px solid var(--bad);
   }
-  #topbar {
-    display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
-    border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
+
+  #app { flex: 1; display: flex; min-height: 0; }
+
+  /* ── levý sloupec ── */
+  #side {
+    width: 300px; flex: none; padding: 18px 14px; overflow-y: auto;
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 20px;
   }
-  #topbar .title { font-weight: 650; font-size: 14.5px; background: var(--grad);
-    -webkit-background-clip: text; background-clip: text; color: transparent; }
-  #status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-dim); }
-  #status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
-  #status .dot.live { background: var(--ok); animation: pulse 2s infinite; }
+  #brand { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
+  #brand .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--grad); flex: none; }
+  #brand .name { font-weight: 650; font-size: 15px; }
+  #brand .sub { font-size: 11.5px; color: var(--text-faint); }
+  h3 {
+    font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-faint); margin: 0 0 8px 2px;
+  }
+  .section { display: flex; flex-direction: column; gap: 8px; }
+  details.section > summary {
+    cursor: pointer; list-style: none; font-size: 12px; color: var(--text-dim); padding: 2px;
+  }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary::before { content: "▸ "; }
+  details.section[open] > summary::before { content: "▾ "; }
+
+  .card {
+    padding: 10px 12px; border-radius: 12px; background: var(--surface-2);
+    border: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 5px;
+  }
+  .card .head { display: flex; align-items: center; gap: 10px; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
+    color: #fff; font-weight: 700; font-size: 12px; position: relative;
+  }
+  .avatar .dot {
+    position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--surface-2); background: var(--text-faint);
+  }
+  .avatar .dot.on { background: var(--ok); }
+  .card .who { min-width: 0; flex: 1; }
+  .card .name { font-weight: 650; font-size: 13px; }
+  .card .id { font-size: 11px; color: var(--text-faint); }
+  .card .line { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+  .card .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .card.offline { opacity: .65; }
+  #agents, #offline, #claims { display: flex; flex-direction: column; gap: 8px; }
+  .empty { font-size: 12.5px; color: var(--text-faint); padding: 4px 2px; }
+  .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+
+  .tag {
+    font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 999px;
+    background: var(--border-soft); color: var(--text-dim); white-space: nowrap;
+  }
+  .tag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .tag.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+  .tag.work { background: color-mix(in srgb, var(--accent-1) 18%, transparent); color: var(--accent-1); }
+  .tag.gone { text-decoration: line-through; }
+
+  /* ── hlavní část ── */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 12px 22px; border-bottom: 1px solid var(--border);
+  }
+  #topbar .title { font-weight: 700; font-size: 15px; }
+  #topbar .tools { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--text-dim); }
+  #topbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  #status { display: flex; align-items: center; gap: 7px; }
+  #status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+  #status .dot.live { background: var(--ok); }
   #status .dot.retry { background: var(--warn); }
 
   #feed { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
-  .msg {
-    max-width: 720px; padding: 10px 14px; border-radius: 14px; background: var(--surface);
-    border: 1px solid var(--border); box-shadow: var(--shadow); animation: rise .25s ease-out;
+  .bubble {
+    max-width: 760px; padding: 10px 14px; border-radius: 14px; background: var(--surface);
+    border: 1px solid var(--border);
   }
-  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  .msg .meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-faint); margin-bottom: 4px; }
-  .msg .meta .who { color: var(--text-dim); font-weight: 600; }
-  .msg .meta .arrow { opacity: .6; }
-  .msg .text { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
-  .pill {
-    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-    padding: 2px 8px; border-radius: 999px; color: #fff; flex: none;
+  .bubble.mine { align-self: flex-end; background: color-mix(in srgb, var(--accent-1) 10%, var(--surface)); }
+  .bubble.system { opacity: .7; font-size: 12.5px; padding: 6px 12px; }
+  .bubble.hidden { display: none; }
+  .bubble .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 12px; color: var(--text-faint); margin-bottom: 4px; }
+  .bubble .meta .who { color: var(--text); font-weight: 650; }
+  .bubble .meta .num { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .bubble .text { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
+  .bubble .text.clip { max-height: 9.5em; overflow: hidden; mask-image: linear-gradient(#000 70%, transparent); }
+  .more { margin-top: 4px; border: none; background: none; color: var(--accent-1); cursor: pointer; padding: 0; font-size: 12.5px; font-weight: 600; }
+  .kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
+  .kind-chat { background: #4d7dff; }
+  .kind-task { background: #ff9d42; color: #2a1600; }
+  .kind-broadcast { background: #7d84a3; }
+  .kind-control { background: #ff5c7a; }
+  .kind-result { background: #2fc79c; color: #00291f; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .btn {
+    font-size: 12px; font-weight: 650; padding: 5px 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer;
   }
-  .pill.kind-chat      { background: linear-gradient(135deg,#4d7dff,#6fa8ff); }
-  .pill.kind-task      { background: linear-gradient(135deg,#ff9d42,#ffbe63); color:#2a1600; }
-  .pill.kind-broadcast { background: linear-gradient(135deg,#7d84a3,#9aa1c2); }
-  .pill.kind-control   { background: linear-gradient(135deg,#ff5c7a,#ff8aa0); }
-  .pill.kind-result    { background: linear-gradient(135deg,#2fd6a8,#5be8c4); color:#003326; }
-  .state { margin-left: auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
-  .state.pending, .state.leased, .state.expired { background: var(--border-soft); color: var(--text-dim); }
-  .state.started      { background: rgba(139,123,255,.18); color: #a598ff; }
-  .state.succeeded     { background: rgba(56,217,150,.16); color: var(--ok); }
-  .state.failed, .state.dead_letter { background: rgba(255,92,122,.16); color: var(--bad); }
-  .state.needs_review  { background: rgba(255,182,72,.18); color: var(--warn); }
-  .state.cancelled     { background: var(--border-soft); color: var(--text-faint); text-decoration: line-through; }
-  .msg .actions { display: flex; gap: 6px; margin-top: 8px; }
-  .btn-ghost {
-    font: inherit; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); cursor: pointer;
-    transition: all .15s;
-  }
-  .btn-ghost:hover { color: var(--text); border-color: var(--accent-1); }
+  .btn:hover { border-color: var(--accent-1); }
 
+  /* ── psaní zprávy ── */
   #compose {
-    display: flex; gap: 8px; align-items: center; padding: 14px 22px; border-top: 1px solid var(--border);
-    background: var(--surface);
+    display: flex; flex-direction: column; gap: 8px; padding: 12px 22px 14px;
+    border-top: 1px solid var(--border); background: var(--surface);
   }
-  select, input, button { font: inherit; color: var(--text); }
-  #kind {
-    appearance: none; padding: 9px 28px 9px 12px; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--surface-2) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%239aa0b4"/></svg>') no-repeat right 10px center;
-    cursor: pointer; flex: none;
+  #compose .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    border: none; background: transparent; color: var(--text-dim); padding: 7px 14px;
+    font-weight: 650; cursor: pointer; font-size: 13px;
   }
-  #to {
-    width: 150px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  .seg button.on { background: var(--grad); color: #fff; }
+  #compose label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+  #to, #text {
+    font: inherit; color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
   }
-  #text {
-    flex: 1; padding: 9px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
-  }
-  #to:focus, #text:focus, #kind:focus { outline: none; border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(139,123,255,.15); }
+  #to { min-width: 210px; cursor: pointer; }
+  #text { flex: 1; min-width: 0; resize: vertical; min-height: 42px; max-height: 40vh; }
+  #to:focus, #text:focus { outline: 2px solid var(--accent-1); outline-offset: -1px; }
+  #hint { font-size: 12px; color: var(--text-faint); }
+  #hint.task { color: var(--warn); }
   #sendBtn {
-    padding: 9px 18px; border-radius: 10px; border: none; background: var(--grad); color: #fff;
-    font-weight: 650; cursor: pointer; box-shadow: 0 4px 14px rgba(139,123,255,.35); transition: transform .12s, box-shadow .12s;
+    align-self: stretch; padding: 0 22px; border-radius: 10px; border: none; background: var(--grad);
+    color: #fff; font-weight: 700; cursor: pointer;
   }
-  #sendBtn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(139,123,255,.45); }
-  #sendBtn:active { transform: translateY(0); }
+  #sendBtn:disabled { opacity: .5; cursor: default; }
 
-  @media (max-width: 720px) {
-    body { flex-direction: column; }
-    #side { width: auto; height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
+  @media (max-width: 760px) {
+    #app { flex-direction: column; }
+    #side { width: auto; max-height: 38vh; border-right: none; border-bottom: 1px solid var(--border); padding: 12px 16px; }
+    #topbar, #feed, #compose { padding-left: 16px; padding-right: 16px; }
+    .pausebar { padding: 12px 16px; }
+    #to { min-width: 0; flex: 1; }
   }
 </style>
+<div id="pause"></div>
+<div id="app">
 <div id="side">
-  <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
-  <div class="section"><h3>Presence</h3><div id="peers"></div></div>
-  <div class="section"><h3>Overview</h3><div id="board"></div></div>
-  <div class="section"><h3>Leases</h3><div id="claims"></div></div>
+  <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">místnost agentů</div></div></div>
+  <div class="section"><h3>Agenti</h3><div id="agents"></div></div>
+  <div class="section"><h3>Zamčené cesty</h3><div id="claims"></div></div>
+  <details class="section" id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details>
 </div>
 <div id="main">
-  <div id="pause"></div>
   <div id="topbar">
-    <div class="title">Room</div>
-    <div id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
+    <div class="title">Zprávy</div>
+    <div class="tools">
+      <label><input type="checkbox" id="showSystem"> systémové zprávy</label>
+      <div id="status"><span class="dot"></span><span id="statusText">připojuji…</span></div>
+    </div>
   </div>
   <div id="feed"></div>
   <div id="compose">
-    <select id="kind">
-      <option value="chat">chat</option>
-      <option value="task">task</option>
-      <option value="broadcast">broadcast</option>
-      <option value="control">control</option>
-    </select>
-    <input id="to" type="text" placeholder="komu">
-    <input id="text" type="text" placeholder="write a message…">
-    <button id="sendBtn">Poslat</button>
+    <div class="row">
+      <div class="seg" id="kindSeg">
+        <button type="button" data-kind="chat" class="on">💬 Zpráva</button>
+        <button type="button" data-kind="task">🛠 Úkol</button>
+      </div>
+      <label>Komu <select id="to"></select></label>
+    </div>
+    <div id="hint"></div>
+    <div class="row">
+      <textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea>
+      <button id="sendBtn" type="button">Poslat</button>
+    </div>
   </div>
+</div>
 </div>
 <script>
 const feed = document.getElementById("feed");
-const peersEl = document.getElementById("peers");
-const claimsEl = document.getElementById("claims");
 const statusDot = document.querySelector("#status .dot");
 const statusText = document.getElementById("statusText");
-const kindEl = document.getElementById("kind");
 const toEl = document.getElementById("to");
+const textEl = document.getElementById("text");
+const hintEl = document.getElementById("hint");
+const showSystemEl = document.getElementById("showSystem");
+let me = "";
+let kind = "chat";
+let knownAgents = ["claude-code", "codex"];
 
-function esc(s) {
-  const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML;
-}
+const NAMES = {
+  "claude-code": "Ada · Claude Code", "codex": "Nox · Codex",
+  "claude-code-bridge": "Most Ady (práce na pozadí)", "codex-bridge": "Most Noxe (práce na pozadí)",
+  "broker": "systém",
+};
+const KIND = { chat: "zpráva", task: "úkol", broadcast: "všem", control: "řízení", result: "výsledek" };
+const STATE = {
+  pending: ["čeká", ""], leased: ["přiděleno", "work"], started: ["pracuje se", "work"],
+  succeeded: ["hotovo", "ok"], failed: ["selhalo", "bad"], needs_review: ["ke kontrole", "warn"],
+  dead_letter: ["nedoručitelné", "bad"], cancelled: ["zrušeno", "gone"], expired: ["propadlo", "gone"],
+  accepted: ["převzato", "ok"], unread: ["nepřečteno", ""],
+};
+const PRESENCE = { busy: ["pracuje", "work"], idle: ["volný", "ok"], offline: ["offline", ""], stalled: ["neodpovídá", "warn"] };
 
-function hueOf(name) {
-  let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function nameOf(a) { return a === me ? "Ty" : (NAMES[a] || a); }
+function hueOf(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 function avatarStyle(name) {
   const h = hueOf(name);
-  return `background: linear-gradient(135deg, hsl(${h} 75% 55%), hsl(${(h + 45) % 360} 75% 55%))`;
+  return `background: linear-gradient(135deg, hsl(${h} 70% 52%), hsl(${(h + 45) % 360} 70% 52%))`;
 }
-function initial(name) { return String(name || "?").trim().slice(0, 1).toUpperCase(); }
-
+function initial(name) { return String(nameOf(name) || "?").trim().slice(0, 1).toUpperCase(); }
 function ago(seconds) {
   const s = Math.max(0, seconds | 0);
-  if (s < 60) return `${s} s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return `${Math.floor(s / 86400)} d ago`;
+  if (s < 60) return "právě teď";
+  if (s < 3600) return `před ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `před ${Math.floor(s / 3600)} h`;
+  return `před ${Math.floor(s / 86400)} d`;
 }
 function ttl(seconds) {
-  const s = Math.max(0, seconds | 0);
-  const m = Math.floor(s / 60), r = s % 60;
-  return m > 0 ? `${m}m ${r}s` : `${r}s`;
+  const s = Math.max(0, seconds | 0), m = Math.floor(s / 60);
+  return m > 0 ? `${m} min` : `${s} s`;
 }
+function clock(t) { return new Date(t * 1000).toLocaleTimeString("cs-CZ", {hour: "2-digit", minute: "2-digit"}); }
+function tag(text, cls) { return `<span class="tag ${cls || ""}">${esc(text)}</span>`; }
 
 function updateStatus(mode) {
   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
-  statusText.textContent = mode === "live" ? "live"
-    : mode === "retry" ? "connection lost, retrying…" : "connecting…";
+  statusText.textContent = mode === "live" ? "živě" : mode === "retry" ? "spojení přerušeno, zkouším znovu…" : "připojuji…";
+}
+
+// Systémový šum: potvrzení od brokeru a automatické „✔ taking #…" příjemky.
+function isSystem(m) {
+  return m.agent === "broker" || (m.kind === "result" && /^✔ taking #/.test(m.text || ""));
 }
 
 function renderMessage(m) {
@@ -721,68 +755,62 @@ function renderMessage(m) {
   const fresh = !div;
   if (fresh) div = document.createElement("div");
   div.id = "msg-" + m.id;
-  div.className = "msg";
-  const to = m.recipient && m.recipient !== "*" ? `<span class="arrow">→</span> ${esc(m.recipient)}` : "";
-  const state = m.state ? `<span class="state ${esc(m.state)}">${esc(m.state)}</span>` : "";
-  // Receipt: ⏳ not in context yet · 👁 seen · ✔ taking (and what they will do)
-  const rcpt = (m.recipient && m.recipient !== "*" && m.kind !== "result" && m.agent !== "broker")
-    ? (m.accepted ? `<span class="state succeeded">✔ taking${m.accept_note ? ": " + esc(m.accept_note) : ""}</span>`
-       : m.seen ? `<span class="state started">👁 seen, awaiting acknowledgement</span>`
-       : `<span class="state pending">⏳ not delivered yet</span>`) : "";
+  const system = isSystem(m);
+  div.className = "bubble" + (m.agent === me ? " mine" : "") + (system ? " system" : "")
+    + (system && !showSystemEl.checked ? " hidden" : "");
+  const k = m.kind || "chat";
+  const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
+  // Stav doručení má smysl jen u úkolu; u zprávy stačí, jestli ji příjemce viděl.
+  const st = k !== "task" ? "" : m.state && STATE[m.state] ? tag(STATE[m.state][0], STATE[m.state][1]) : (m.state ? tag(m.state) : "");
+  const rcpt = (m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker")
+    ? (m.accepted ? tag("✔ převzal" + (m.accept_note ? ": " + m.accept_note : ""), "ok")
+       : m.seen ? tag("👁 viděl, zatím nepřevzal", "work")
+       : tag("⏳ ještě nedoručeno")) : "";
+  const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
   div.innerHTML =
-    `<div class="meta">` +
-      `<span class="pill kind-${esc(m.kind || "chat")}">${esc(m.kind || "chat")}</span>` +
-      `<span class="who">${esc(m.agent)}</span> ${to}` +
-      `<span>· ${ago(m.seconds_ago)}</span>` +
-      state + rcpt +
-    `</div>` +
-    `<div class="text">${esc(m.text)}</div>`;
-  if (m.kind === "task" && m.recipient && m.state) {
+    `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span>` +
+    `<span class="who">${esc(nameOf(m.agent))}</span> ${to}<span>· ${ago(m.seconds_ago)}</span>` +
+    st + rcpt + `<span class="num">#${m.id}</span></div>` +
+    `<div class="text${long ? " clip" : ""}">${esc(m.text)}</div>`;
+  if (long) {
+    const more = document.createElement("button");
+    more.className = "more"; more.textContent = "Zobrazit celé";
+    more.onclick = () => {
+      const t = div.querySelector(".text");
+      t.classList.toggle("clip");
+      more.textContent = t.classList.contains("clip") ? "Zobrazit celé" : "Sbalit";
+    };
+    div.appendChild(more);
+  }
+  if (k === "task" && m.recipient && m.state) {
     const actions = document.createElement("div");
     actions.className = "actions";
+    const add = (label, fn) => { const b = document.createElement("button"); b.className = "btn"; b.textContent = label; b.onclick = fn; actions.appendChild(b); };
     if (["pending", "leased", "started", "failed", "needs_review", "dead_letter"].includes(m.state)) {
-      const cancel = document.createElement("button");
-      cancel.className = "btn-ghost"; cancel.textContent = "Cancel";
-      cancel.onclick = () => control("cancel", m.id, m.recipient);
-      actions.appendChild(cancel);
+      add("✕ Zrušit úkol", () => { if (confirm(`Zrušit úkol #${m.id}?`)) control("cancel", m.id, m.recipient); });
     }
     if (m.state === "needs_review" && (m.last_error || "").startsWith("quarantine")) {
-      const approve = document.createElement("button");
-      approve.className = "btn-ghost"; approve.textContent = "Approve & run once";
-      approve.onclick = () => {
-        const reason = prompt("Why is this held-back task safe to run? (logged)");
-        if (!reason) return;
-        fetch("/api/approve", {method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({id: m.id, to: m.recipient, reason})})
-          .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
-      };
-      actions.appendChild(approve);
+      add("Schválit a spustit jednou", () => {
+        const reason = prompt("Proč je bezpečné tento zadržený úkol spustit? (zaznamená se)");
+        if (reason) post("/api/approve", {id: m.id, to: m.recipient, reason});
+      });
     }
     if (m.state === "needs_review" && (m.last_error || "").startsWith("checkpoint:")) {
-      const resume = document.createElement("button");
-      resume.className = "btn-ghost"; resume.textContent = "Resume anyway (once)";
-      resume.onclick = () => {
-        const reason = prompt("The workspace changed since the checkpoint. Why is it safe to continue? (logged)");
-        if (!reason) return;
-        fetch("/api/approve-resume", {method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({id: m.id, to: m.recipient, reason})})
-          .then(r => { if (!r.ok) r.text().then(t => alert(t)); });
-      };
-      actions.appendChild(resume);
+      add("Přesto navázat (jednou)", () => {
+        const reason = prompt("Pracovní složka se od uložení změnila. Proč je bezpečné pokračovat? (zaznamená se)");
+        if (reason) post("/api/approve-resume", {id: m.id, to: m.recipient, reason});
+      });
     }
     if (["failed", "needs_review", "dead_letter"].includes(m.state)) {
-      const retry = document.createElement("button");
-      retry.className = "btn-ghost"; retry.textContent = "Retry";
-      retry.onclick = () => control("retry", m.id, m.recipient);
-      actions.appendChild(retry);
+      add("↻ Zkusit znovu", () => control("retry", m.id, m.recipient));
     }
     if (actions.childElementCount) div.appendChild(actions);
   }
-  if (fresh) { feed.appendChild(div); feed.scrollTop = feed.scrollHeight; }
-}
-
-function limitTime(t) {
-  return new Date(t * 1000).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+  if (fresh) {
+    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+    feed.appendChild(div);
+    if (stick) feed.scrollTop = feed.scrollHeight;
+  }
 }
 
 function renderPause(p) {
@@ -793,62 +821,99 @@ function renderPause(p) {
   const b = document.createElement("button");
   if (p) {
     bar.className = "pausebar stopped";
-    bar.innerHTML = `<div class="msg"><div class="big">⏸ Agenti jsou ZASTAVENÍ</div>`
-      + `<div class="why">Zastavil: ${esc(p.by)}${p.reason ? " · důvod: " + esc(p.reason) : ""}</div></div>`;
+    bar.innerHTML = `<div class="ptext"><div class="big">⏸ Agenti jsou ZASTAVENÍ — na pozadí nic nepracuje</div>`
+      + `<div class="why">Zastavil: ${esc(nameOf(p.by))}${p.reason ? " · důvod: " + esc(p.reason) : ""}${p.at ? " · v " + clock(p.at) : ""}</div></div>`;
     b.textContent = "▶ Pustit agenty znovu";
     b.onclick = () => { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); };
   } else {
     bar.className = "pausebar running";
-    bar.innerHTML = `<div class="msg"><div class="big">▶ Agenti pracují</div></div>`;
-    b.textContent = "🛑 Zastavit všechno";
-    b.onclick = () => { const r = prompt("Proč zastavit? (zaznamená se)", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); };
+    bar.innerHTML = `<div class="ptext"><div class="big">▶ Agenti běží</div></div>`;
+    b.textContent = "🛑 Zastavit všechny agenty";
+    b.onclick = () => { const r = prompt("Opravdu zastavit všechny agenty? Napiš důvod (zaznamená se):", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); };
   }
   bar.appendChild(b);
   el.appendChild(bar);
 }
 function pauseCall(action, reason) {
-  fetch("/api/" + action, {method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({reason})}).then(r => { if (!r.ok) r.text().then(t => alert(t)); else location.reload(); });
+  fetch("/api/" + action, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({reason})})
+    .then(r => {
+      if (!r.ok) return r.text().then(t => alert(t));
+      // Odpověď nese jen ano/ne; skutečný stav (kdo, proč) dočteme ze snímku.
+      return fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(s => s.json()).then(s => renderPause(s.paused));
+    });
 }
 
-function renderBoard(rows) {
-  const el = document.getElementById("board");
-  el.innerHTML = (rows || []).map(b => {
-    const lim = b.limited_until ? `<span class="state failed">⏸ limited until ${limitTime(b.limited_until)}</span>` : "";
-    const provider = b.provider_state
-      ? `<span class="state ${b.provider_state === "available" ? "succeeded" : b.provider_state === "limited" ? "failed" : "needs_review"}">provider ${esc(b.provider_state)}</span>`
-      : "";
-    const why = b.blocked_reason ? `<div class="task">why waiting: ${esc(b.blocked_reason)}${b.provider_reason ? " · " + esc(b.provider_reason) : ""}${b.provider_resets_at ? " · reset hint " + limitTime(b.provider_resets_at) : ""}</div>` : "";
-    const blocked = b.blocked_task
-      ? `<div class="task">🔒 #${b.blocked_task.id} ${esc(b.blocked_task.path)} · ${esc(b.blocked_task.held_by)} · ${ttl(b.blocked_task.expires_in)}</div>`
-      : "";
-    const act = b.active ? `<div class="task">▶ #${b.active.id}: ${esc(b.active.text)}</div>` : `<div class="task">${esc(b.status || "free")}</div>`;
-    const q = b.queued ? `<span class="state pending">queue ${b.queued}${b.unaccepted ? " · unacknowledged " + b.unaccepted : ""}${b.oldest_wait_s > 120 ? " · waiting " + Math.floor(b.oldest_wait_s / 60) + " min" : ""}</span>` : "";
-    const rv = b.needs_review ? `<span class="state failed">needs review ${b.needs_review}</span>` : "";
-    return `<div class="claim"><div class="path">${esc(b.agent)} <span class="state ${esc(b.presence === "idle" || b.presence === "busy" ? "succeeded" : "pending")}">${esc(b.presence)}</span></div>${act}${why}${blocked}<div class="row">${provider}${lim}${q}${rv}</div></div>`;
-  }).join("") || "<div class='empty'>nobody here</div>";
+function agentCard(p, b) {
+  const pres = PRESENCE[(b && b.presence) || p.presence] || [p.active ? "online" : "offline", p.active ? "ok" : ""];
+  const tags = [tag(pres[0], pres[1])];
+  const src = b || p;
+  if (src.provider_state === "limited") tags.push(tag("vyčerpaný limit" + (src.provider_resets_at ? " do " + clock(src.provider_resets_at) : ""), "bad"));
+  else if (src.provider_state === "unknown") tags.push(tag("stav limitu neznámý", "warn"));
+  if (src.limited_until) tags.push(tag("limit do " + clock(src.limited_until), "bad"));
+  if (b && b.queued) tags.push(tag(`ve frontě ${b.queued}` + (b.unaccepted ? `, nepřevzato ${b.unaccepted}` : ""), ""));
+  if (b && b.needs_review) tags.push(tag(`ke kontrole ${b.needs_review}`, "warn"));
+  let line = "";
+  if (b && b.active) line = `▶ #${b.active.id}: ${esc(b.active.text)}`;
+  else if (p.status) line = esc(p.status);
+  else if (!p.active) line = "naposledy " + ago(p.seen_seconds_ago);
+  if (b && b.blocked_reason) line += `<br>čeká: ${esc(b.blocked_reason)}`;
+  if (b && b.blocked_task) line += `<br>🔒 #${b.blocked_task.id} ${esc(b.blocked_task.path)} drží ${esc(nameOf(b.blocked_task.held_by))}`;
+  return `<div class="card ${p.active ? "" : "offline"}">
+    <div class="head"><div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}<span class="dot ${p.active ? "on" : ""}"></span></div>
+      <div class="who"><div class="name">${esc(nameOf(p.agent))}</div>${NAMES[p.agent] || p.agent === me ? `<div class="id">${esc(p.agent)}</div>` : ""}</div></div>
+    ${line ? `<div class="line">${line}</div>` : ""}
+    <div class="tags">${tags.join("")}</div></div>`;
 }
 
 function renderRoom(r) {
+  if (r.me) me = r.me;
   (r.messages || []).forEach(renderMessage);
-  renderBoard(r.board);
   renderPause(r.paused);
-  peersEl.innerHTML = (r.peers || []).map(p => `
-    <div class="peer">
-      <div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}
-        <span class="dot ${p.active ? "on" : ""}"></span>
-      </div>
-      <div class="who">
-        <div class="agent">${esc(p.agent)}</div>
-        <div class="task">${p.provider_state === "limited" ? "⏸ provider rate limit" : p.provider_state === "unknown" ? "⚠ provider signal unavailable" : p.limited_until ? "⏸ limited until " + limitTime(p.limited_until) : esc(p.status || (p.active ? "—" : ago(p.seen_seconds_ago)))}</div>
-      </div>
-    </div>`).join("") || "<div class='empty'>nobody here</div>";
-  claimsEl.innerHTML = (r.claims || []).map(c => `
-    <div class="claim">
-      <div class="path">🔒 ${esc(c.path)}</div>
-      <div class="row"><span>${esc(c.held_by)}${c.purpose ? " · " + esc(c.purpose) : ""}</span>
-        <span class="ttl">${ttl(c.expires_in_seconds)}</span></div>
-    </div>`).join("") || "<div class='empty'>nothing leased</div>";
+  const board = {};
+  (r.board || []).forEach(b => { board[b.agent] = b; });
+  const peers = (r.peers || []).filter(p => !String(p.agent).startsWith("untrusted-"));
+  (r.board || []).forEach(b => { if (!peers.some(p => p.agent === b.agent)) peers.push({agent: b.agent, active: false, status: b.status}); });
+  const online = peers.filter(p => p.active), offline = peers.filter(p => !p.active);
+  document.getElementById("agents").innerHTML = online.map(p => agentCard(p, board[p.agent])).join("") || "<div class='empty'>nikdo není online</div>";
+  document.getElementById("offline").innerHTML = offline.map(p => agentCard(p, board[p.agent])).join("");
+  document.getElementById("offlineSummary").textContent = `Offline (${offline.length})`;
+  document.getElementById("offlineBox").style.display = offline.length ? "" : "none";
+  document.getElementById("claims").innerHTML = (r.claims || []).map(c => `
+    <div class="card"><div class="path">🔒 ${esc(c.path)}</div>
+      <div class="line">${esc(nameOf(c.held_by))}${c.purpose ? " · " + esc(c.purpose) : ""} · ještě ${ttl(c.expires_in_seconds)}</div></div>`).join("")
+    || "<div class='empty'>nic není zamčené</div>";
+  // Komu: skuteční agenti, bez mostů, systému a sebe.
+  const names = new Set(["claude-code", "codex"]);
+  peers.forEach(p => { const a = String(p.agent); if (a !== me && a !== "broker" && !a.endsWith("-bridge")) names.add(a); });
+  const list = [...names].sort((a, b) => (NAMES[a] ? 0 : 1) - (NAMES[b] ? 0 : 1) || a.localeCompare(b));
+  if (list.join() !== knownAgents.join()) { knownAgents = list; fillRecipients(); }
+}
+
+function fillRecipients() {
+  const prev = toEl.value;
+  toEl.innerHTML = "";
+  knownAgents.forEach(a => toEl.add(new Option(nameOf(a), a)));
+  const all = new Option("📢 Všem v místnosti", "*");
+  all.disabled = kind === "task";
+  toEl.add(all);
+  if ([...toEl.options].some(o => o.value === prev && !o.disabled)) toEl.value = prev;
+  syncHint();
+}
+function setKind(k) {
+  kind = k;
+  document.querySelectorAll("#kindSeg button").forEach(b => b.classList.toggle("on", b.dataset.kind === k));
+  fillRecipients();
+}
+function syncHint() {
+  const to = toEl.value === "*" ? "všem v místnosti" : nameOf(toEl.value);
+  if (kind === "task") {
+    hintEl.className = "task";
+    hintEl.textContent = `🛠 Úkol: ${to} ho převezme a udělá sám, klidně i na pozadí bez tebe. Posílej jen to, co má opravdu udělat.`;
+  } else {
+    hintEl.className = "";
+    hintEl.textContent = `💬 Zpráva pro: ${to}. Jen informace — přečte si ji, až se podívá do místnosti. Nic se samo nespustí.`;
+  }
+  textEl.placeholder = kind === "task" ? "Popiš, co má udělat…" : "Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)";
 }
 
 function connect(since) {
@@ -864,45 +929,53 @@ function connect(since) {
 async function establishSession() {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   history.replaceState(null, "", location.pathname + location.search);
-  if (!token) throw new Error("No token in the URL fragment — start with: agent-lease web --open");
-  const response = await fetch("/session", {
-    method: "POST", headers: { "X-Agent-Lease-Token": token },
-  });
+  if (!token) return;  // bez tokenu zkusíme existující cookie
+  const response = await fetch("/session", { method: "POST", headers: { "X-Agent-Lease-Token": token } });
   if (!response.ok) throw new Error("Login failed");
+}
+
+function showLoginHelp() {
+  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Spusť v terminálu <b>agent-lease web --open</b> — otevře se ti přihlášená stránka.</div></div>`;
 }
 
 establishSession()
   .then(() => fetch("/api/snapshot?since=0"))
-  .then(r => r.json())
+  .then(r => { if (!r.ok) throw new Error("auth"); return r.json(); })
   .then(s => {
+    if (s.me) me = s.me;
     s.messages.forEach(renderMessage);
     renderRoom(s);
+    feed.scrollTop = feed.scrollHeight;
     connect(s.messages.length ? s.messages[s.messages.length - 1].id : 0);
   })
-  .catch(() => { updateStatus("retry"); connect(0); });
+  .catch(() => { updateStatus("retry"); showLoginHelp(); });
 
+function post(url, body) {
+  return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; });
+}
 function send() {
-  const text = document.getElementById("text");
-  const body = { text: text.value, kind: kindEl.value, to: toEl.value };
-  if (!body.text.trim()) return;
-  fetch("/api/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }).then(r => { if (r.ok) text.value = ""; else r.text().then(t => alert(t)); });
+  const text = textEl.value;
+  if (!text.trim()) return;
+  if (!toEl.value) { alert("Vyber, komu to je."); return; }
+  const broadcast = toEl.value === "*";
+  if (broadcast && kind === "task") { alert("Úkol musí mít jednoho adresáta."); return; }
+  const btn = document.getElementById("sendBtn");
+  btn.disabled = true;
+  post("/api/send", { text, kind: broadcast ? "broadcast" : kind, to: broadcast ? "" : toEl.value })
+    .then(ok => { if (ok) { textEl.value = ""; setKind("chat"); } })
+    .finally(() => { btn.disabled = false; textEl.focus(); });
 }
-function control(action, id, to) {
-  fetch("/api/" + action, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, to }),
-  }).then(r => { if (!r.ok) r.text().then(t => alert(t)); });
-}
-function syncToField() { toEl.style.display = kindEl.value === "broadcast" ? "none" : ""; }
-kindEl.addEventListener("change", syncToField); syncToField();
+function control(action, id, to) { post("/api/" + action, { id, to }); }
 
+document.querySelectorAll("#kindSeg button").forEach(b => b.onclick = () => setKind(b.dataset.kind));
+toEl.addEventListener("change", syncHint);
+showSystemEl.addEventListener("change", () => {
+  document.querySelectorAll(".bubble.system").forEach(d => d.classList.toggle("hidden", !showSystemEl.checked));
+});
 document.getElementById("sendBtn").onclick = send;
-document.getElementById("text").addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+textEl.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+fillRecipients();
 </script>
 """
 

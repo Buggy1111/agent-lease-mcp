@@ -537,3 +537,4 @@ def test_pause_banner_sits_on_top_and_ignores_missing_state():
     assert PAGE_HTML.index('id="pause"') < PAGE_HTML.index('id="topbar"')
     assert "if (p === undefined) return;" in PAGE_HTML
     assert "Pustit agenty znovu" in PAGE_HTML
+    assert '<select id="to">' in PAGE_HTML  # komu se vybírá, nepíše
