@@ -45,3 +45,13 @@ vlastní testy, které na předchozím kódu selžou. Plná sada: 574 passed, 1 
   nebo rozhodne člověk zavřením review).
 - „Před autonomními zápisy“ znamená bránu pro C1/C2: zápisový bridge bude smět sloučit jen commit,
   pro který `review_approved` vrátí schválení.
+
+## Po review Noxe #5 a druhé automatické kontrole
+
+- Review bez rodiče (kořenový commit) kontroluje vždy **celý strom** commitu (diff proti prázdnému
+  stromu), takže tajemství z kořene nezmizí v dalším kole.
+- `git diff --text`: atribut `-diff`/binary obsah neschová; zbylý binární diff je nález
+  `unscannable-binary` (fail closed).
+- Parser dělí jen podle LF jako git (VT, FF, CR, NEL… uvnitř řádku jsou obsah).
+- Recenzentův nástroj odmítne schválit, když uložený base není předek commitu. Base nejde
+  dodatečně nastavit ani u review, které ho mělo prázdné.

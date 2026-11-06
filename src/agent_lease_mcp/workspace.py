@@ -137,15 +137,20 @@ def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
 
 def commit_diff(top: str | Path, head: str, base: str = "") -> str:
     """
-    Diff, který review pokrývá (B6): `base..head`, bez base jen samotný commit `head`.
-    Žádné externí diff programy ani textconv; selhání = ValueError (fail closed).
+    Diff, který review pokrývá (B6): `base..head`; bez base proti PRÁZDNÉMU stromu, tedy celý
+    obsah `head` (kořenový commit nebo review bez rodiče — každé další kolo pak zase
+    kontroluje všechno, ne jen poslední commit, Nox #5).
+    `--text`: atribut `-diff`/binary nesmí obsah schovat. Žádné externí diff programy
+    ani textconv; selhání = ValueError (fail closed).
     """
     top = Path(top)
-    common = ("--no-ext-diff", "--no-textconv", "--no-color", "-U0", "--no-renames")
-    if base:
-        out = _git_hardened(top, "diff", *common, base, head, "--")
-    else:
-        out = _git_hardened(top, "diff-tree", "-p", "-r", "--root", *common, head, "--")
+    if not base:
+        empty = _git_hardened(top, "hash-object", "-t", "tree", os.devnull)
+        if empty is None:
+            raise ValueError(f"cannot compute the empty tree in {top}")
+        base = empty.decode().strip()
+    out = _git_hardened(top, "diff", "--text", "--no-ext-diff", "--no-textconv", "--no-color",
+                        "-U0", "--no-renames", base, head, "--")
     if out is None:
         raise ValueError(f"cannot read the diff of {head[:12]} in {top}")
     return os.fsdecode(out)

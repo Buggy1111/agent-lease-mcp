@@ -476,7 +476,13 @@ def verdict(review_id: int, verdict: str, commit: str, note: str = "", security:
         top, sha, _ = workspace.resolve_commit(where, commit)
         if top != current["repo"]:
             raise ValueError(f"review #{review_id} is for {current['repo']}; pass repo= that repository")
-        findings = secret_scan.scan_diff(workspace.commit_diff(top, sha, current["base_commit"]))
+        base_sha = current["base_commit"]
+        # Rozsah kontroly ověří i recenzent: base zapsaný přes broker nemusí být předek
+        # (prázdný base = celý strom commitu).
+        if base_sha and not workspace.is_strict_ancestor(top, base_sha, sha):
+            raise PermissionError(f"review base {base_sha[:12]} is not an ancestor of {sha[:12]}; "
+                                  "the scan would not cover the change")
+        findings = secret_scan.scan_diff(workspace.commit_diff(top, sha, base_sha))
     return _store.review_verdict(_settings.agent, review_id, verdict, commit, note, security,
                                  findings)
 

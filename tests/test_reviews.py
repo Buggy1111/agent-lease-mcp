@@ -252,3 +252,11 @@ def test_concurrent_verdicts_and_submits_serialize(tmp_path):
         th.join()
     after = stores[0].review_get(rid)
     assert after["fix_cycles"] == 1 and after["state"] == "awaiting_review"
+
+
+def test_base_cannot_be_set_later_even_if_it_was_empty(store, tmp_path):
+    review = store.review_open(AUTHOR, str(tmp_path), "nobase", reviewer=REVIEWER, head_commit=A,
+                               secret_findings=[])
+    assert review["base_commit"] == ""
+    with pytest.raises(ValueError, match="cannot change"):
+        store.review_submit(AUTHOR, review["id"], A, base_commit=B, secret_findings=[])

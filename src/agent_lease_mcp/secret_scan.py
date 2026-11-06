@@ -37,7 +37,12 @@ def scan_diff(diff: str) -> list[dict]:
     """
     findings: list[dict] = []
     path, line_no, old_left, new_left = "", 0, 0, 0
-    for raw in diff.splitlines():
+    # Jen podle LF jako git: VT, FF, CR, NEL… uvnitř řádku jsou obsah, ne konec řádku
+    # (str.splitlines by z jednoho git řádku udělalo dva a marker přeskočilo, Nox #5).
+    for raw in diff.split("\n"):
+        if raw.startswith(("Binary files ", "GIT binary patch")):
+            findings.append({"file": path or "?", "line": 0, "kind": "unscannable-binary"})
+            continue
         if old_left <= 0 and new_left <= 0:
             if raw.startswith("+++ "):
                 target = raw[4:].strip()

@@ -183,7 +183,7 @@ class ReviewsMixin:
                     f"review #{review_id} used all {row['max_fix_cycles']} fix cycles and waits for the human")
             if state not in _SUBMITTABLE:
                 raise ValueError(f"review #{review_id} is {state}; nothing can be submitted")
-            if base and row["base_commit"] and base != row["base_commit"]:
+            if base and base != row["base_commit"]:
                 # B6: základ určuje rozsah kontroly; po založení ho autor nesmí posunout
                 raise ValueError(f"review #{review_id} has base {row['base_commit'][:12]}; "
                                  "the base cannot change after the review is opened")

@@ -411,3 +411,27 @@ def test_base_must_be_a_strict_ancestor_and_cannot_move(server, tmp_path, monkey
     git("commit", "-qm", "three")
     with pytest.raises(ValueError, match="cannot change"):
         server.review("submit", review_id=opened["id"], base="HEAD^")
+
+
+def test_reviewer_refuses_a_base_that_is_not_an_ancestor(server, tmp_path, monkeypatch):
+    git = _git_repo(tmp_path / "side")
+    root = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "side")
+    (tmp_path / "side" / "s.txt").write_text("s")
+    git("add", "s.txt")
+    git("commit", "-qm", "side")
+    side = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-")
+    (tmp_path / "side" / "m.txt").write_text("m")
+    git("add", "m.txt")
+    git("commit", "-qm", "main")
+    head = git("rev-parse", "HEAD")
+    assert root
+    # base zapsaný mimo nástroj (přes broker) není předek head
+    review = server._store.review_open("claude-code", str(tmp_path / "side"), "t", "test-agent",
+                                       side, head, [])
+    monkeypatch.chdir(tmp_path / "side")
+    with pytest.raises(PermissionError, match="not an ancestor"):
+        server.verdict(review["id"], "approved", head, security="pass")
+    with pytest.raises(ValueError, match="cannot change"):
+        server._store.review_submit("claude-code", review["id"], head, root)
