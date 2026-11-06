@@ -43,7 +43,7 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
 
 ## Priorita B — Quality Gate pro AI změny (plán)
 
-- ⬜ **B: Centrální Quality Gate (CRAP score + automatické kontroly)** — navázat na existující body 12 (pytest/ruff/CI), 13 (Ada ↔ Nox review) a 14 (security audit), nebudovat duplicitní systém. Nejde o blokátor dokončení MVP do 2. 12. 2026.
+- ⬜ **B7: Centrální Quality Gate (CRAP score + automatické kontroly)** — navázat na existující body 12 (pytest/ruff/CI), 13 (Ada ↔ Nox review) a 14 (security audit), nebudovat duplicitní systém. Nejde o blokátor dokončení MVP do 2. 12. 2026.
   - [ ] Nejprve audit stávajícího CI, testů a hooků; vypsat, co už funguje a co skutečně chybí.
   - [ ] MVP: zobrazit výsledky testů, lint/format, type check (kde relevantní), build, coverage a bezpečnostních kontrol jako jeden report PASS / REVIEW / FAIL; při chybějící metrice zobrazit N/A, nikoli falešné PASS.
   - [ ] Ověřit podporu CRAP metriky pro konkrétní jazyky a projekty. Výpočet postavit na cyklomatické složitosti a relevantním pokrytí testy; nevydávat ji za samostatnou bezpečnostní metriku. Nejprve report-only, hranice kalibrovat na reálných datech; vyšší skóre označit k review, ne automaticky blokovat.
