@@ -55,14 +55,15 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
 
 ### B7.0 – FAST-TRACK AUDIT (první podúkol)
 
-- [ ] **Před implementací B7** podle [roadmapy](docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) inventarizovat existující kontroly a provést read-only průzkum Gitleaks, Semgrep, coverage/CRAP, Gas Town, Gas City a Crewship. Izolovaný pilot jen v platném schváleném scope. Ada připraví kandidáty a baseline; Nox prověří licence, bezpečnost a skutečnou úsporu. Výstup POUŽÍT / INSPIROVAT SE / VYNECHAT s testy, náklady a rollbackem; neinstalovat hromadně frameworky a nevytvářet druhý orchestrátor.
+- [ ] **Před implementací B7** podle [roadmapy](docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) inventarizovat existující kontroly a provést read-only průzkum Gitleaks, Semgrep, coverage/CRAP, Gas Town, Gas City a Crewship. Izolovaný pilot jen v platném schváleném scope. **Ada může využít reverzní inženýrství** (existující Ghidra MCP/bezpečnou statickou analýzu) jen u legálně získaných artefaktů s oprávněním k analýze; read-only, nejprve veřejné zdroje a dokumentace; bez obcházení DRM, přístupu či šifrování a bez přenosu neveřejných dat do externích služeb. Ada připraví kandidáty a baseline; Nox prověří licence, bezpečnost a skutečnou úsporu. Výstup POUŽÍT / INSPIROVAT SE / VYNECHAT s testy, náklady a rollbackem; neinstalovat hromadně frameworky a nevytvářet druhý orchestrátor.
 
 ### Licence a compliance – sjednocení MIT (6. 11. 2026)
 
 - [x] Ověřit stav: `pyproject.toml` i README deklarují MIT, ale ve stromu chyběl plný kořenový licenční text.
-- [x] Doplnit standardní `LICENSE` (MIT), sjednotit metadata na SPDX `license = "MIT"` + `license-files = ["LICENSE"]`, odstranit zastaralý MIT classifier. Autorský údaj použít podle aktuálního `pyproject.toml`: **Michal Bugy**.
-- [ ] **Kontrola vlastníka:** potvrdit přesné jméno držitele práv uvedené v `LICENSE`, oprávnění ke všem příspěvkům a případné další spoluautory; při nesouladu upravit copyright řádek. Licence se vztahuje k vlastnímu kódu; nevydává práva k cizímu kódu.
-- [ ] Audit externích závislostí a případného převzatého/vendorovaného kódu; podle potřeby `THIRD_PARTY_NOTICES` a odpovídající licence, žádné kopírování licencovaného kódu bez kontroly kompatibility.
+- [x] Doplnit standardní `LICENSE` (MIT), sjednotit metadata na SPDX `license = "MIT"` + `license-files = ["LICENSE"]`, odstranit zastaralý MIT classifier. Autorský údaj použít podle aktuálního `pyproject.toml`: **Michal Buggy**.
+- [x] **Jméno dle rozhodnutí vlastníka:** sjednoceno na `Michal Buggy` v `LICENSE` a metadatech balíčku; jde o autorské označení zvolené vlastníkem, ne ověření právní identity.
+- [ ] **Právní původ:** ověřit práva ke všem převzatým částem, externím příspěvkům a případnému AI-generovanému kódu; není-li vlastnictví úplné, upravit notice nebo vyžádat oprávnění. Přidání MIT textu samo o sobě práva k cizímu kódu nezajišťuje.
+- [ ] Audit externích závislostí a případného převzatého/vendorovaného kódu; podle potřeby `THIRD_PARTY_NOTICES` a odpovídající licence, žádné kopírování licencovaného kódu bez kontroly kompatibility. Postup viz [OPEN_SOURCE_COMPLIANCE.md](docs/OPEN_SOURCE_COMPLIANCE.md).
 - [ ] Ověřit build wheel/sdist v izolovaném prostředí, že licence je obsažena v distribuci, PyPI metadata ukazují MIT, a GitHub ji rozpoznává. Nevydávat novou verzi PyPI ani měnit dosavadní publikovaná artefakta bez schválení.
 - [ ] Pokud bude chtít vlastník v budoucnu jiný obchodní model, samostatně posoudit dual-licensing / změnu licence nových verzí. Již udělená oprávnění pro vydané verze nelze jednostranně odvolat.
 
