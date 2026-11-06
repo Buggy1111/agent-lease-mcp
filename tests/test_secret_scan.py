@@ -19,9 +19,9 @@ SAMPLES = {
     "aws-access-key": "AKIA" + "ABCDEFGHIJKLMNOP",
     "slack-token": "xoxb-" + "123456789012-abc",
     "bearer-token": "Authorization: Bearer " + "abcDEF123456ghiJKL789",
-    "private-key": "-----BEGIN RSA PRIVATE KEY-----",
+    "private-key": "-----BEGIN RSA " + "PRIVATE KEY-----",  # složené, ať scan nehlásí tento test
     "google-api-key": "AIza" + "B" * 35,
-    "assigned-secret": 'DB_PASSWORD = "Tr0ub4dor&3xyzQWER"',
+    "assigned-secret": "DB_" + 'PASSWORD = "Tr0ub4dor&3xyzQWER"',
 }
 
 
@@ -49,6 +49,11 @@ def test_common_code_is_not_a_secret():
                 "+def check_password(value):", "+api_key = os.environ['OPENROUTER_API_KEY']",
                 "+secret_scan.scan_diff(diff)"]
     assert scan_diff(diff_of(harmless)) == []
+
+
+def test_this_test_file_does_not_trip_the_scan():
+    lines = ["+" + line for line in Path(__file__).read_text().splitlines()]
+    assert scan_diff(diff_of(lines, "tests/test_secret_scan.py")) == []
 
 
 def test_every_redaction_pattern_is_also_scanned():
