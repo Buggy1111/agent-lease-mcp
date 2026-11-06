@@ -441,6 +441,9 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             "peers": store.peers(),
                             "claims": [c.as_dict() for c in store.claims()],
                             "board": store.board(),
+                            # Bez stavu pauzy by živá aktualizace přepsala tlačítko
+                            # „Obnovit" na „Zastavit" a člověk by stop zapnul znovu.
+                            "paused": store.paused(),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -550,6 +553,28 @@ PAGE_HTML = """<!doctype html>
   .ttl { font-variant-numeric: tabular-nums; padding: 1px 7px; border-radius: 999px; background: var(--border-soft); }
 
   #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #pause { flex: none; }
+  .pausebar {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    flex-wrap: wrap; padding: 12px 22px; border-bottom: 1px solid var(--border);
+  }
+  .pausebar .msg { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .pausebar .big { font-weight: 700; font-size: 15px; }
+  .pausebar .why { font-size: 12.5px; opacity: .85; overflow-wrap: anywhere; }
+  .pausebar.stopped { background: var(--bad); color: #fff; }
+  .pausebar.running { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .pausebar.running .big { color: var(--ok); font-size: 13.5px; }
+  .pausebar button {
+    border: none; border-radius: 10px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .pausebar.stopped button {
+    padding: 11px 22px; font-size: 15px; background: #fff; color: #b3123a;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .pausebar.running button {
+    padding: 7px 14px; font-size: 12.5px; background: transparent; color: var(--bad);
+    border: 1px solid var(--bad);
+  }
   #topbar {
     display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
     border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
@@ -627,11 +652,11 @@ PAGE_HTML = """<!doctype html>
 <div id="side">
   <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">live chat</div></div></div>
   <div class="section"><h3>Presence</h3><div id="peers"></div></div>
-  <div class="section"><h3>Emergency stop</h3><div id="pause"></div></div>
   <div class="section"><h3>Overview</h3><div id="board"></div></div>
   <div class="section"><h3>Leases</h3><div id="claims"></div></div>
 </div>
 <div id="main">
+  <div id="pause"></div>
   <div id="topbar">
     <div class="title">Room</div>
     <div id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
@@ -761,19 +786,25 @@ function limitTime(t) {
 }
 
 function renderPause(p) {
+  if (p === undefined) return;  // zpráva bez stavu pauzy nesmí přepsat tlačítko
   const el = document.getElementById("pause");
   el.innerHTML = "";
+  const bar = document.createElement("div");
   const b = document.createElement("button");
   if (p) {
-    el.insertAdjacentHTML("beforeend",
-      `<div class="state failed">⏸ STOPPED by ${esc(p.by)}${p.reason ? ": " + esc(p.reason) : ""}</div>`);
-    b.className = "btn-ghost"; b.textContent = "Resume autonomous work";
-    b.onclick = () => { if (confirm("Resume autonomous execution?")) pauseCall("resume", ""); };
+    bar.className = "pausebar stopped";
+    bar.innerHTML = `<div class="msg"><div class="big">⏸ Agenti jsou ZASTAVENÍ</div>`
+      + `<div class="why">Zastavil: ${esc(p.by)}${p.reason ? " · důvod: " + esc(p.reason) : ""}</div></div>`;
+    b.textContent = "▶ Pustit agenty znovu";
+    b.onclick = () => { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); };
   } else {
-    b.className = "btn-ghost"; b.textContent = "🛑 Stop all autonomous work";
-    b.onclick = () => { const r = prompt("Why stop? (logged)", "emergency stop"); if (r !== null) pauseCall("pause", r); };
+    bar.className = "pausebar running";
+    bar.innerHTML = `<div class="msg"><div class="big">▶ Agenti pracují</div></div>`;
+    b.textContent = "🛑 Zastavit všechno";
+    b.onclick = () => { const r = prompt("Proč zastavit? (zaznamená se)", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); };
   }
-  el.appendChild(b);
+  bar.appendChild(b);
+  el.appendChild(bar);
 }
 function pauseCall(action, reason) {
   fetch("/api/" + action, {method: "POST", headers: {"Content-Type": "application/json"},

@@ -508,3 +508,32 @@ def test_only_authenticated_human_approves_checkpoint_resume(tmp_path: Path):
                                headers=headers, body=body, handler_type=handler_type)
     assert status == 200 and json.loads(raw)["resume_approved"] is True
     assert store.jobs("codex")[0]["state"] == "pending"
+
+
+def test_live_room_event_carries_pause_state(live_chat):
+    """Živá aktualizace musí nést stav pauzy, jinak web ukáže „Zastavit" místo „Pustit"."""
+    port, _, session_id, store = live_chat
+    store.pause("michal", "test")
+    connection = HTTPConnection("127.0.0.1", port, timeout=3)
+    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{SESSION_COOKIE}={session_id}"})
+    response = connection.getresponse()
+    assert response.status == 200
+    event = None
+    data = b""
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        line = response.fp.readline()
+        if line.startswith(b"event:"):
+            event = line.split(b":", 1)[1].strip()
+        elif line.startswith(b"data:") and event == b"room":
+            data = line.split(b":", 1)[1].strip()
+            break
+    connection.close()
+    room = json.loads(data)
+    assert room["paused"]["by"] == "michal"
+
+
+def test_pause_banner_sits_on_top_and_ignores_missing_state():
+    assert PAGE_HTML.index('id="pause"') < PAGE_HTML.index('id="topbar"')
+    assert "if (p === undefined) return;" in PAGE_HTML
+    assert "Pustit agenty znovu" in PAGE_HTML
