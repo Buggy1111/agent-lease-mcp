@@ -74,7 +74,9 @@ def matches(cp: dict, head: str, dirty: str) -> bool:
 
 
 # Klíče, přes které by konfigurace repa spustila program (git status volá clean filtry).
-_EXEC_CONFIG = r"^(filter\..*\.(clean|smudge|process)|diff\..*\.(command|textconv)|core\.fsmonitor)$"
+# core.fsmonitor tu není: přebíjí ho `-c core.fsmonitor=false` a `git config` by jinak
+# vypsal i ten přepínač z příkazové řádky (každé repo by vypadalo podezřele).
+_EXEC_CONFIG = r"^(filter\..*\.(clean|smudge|process)|diff\..*\.(command|textconv))$"
 
 
 def _hardened_env() -> dict:
