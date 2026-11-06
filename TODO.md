@@ -53,6 +53,20 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
   - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
 
+### Požadované automatické fungování napříč projekty (akceptační specifikace B)
+
+**Cíl:** Michal pošle Adu, Noxe nebo oba do libovolného podporovaného Git repozitáře; Quality Gate běží bez ručního opakování zadání a jeho výsledek je vidět v centrálním Agent Lease dashboardu. Toto je cílové chování, ne současná implementace.
+
+- [ ] **Globální aktivace:** jednorázová konfigurace Agent Lease pro Claude Code a Codex (CLI/hooky nebo worker), bez nutnosti instalovat celý modul do každého repo. Zdokumentovat kompatibilitu a limity hooků obou klientů; nespoléhat pouze na prompt/AGENTS.md. U každého repo povolit lokální konfiguraci a explicitní opt-out; soukromé repozitáře nepřenášet mimo stroj bez souhlasu.
+- [ ] **Detekce projektu:** určit Git root, jazyk, správce balíčků, test/build příkazy, přítomné coverage a CI; pokud nelze spolehlivě zjistit, zobrazit SETUP REQUIRED místo odhadovaných příkazů. Podpora MVP Python, TypeScript/JavaScript; jiné enginy (Godot/GDScript, C++, Rust atd.) až po ověření adaptérů.
+- [ ] **Spouštěcí události:** při dokončení agentovy změny a před předáním/merge spustit dostupné deterministické kontroly; při rozpracovaném kódu jen rychlé kontrolní body a neblokovat každou editaci nákladným testem. Volitelný ruční příkaz `agent-lease quality check` a kontrola v CI. Spouštět na snapshotu známého commitu/diffu, ne na souborech, které druhý agent souběžně mění.
+- [ ] **Společná politika:** oddělit FAIL (skutečně selhávající povinné testy/build, potvrzené kritické nálezy), REVIEW (vysoká složitost/CRAP, změny testů/CI, nezávislé AI review), PASS (všechny povinné kontroly prošly), N/A (nepodporováno, není coverage) a SETUP REQUIRED (nejasné nastavení). Nepoužívat samotné CRAP jako bezpečnostní verdict.
+- [ ] **Nezávislost a tokeny:** lokální/CI testy bez LLM tokenů; druhý agent reviduje jen rizikové změny nebo podle nastavení. Pokud pracuje jen Ada nebo jen Nox, automatické kontroly fungují také a chybějící peer review zůstane viditelně pending/waived podle schválené politiky, ne fingovaný PASS.
+- [ ] **Vynucení:** automatické blokování merge/nasazení vyžaduje skutečně zapojené branch protection/required checks nebo řízený release workflow; lokální dashboard sám o sobě změny na GitHubu nezablokuje. Výjimky a změny prahů jen s lidským schválením, auditní stopou a oddělenou rolí.
+- [ ] **Dashboard:** název repo/větev/commit, agent, čas, PASS/REVIEW/FAIL/N/A, seznam kontrol, odkaz na logy, historie. Bez zveřejňování tajných klíčů ani interního kódu.
+- [ ] **E2E testy:** jeden Python projekt a jeden TS projekt, každý ve scénáři Ada sama, Nox sám a oba; ověřit detekci, PASS, FAIL, review, chybějící coverage, neznámý projekt i nemožnost obejít gate změnou testů. Další reálné projekty zapojovat postupně po dokončení jádra.
+- [ ] **Dokumentace:** návod jednorázové instalace, volby pro jednotlivá repo, podporované jazyky, security model, recovery při výpadku a postup, jak zapojit Earth Pulse, LILI a Silikon Manager. Neodsunout implementaci samotného Agent Lease za termín 2. 12. 2026.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
