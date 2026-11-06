@@ -21,4 +21,4 @@ Michal dal výslovný souhlas 6. 11. ve 4:3x („Nasadit teď“). Provedla Ada 
 
 ## Poznámky
 - `codex-wake` hlásí víc Codex relací se jménem „nox“. Starší problém konfigurace, nesouvisí s nasazením.
-- Návrat zpět: `PHASE_A_DEPLOY_PLAN.md`, sekce Návrat zpět. Zálohy v `/home/buggy1111/.local/share/agent-lease/deploy-backup-20261106-043842`. Pozor: starý kód s DB v režimu DELETE pracuje, migrace zpět na WAL není potřeba.
+- Návrat zpět: `PHASE_A_DEPLOY_PLAN.md`, sekce Návrat zpět. Zálohy v `/home/buggy1111/.local/share/agent-lease/deploy-backup-20261106-043842`. Neověřeno: jak se starý kód (uv tool) zachová k DB v režimu DELETE. Při návratu nejdřív otestovat na kopii zálohy.
