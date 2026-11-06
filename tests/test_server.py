@@ -194,3 +194,32 @@ def test_review_takes_repo_path_instead_of_session_cwd(server, tmp_path, monkeyp
     with pytest.raises(ValueError, match="pass repo="):
         server.review("submit", review_id=opened["id"], repo=str(_git_repo(tmp_path / "other") and tmp_path / "other"))
     assert server.review("submit", review_id=opened["id"], repo=str(tmp_path / "work"))["fix_cycles"] == 1
+
+
+def test_resolve_commit_never_runs_repo_filters(tmp_path):
+    """Kontrola rozpracovaných změn nesmí spustit clean filtr z konfigurace repa."""
+    import subprocess
+    import time
+
+    from agent_lease_mcp import workspace
+
+    def scenario(name):
+        repo = tmp_path / name
+        git = _git_repo(repo)
+        (repo / ".gitattributes").write_text("*.txt filter=x\n")
+        git("add", ".gitattributes")
+        git("commit", "-qm", "attrs")
+        marker = tmp_path / f"{name}-pwned"
+        git("config", "filter.x.clean", f"sh -c 'touch {marker}; cat'")
+        time.sleep(1.1)
+        (repo / "f.txt").write_text("2")  # stejná velikost → git musí obsah prohnat filtrem
+        return repo, git, marker
+
+    control, _, control_marker = scenario("control")
+    subprocess.run(["git", "status", "--porcelain"], cwd=control, capture_output=True, check=True)
+    assert control_marker.exists()  # obyčejný status filtr opravdu spustí
+
+    repo, git, marker = scenario("evil")
+    _top, sha, dirty = workspace.resolve_commit(repo)
+    assert sha == git("rev-parse", "HEAD") and dirty is True
+    assert not marker.exists()

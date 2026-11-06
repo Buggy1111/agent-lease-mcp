@@ -46,8 +46,12 @@ Retence je nemaže.
   Repo určuje agent parametrem `repo` (jinak adresář, kde relace začala; ten se během relace
   nemění, proto je parametr nutný — zjištěno živým testem po nasazení). `submit` nejdřív ověří autora a pak vyžaduje, aby
   cwd bylo repo review: git se nikdy nespouští v cestě ze sdílené DB (cizí repo by přes svou
-  konfiguraci mohlo spustit kód). Git běží s `core.fsmonitor=false`, `core.hooksPath=/dev/null` a
-  `--no-optional-locks`. Necommitnuté
+  konfiguraci mohlo spustit kód). Git běží s `core.fsmonitor=false`, `core.hooksPath=/dev/null`,
+  `--no-optional-locks`, `--no-replace-objects` a bez globální a systémové konfigurace
+  (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM`, `GIT_ATTR_NOSYSTEM`). Definuje-li repo
+  filtr nebo diff program, `status` se nespustí (clean filtr by ho jinak zavolal) a nástroj
+  rovnou varuje před možnými necommitnutými změnami. Cestu `repo` volí agent, který git
+  v ní může spustit i sám; pojistka chrání před tím, aby ho k tomu nevědomky dotlačil cizí repozitář. Necommitnuté
   změny → `warning`: review pokrývá jen commit.
 - **Vzkazy:** každý přechod pošle `chat` dotčenému (recenzentovi při předložení, autorovi po verdiktu,
   člověku při eskalaci). Úmyslně ne `task`, aby se zatím nic nespouštělo samo. Automatické review

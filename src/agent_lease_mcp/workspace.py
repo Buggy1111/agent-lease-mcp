@@ -18,10 +18,10 @@ from pathlib import Path
 UNKNOWN = "unknown"
 
 
-def _git(cwd: Path, *argv: str) -> bytes | None:
+def _git(cwd: Path, *argv: str, env: dict | None = None) -> bytes | None:
     try:
         out = subprocess.run(["git", *argv], cwd=cwd, capture_output=True, timeout=20,
-                             check=False)
+                             check=False, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout if out.returncode == 0 else None
@@ -73,10 +73,28 @@ def matches(cp: dict, head: str, dirty: str) -> bool:
             and cp.get("git_head") == head and cp.get("dirty") == dirty)
 
 
+# Klíče, přes které by konfigurace repa spustila program (git status volá clean filtry).
+_EXEC_CONFIG = r"^(filter\..*\.(clean|smudge|process)|diff\..*\.(command|textconv)|core\.fsmonitor)$"
+
+
+def _hardened_env() -> dict:
+    """Jen lokální konfigurace repa: globální a systémová (a jejich filtry) se nečtou."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_ATTR_NOSYSTEM="1",
+               GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+    return env
+
+
 def _git_hardened(cwd: Path, *argv: str) -> bytes | None:
-    """git bez kódu z konfigurace repa (fsmonitor, hooky) a bez zámků indexu."""
+    """git bez kódu z konfigurace (fsmonitor, hooky, globální config) a bez zámků indexu."""
     return _git(cwd, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                "--no-optional-locks", *argv)
+                "--no-optional-locks", "--no-replace-objects", *argv, env=_hardened_env())
+
+
+def _repo_runs_programs(top: Path) -> bool:
+    """Definuje repo filtr nebo diff program? Pak `status` nespouštět (mohl by ho zavolat)."""
+    found = _git_hardened(top, "config", "--local", "--get-regexp", _EXEC_CONFIG)
+    return bool(found and found.strip())
 
 
 def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
@@ -95,5 +113,8 @@ def resolve_commit(cwd: str | Path, rev: str = "HEAD") -> tuple[str, str, bool]:
     sha = _git_hardened(top, "rev-parse", "--verify", "--end-of-options", f"{rev}^{{commit}}")
     if sha is None:
         raise ValueError(f"{rev!r} is not a commit in {top}")
+    if _repo_runs_programs(top):
+        # Necommitnuté změny bez spuštění cizích filtrů zjistit nejde; raději varovat.
+        return str(top), sha.decode().strip(), True
     status = _git_hardened(top, "status", "--porcelain", "--untracked-files=normal")
     return str(top), sha.decode().strip(), bool(status and status.strip())
