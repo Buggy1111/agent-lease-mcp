@@ -52,7 +52,7 @@ function fixture() {
   const task=(id,state,extra={})=>({id,kind:'task',agent:'michal',recipient:'codex',text:`TEST ONLY task ${id}`,state,attempts:1,seconds_ago:300-id,seen:true,accepted:false,accept_note:'',last_error:'',reply_to:null,...extra});
   return {me:'michal',paused:null,claims:[{path:'/tmp/ui-test/long-path',held_by:'codex',purpose:'TEST ONLY',expires_in_seconds:900}],
     peers:[{agent:'claude-code',active:true,presence:'busy',status:'TEST ONLY review'},{agent:'codex',active:true,presence:'busy',status:'TEST ONLY work'}, {agent:'codex-bridge',active:true,presence:'idle',status:'TEST ONLY bridge',provider_state:'limited',provider_resets_at:1793990000},{agent:'claude-code-bridge',active:true,presence:'idle'},{agent:'michal',active:true,presence:'idle'},{agent:'offline-test',active:false,presence:'offline'},{agent:'untrusted-test',active:true,presence:'busy'}],
-    board:[{agent:'codex',queued:99,needs_review:99,presence:'busy',active:{id:10,text:'TEST ONLY task',from:'michal'}}],
+    board:[{agent:'codex',queued:99,unaccepted:80,needs_review:99,presence:'busy',active:{id:10,text:'TEST ONLY task',from:'michal'}}, {agent:'claude-code',queued:7,unaccepted:3,needs_review:5,active:null}],
     reviews:[{id:7,topic:'TEST ONLY <img src=x onerror="window.injected=1">',repo:'/tmp/ui-test',author:'codex',reviewer:'claude-code',head_commit:'a'.repeat(40),state:'escalated',fix_cycles:3,max_fix_cycles:3,cycles_left:0,verdict_note:'TEST ONLY changes requested'}],
     messages:[task(10,'started',{text:'TEST ONLY long task\n'+('Line of task data\n'.repeat(60)),accepted:true,accept_note:'TEST ONLY taking'}),task(11,'pending'),task(12,'leased'),task(13,'succeeded'),task(14,'needs_review',{last_error:'quarantine: TEST ONLY'}),task(15,'needs_review',{last_error:'checkpoint: TEST ONLY changed workspace'}),task(16,'failed'),task(17,'cancelled'),{id:20,agent:'michal',recipient:'codex',kind:'chat',text:'TEST ONLY message <img src=x onerror="window.injected=1">',seconds_ago:20},{id:21,agent:'codex',recipient:'michal',kind:'result',reply_to:13,text:'TEST ONLY: 12 passed, review pending',seconds_ago:10},{id:22,agent:'broker',recipient:'codex',kind:'result',reply_to:10,text:'TEST ONLY recorded event',seconds_ago:5}]};
 }
@@ -119,10 +119,10 @@ function fixture() {
     });
     snapshot=fixture();
     await load('/after');
-    await check('Task metrics use loaded task records; bridges/operators excluded from agents',async()=>{
+    await check('Task metrics use the whole board beyond history; bridges/operators excluded from agents',async()=>{
       assert.equal(await text(page,'#metricAgents'),'2'); assert.equal(await text(page,'#metricRunning'),'1');
-      assert.equal(await text(page,'#metricQueued'),'1'); assert.equal(await text(page,'#metricDone'),'1');
-      assert.equal(await text(page,'#metricReview'),'2'); assert.equal(await text(page,'#metricSystem'),'Provoz povolen');
+      assert.equal(await text(page,'#metricQueued'),'106'); assert.equal(await text(page,'#metricDone'),'1');
+      assert.equal(await text(page,'#metricReview'),'104'); assert.equal(await text(page,'#metricSystem'),'Provoz povolen');
       assert.equal(await page.locator('.card.bridge').count(),2);
       assert((await text(page,'#projects')).includes('/tmp/ui-test'));
       assert.equal(await page.locator('#agents').getByText('untrusted-test',{exact:true}).count(),0);
@@ -160,6 +160,7 @@ function fixture() {
     await check('SSE updates state without duplicate messages, preserves expanded text',async()=>{
       await page.click('#msg-10 .more');
       snapshot.messages.find(m=>m.id===11).state='started';
+      snapshot.board[1].active={id:11,text:'TEST ONLY started',from:'michal'};
       await page.locator('#taskDetail .task-description summary').click();
       emit('room',snapshot);
       await wait(async()=>await text(page,'#metricRunning')==='2','SSE running counter');
@@ -223,12 +224,27 @@ function fixture() {
       snapshot.messages=Array.from({length:205},(_,i)=>({id:100+i,agent:'codex',kind:'chat',text:'TEST ONLY history '+i,seconds_ago:205-i}));
       emit('room',snapshot);
       await wait(async()=>await page.locator('#feed .bubble').count()===200,'bounded history');
-      assert.equal(await text(page,'#metricRunning'),'0');
+      assert.equal(await text(page,'#metricRunning'),'2');
+      assert.equal(await text(page,'#metricQueued'),'106');
+      assert.equal(await text(page,'#metricReview'),'104');
       assert((await text(page,'#taskDetail')).includes('už není v načtené historii'));
       snapshot={me:'michal',peers:[],messages:[],claims:[],board:[],reviews:[],paused:null};
       await load('/after');
       assert.equal(await text(page,'#metricAgents'),'0'); assert.equal(await text(page,'#metricDone'),'0');
       assert((await text(page,'#filterEmpty')).includes('zatím nemá'));
+    });
+    await check('Board-only SSE updates work without messages; absent board stays unknown',async()=>{
+      snapshot.board=[{agent:'codex',queued:26,unaccepted:20,needs_review:5,active:{id:1,text:'TEST ONLY leased outside history',from:'michal'}}];
+      emit('room',snapshot);
+      await wait(async()=>await text(page,'#metricQueued')==='26','authoritative queue');
+      assert.equal(await text(page,'#metricReview'),'5');
+      assert.equal(await text(page,'#metricRunning'),'1');
+      assert.equal(await text(page,'#metricDone'),'0');
+      delete snapshot.board; await load('/after');
+      for(const id of ['metricRunning','metricQueued','metricReview']) assert.equal(await text(page,'#'+id),'—');
+      snapshot.board=[]; emit('room',snapshot);
+      await wait(async()=>await text(page,'#metricQueued')==='0','known empty board');
+      assert.equal(await text(page,'#metricRunning'),'0'); assert.equal(await text(page,'#metricReview'),'0');
     });
     if(process.env.UI_PREMIUM==='1') await require('./quality_gate_checks.cjs')({page,check,load,text,calls,outDir,fixture,setSnapshot:s=>{snapshot=s;}});
     if(process.env.UI_PREMIUM==='1') await require('./premium_checks.cjs')({page,check,load,fixture,emit,wait,text,getSnapshot:()=>snapshot,setSnapshot:s=>{snapshot=s;},outDir});

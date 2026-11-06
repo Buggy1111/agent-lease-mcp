@@ -24,7 +24,7 @@ module.exports = async function({page,check,load,fixture,emit,wait,text,getSnaps
   });
   await check('Live status updates keep existing message text, agents, review controls and stop button',async()=>{
     await page.evaluate(()=>{ window.__kept={text:document.querySelector('#msg-11 .text'),agent:document.querySelector('[data-agent="codex"]'),review:document.querySelector('#reviews button'),stop:document.querySelector('#pause button')}; });
-    const s=getSnapshot(); s.messages.find(m=>m.id===11).state='started'; emit('room',s);
+    const s=getSnapshot(); s.messages.find(m=>m.id===11).state='started'; s.board[1].active={id:11,text:'TEST ONLY started',from:'michal'}; emit('room',s);
     await wait(async()=>await text(page,'#metricRunning')==='2','in-place status update');
     assert(await page.evaluate(()=>window.__kept.text===document.querySelector('#msg-11 .text') && window.__kept.agent===document.querySelector('[data-agent="codex"]') && window.__kept.review===document.querySelector('#reviews button') && window.__kept.stop===document.querySelector('#pause button')));
     assert((await motionRecords()).some(r=>r.className.includes('task-state') && r.duration===180));

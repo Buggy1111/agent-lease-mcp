@@ -34,7 +34,7 @@ Před/po používá stejný dříve zachycený skutečný snímek místnosti (51
 
 ## Ověření
 
-- **26 browser scénářů PASS** v Chromiu, včetně původních akcí, payloadů, pause/resume, SSE/reconnect/dedup, XSS escapování, >200 zpráv, dlouhé/prázdné historie, motion časů, zachovaných DOM uzlů, online/offline/limited, QG prázdného stavu/všech ukázkových stavů/dlouhého názvu/detailu a nepřenášení demo PASS do skutečného úkolu.
+- **27 browser scénářů PASS** v Chromiu, včetně původních akcí, payloadů, pause/resume, SSE/reconnect/dedup, XSS escapování, >200 zpráv, dlouhé/prázdné historie, motion časů, zachovaných DOM uzlů, online/offline/limited, QG prázdného stavu/všech ukázkových stavů/dlouhého názvu/detailu a nepřenášení demo PASS do skutečného úkolu.
 - Desktop 1920 × 1080, notebook 1366 × 768, tablet 768 a mobil 390; doplňkové hranice 320, 599, 600, 899, 900, 1280, 1281 v pravidlech a 1440 px v základní sadě. Stránka nemá horizontální overflow; tabulky a kompaktní navigace mohou mít vlastní vodorovný scroll.
 - Kontrolované paletové textové dvojice včetně krajních barev primárního gradientu/hover: minimálně **4,84 : 1**. Jde o měření definovaných barevných dvojic, nikoli úplnou certifikaci WCAG. [Výsledky kontrastu](ui-premium/contrast-results.json).
 - Klávesnice, focus trap, Escape, návrat fokusu a reduced motion; 200% zvětšení testováno CSS zoomem v Chromiu. Není vydáváno za ruční certifikaci všech funkcí zoomu všech prohlížečů.
@@ -74,3 +74,11 @@ Automatizace používá Chromium; Firefox/Safari ani fyzické dotykové zaříze
 - Tento review dokument a `docs/ui-premium/*` — snímky před/po, JSON výsledky, kontrast a frontendový patch.
 
 Úplný výpis: [changed-files.txt](ui-premium/changed-files.txt).
+
+## Oprava po nezávislém review Ady #6 — 7. 11.
+
+KPI čekajících a review nyní sčítají `board.queued` a `board.needs_review` přes celou místnost. Běžící počítají neprázdné `board.active`, včetně leased; dostupný kontrakt vrací nejvýše jeden aktivní úkol za agenta, takže UI tuto hranici výslovně popisuje. `unaccepted` je podmnožina queued a znovu se nepřičítá. Počet dokončených zůstává pouze z načtených zpráv, s viditelným názvem „Dokončené v historii“ a vysvětlením limitu 200 zpráv. Chybějící board znamená „—“, prázdný board skutečnou nulu. Při samostatném message eventu se uchová poslední autoritativní board, další room event jej aktualizuje.
+
+Ověřeno 27/27 browser scénářů, včetně dvou board řádků (106 čekajících / 104 review), vyřazení starých úkolů z 200 zpráv bez změny souhrnů, samostatné aktualizace boardu přes SSE, leased úkolu mimo historii a chybějícího/prázdného boardu. Fixture čísla jsou pouze testovací; screenshoty nadále používají původní zachycený snapshot, nikoli aktuální provoz. Snímky desktopu 1920 a mobilu 390 byly po opravě vizuálně zkontrolovány. Backend mimo PAGE_HTML bajtově shodný, Ruff, node syntax a diff-check PASS. Plná Python sada na této UI větvi nebyla kvůli čistě HTML/JS opravě opakována; předchozí výsledek 529/1 xfailed výše platí pro její předchozí commit.
+
+Adiny novější B6 prvky `scanTag`, `secret_findings` a `security` zde nejsou slučovány; při pozdější schválené integraci je nutné je zachovat. Žádný merge ani nasazení se neprovedl.

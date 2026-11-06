@@ -1,5 +1,5 @@
 diff --git a/src/agent_lease_mcp/webui.py b/src/agent_lease_mcp/webui.py
-index f08ade1..4ddb284 100644
+index f08ade1..634e195 100644
 --- a/src/agent_lease_mcp/webui.py
 +++ b/src/agent_lease_mcp/webui.py
 @@ -502,6 +502,16 @@ PAGE_HTML = """<!doctype html>
@@ -570,7 +570,10 @@ index f08ade1..4ddb284 100644
 +  <div id="overviewView" data-view-panel="overview">
 @@ -788 +848 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
 -    <div class="section-heading"><h2 id="overviewTitle">Přehled místnosti</h2><span id="scope">Úkoly v načtené historii · nejvýše 200 posledních zpráv</span></div>
-+    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Úkoly v načtené historii · nejvýše 200 posledních zpráv</span></div>
++    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
+@@ -793 +853 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label">Dokončené úkoly</div><div class="metric-value" id="metricDone">—</div></div></div>
++      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
 @@ -798 +858 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
 -  <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><a href="#side">Agenti</a><a href="#inspector">Detail</a></nav>
 +  <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
@@ -588,7 +591,9 @@ index f08ade1..4ddb284 100644
 +  <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
 +</div>
 +<dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
-@@ -848,0 +915,86 @@ let connectionMode = "loading";
+@@ -845,0 +912 @@ let latestPeers = [];
++let latestBoard = null; // null = autoritativní přehled není dostupný
+@@ -848,0 +916,86 @@ let connectionMode = "loading";
 +const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 +let highestMessageId = 0;
 +let historyReady = false;
@@ -675,53 +680,55 @@ index f08ade1..4ddb284 100644
 +  if (!peers.length && id === "agents") el.innerHTML = "<div class='empty'>nikdo není online</div>";
 +}
 +
-@@ -850 +1002 @@ function historyMessages() { return [...messageCache.values()].sort((a, b) => a.
+@@ -850 +1003 @@ function historyMessages() { return [...messageCache.values()].sort((a, b) => a.
 -function taskState(m) { const s = STATE[m.state] || [m.state || "stav není dostupný", ""]; return tag(s[0], s[1]); }
 +function taskState(m) { const s = STATE[m.state] || [m.state || "stav není dostupný", ""]; return `<span class="tag task-state ${s[1]}">${esc(s[0])}</span>`; }
-@@ -875,5 +1027,5 @@ function refreshDashboard() {
+@@ -875,5 +1028,7 @@ function refreshDashboard() {
 -  document.getElementById("metricAgents").textContent = latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length;
 -  document.getElementById("metricRunning").textContent = tasks.filter(m => m.state === "started").length;
 -  document.getElementById("metricQueued").textContent = tasks.filter(m => m.state === "pending").length;
 -  document.getElementById("metricDone").textContent = tasks.filter(m => m.state === "succeeded").length;
 -  document.getElementById("metricReview").textContent = tasks.filter(m => m.state === "needs_review").length;
 +  setMetric("metricAgents", latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length);
-+  setMetric("metricRunning", tasks.filter(m => m.state === "started").length);
-+  setMetric("metricQueued", tasks.filter(m => m.state === "pending").length);
++  // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
++  // API poskytuje nejvýše jeden aktivní úkol na agenta (leased nebo started).
++  setMetric("metricRunning", latestBoard === null ? "—" : latestBoard.filter(b => b.active).length);
++  setMetric("metricQueued", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.queued, 0));
 +  setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
-+  setMetric("metricReview", tasks.filter(m => m.state === "needs_review").length);
-@@ -891 +1043 @@ function refreshDashboard() {
++  setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
+@@ -891 +1046 @@ function refreshDashboard() {
 -  document.getElementById("recentEvents").innerHTML = events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>";
 +  setHTMLIfChanged(document.getElementById("recentEvents"), events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>");
-@@ -896,3 +1048,3 @@ function renderSystemMetric() {
+@@ -896,3 +1051,3 @@ function renderSystemMetric() {
 -  el.textContent = connectionMode !== "live" ? (connectionMode === "retry" ? "Spojení přerušeno" : "Připojování…")
 -    : lastPaused === undefined ? "Stav není dostupný" : lastPaused ? "Pozastaveno" : "Provoz povolen";
 -  el.style.color = connectionMode !== "live" ? "var(--warn)" : lastPaused === undefined ? "var(--text-dim)" : lastPaused ? "var(--bad)" : "var(--ok)";
 +  setMetric("metricSystem", connectionMode !== "live" ? (connectionMode === "retry" ? "Spojení přerušeno" : "Připojování…")
 +    : lastPaused === undefined ? "Stav není dostupný" : lastPaused ? "Pozastaveno" : "Provoz povolen");
 +  el.dataset.tone = connectionMode !== "live" ? "warn" : lastPaused === undefined ? "muted" : lastPaused ? "bad" : "ok";
-@@ -907 +1059 @@ function selectTask(id, focus = false) {
+@@ -907 +1062 @@ function selectTask(id, focus = false) {
 -  if (focus) { document.getElementById("detailTitle").focus({preventScroll:true}); if (matchMedia("(max-width:1199px)").matches) document.getElementById("inspector").scrollIntoView({block:"start"}); }
 +  if (focus) { openPanel("inspector"); document.getElementById("detailTitle").focus({preventScroll:true}); }
-@@ -934,0 +1087 @@ function renderTaskDetail() {
+@@ -934,0 +1090 @@ function renderTaskDetail() {
 +  const switched = el.dataset.taskId !== String(m.id);
-@@ -941,2 +1094,3 @@ function renderTaskDetail() {
+@@ -941,2 +1097,3 @@ function renderTaskDetail() {
 -    + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "");
 -  timeline.innerHTML = `<ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
 +    + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "")
 +    + `<section class="task-quality"><h3><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h3><span class="tag">NOT RUN</span><p class="note">Kontrola zatím není dostupná. Budoucí výsledek se sváže s konkrétním commitem nebo diffem tohoto úkolu.</p></section>`;
 +  timeline.innerHTML = `<div class="timeline-current" data-tone="${stateTone(m.state)}"><span class="timeline-marker" aria-hidden="true"></span><span>Aktuální stav: ${esc((STATE[m.state] || [m.state || "nedostupný"])[0])}</span></div><ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
-@@ -944,0 +1099 @@ function renderTaskDetail() {
+@@ -944,0 +1102 @@ function renderTaskDetail() {
 +  if (switched) { motion(el,[{opacity:.3},{opacity:1}],180); motion(timeline,[{opacity:.3},{opacity:1}],180); }
-@@ -949 +1104 @@ function renderProjects(reviews) {
+@@ -949 +1107 @@ function renderProjects(reviews) {
 -  document.getElementById("projects").innerHTML = repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`;
 +  setHTMLIfChanged(document.getElementById("projects"), repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`);
-@@ -971,2 +1126,3 @@ function avatarStyle(name) {
+@@ -971,2 +1129,3 @@ function avatarStyle(name) {
 -  const h = hueOf(name);
 -  return `background: linear-gradient(135deg, hsl(${h} 70% 52%), hsl(${(h + 45) % 360} 70% 52%))`;
 +  const known = {"claude-code":"--avatar-ada", "codex":"--avatar-nox", "claude-code-bridge":"--avatar-bridge", "codex-bridge":"--avatar-bridge"};
 +  const palette = ["--accent-1","--blue","--ok","--warn"];
 +  return `--avatar-color:var(${name === me ? "--avatar-user" : known[name] || palette[hueOf(name) % palette.length]})`;
-@@ -1001,3 +1157,5 @@ function isSystem(m) {
+@@ -1001,3 +1160,5 @@ function isSystem(m) {
 -function renderMessage(incoming) {
 -  const m = incoming;
 -  messageCache.set(m.id, m);
@@ -730,11 +737,11 @@ index f08ade1..4ddb284 100644
 +  const newLive = live && historyReady && !previous && m.id > highestMessageId;
 +  highestMessageId = Math.max(highestMessageId,m.id);
 +  messageCache.set(m.id,m);
-@@ -1006,2 +1164 @@ function renderMessage(incoming) {
+@@ -1006,2 +1167 @@ function renderMessage(incoming) {
 -    messageCache.delete(oldest);
 -    expandedMessages.delete(oldest);
 +    messageCache.delete(oldest); expandedMessages.delete(oldest);
-@@ -1013,14 +1170 @@ function renderMessage(incoming) {
+@@ -1013,14 +1173 @@ function renderMessage(incoming) {
 -  const renderKey = JSON.stringify([m.text, m.kind, m.state, m.agent, m.recipient, m.accepted, m.seen, m.accept_note, m.last_error, m.attempts]);
 -  if (!fresh && div.dataset.renderKey === renderKey) {
 -    const time = div.querySelector(".message-time");
@@ -750,7 +757,7 @@ index f08ade1..4ddb284 100644
 -  div.className = "bubble" + (m.agent === me ? " mine" : "") + (system ? " system" : "")
 -    + (system && !showSystemEl.checked ? " hidden" : "");
 +  if (fresh) { div = document.createElement("div"); div.className = "bubble"; div.id = "msg-" + m.id; div.dataset.messageId = String(m.id); }
-@@ -1028,26 +1172,21 @@ function renderMessage(incoming) {
+@@ -1028,26 +1175,21 @@ function renderMessage(incoming) {
 -  div.classList.toggle("task", k === "task");
 -  div.classList.toggle("result", k === "result");
 -  div.classList.toggle("selected", selectedTask === m.id);
@@ -798,7 +805,7 @@ index f08ade1..4ddb284 100644
 +      detail.setAttribute("aria-label",`Detail úkolu #${m.id}`); detail.onclick = () => selectTask(m.id,true); div.appendChild(detail);
 +    }
 +    div._actionsKey = null;
-@@ -1055,6 +1194,23 @@ function renderMessage(incoming) {
+@@ -1055,6 +1197,23 @@ function renderMessage(incoming) {
 -  if (k === "task") {
 -    const detail = document.createElement("button");
 -    detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
@@ -828,14 +835,14 @@ index f08ade1..4ddb284 100644
 +    else if (stateTone(m.state) !== "bad") motion(div.querySelector(".task-state"),[{opacity:.65},{opacity:1}],180);
 +  } else if (previous?.accepted !== m.accepted) {
 +    motion(div.querySelector(".delivery-meta .tag:last-child"),[{opacity:.65},{opacity:1}],180);
-@@ -1062 +1218,5 @@ function renderMessage(incoming) {
+@@ -1062 +1221,5 @@ function renderMessage(incoming) {
 -  if (k === "task" && m.recipient && m.state) {
 +  if (!renderingRoom) refreshDashboard();
 +}
 +
 +function renderTaskActions(m,div) {
 +  if (m.kind === "task" && m.recipient && m.state) {
-@@ -1086,7 +1245,0 @@ function renderMessage(incoming) {
+@@ -1086,7 +1248,0 @@ function renderMessage(incoming) {
 -  if (fresh) {
 -    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
 -    const next = [...feed.querySelectorAll(".bubble")].find(el => Number(el.dataset.messageId) > m.id);
@@ -843,43 +850,45 @@ index f08ade1..4ddb284 100644
 -    if (stick) feed.scrollTop = feed.scrollHeight;
 -  }
 -  if (!renderingRoom) refreshDashboard();
-@@ -1099,0 +1253,3 @@ function renderPause(p) {
+@@ -1099,0 +1256,3 @@ function renderPause(p) {
 +  const pauseKey = JSON.stringify(p);
 +  if (el._pauseKey === pauseKey) return;
 +  el._pauseKey = pauseKey;
-@@ -1142 +1298 @@ function agentCard(p, b) {
+@@ -1142 +1301 @@ function agentCard(p, b) {
 -  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : ""}">
 +  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : roleOf(p.agent) === "agent" ? "interactive" : ""}">
-@@ -1146 +1302 @@ function agentCard(p, b) {
+@@ -1146 +1305 @@ function agentCard(p, b) {
 -    <div class="tags">${tags.join("")}</div></div>`;
 +    <div class="tags">${tags.join("")}</div>${p.seen_seconds_ago == null ? "" : `<div class="last-active">Aktivita ${ago(p.seen_seconds_ago)}</div>`}</div>`;
-@@ -1158,0 +1315,3 @@ function renderReviews(list) {
+@@ -1158,0 +1318,3 @@ function renderReviews(list) {
 +  const reviewKey = JSON.stringify(list);
 +  if (el._reviewKey === reviewKey) return;
 +  el._reviewKey = reviewKey;
-@@ -1198 +1357 @@ function renderRoom(r) {
+@@ -1195,0 +1358 @@ function renderRoom(r) {
++  latestBoard = Array.isArray(r.board) ? r.board : null;
+@@ -1198 +1361 @@ function renderRoom(r) {
 -  (r.messages || []).forEach(renderMessage);
 +  (r.messages || []).forEach(m => renderMessage(m));
-@@ -1209,3 +1368,2 @@ function renderRoom(r) {
+@@ -1209,3 +1372,2 @@ function renderRoom(r) {
 -  document.getElementById("agents").innerHTML = online.map(p => agentCard(p, board[p.agent])).join("") || "<div class='empty'>nikdo není online</div>";
 -  document.getElementById("offline").innerHTML = offline.map(p => agentCard(p, board[p.agent])).join("");
 -  [...document.querySelectorAll("#agents > .card"), ...document.querySelectorAll("#offline > .card")].forEach((card,i) => { card.dataset.agent = [...online,...offline][i].agent; const work = card.querySelector(".agent-work"); if (work) work.title = work.textContent; });
 +  renderAgentList("agents",online,board);
 +  renderAgentList("offline",offline,board);
-@@ -1215 +1373 @@ function renderRoom(r) {
+@@ -1215 +1377 @@ function renderRoom(r) {
 -  document.getElementById("claims").innerHTML = (r.claims || []).map(c => `
 +  setHTMLIfChanged(document.getElementById("claims"), (r.claims || []).map(c => `
-@@ -1218 +1376 @@ function renderRoom(r) {
+@@ -1218 +1380 @@ function renderRoom(r) {
 -    || "<div class='empty'>nic není zamčené</div>";
 +    || "<div class='empty'>nic není zamčené</div>");
-@@ -1224,0 +1383 @@ function renderRoom(r) {
+@@ -1224,0 +1387 @@ function renderRoom(r) {
 +  historyReady = true;
-@@ -1256 +1415 @@ function connect(since) {
+@@ -1256 +1419 @@ function connect(since) {
 -  es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
 +  es.addEventListener("message", e => renderMessage(JSON.parse(e.data), {live:true}));
-@@ -1316,0 +1476 @@ document.getElementById("navTasks").onclick = () => {
+@@ -1316,0 +1480 @@ document.getElementById("navTasks").onclick = () => {
 +  showView("overview",{focus:false});
-@@ -1322,0 +1483,76 @@ fillRecipients();
+@@ -1322,0 +1487,76 @@ fillRecipients();
 +// Planned presentation contract only. No fetching, scanning, storage or gate decisions.
 +const QG_STATUS = {
 +  PASS:{label:"PASS",tone:"ok",icon:"✓",meaning:"Všechny povinné kontroly prošly."},

@@ -845,12 +845,12 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
   </header>
   <div id="overviewView" data-view-panel="overview">
   <section id="overview" aria-labelledby="overviewTitle">
-    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Úkoly v načtené historii · nejvýše 200 posledních zpráv</span></div>
+    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
     <div id="metrics">
       <div class="metric" style="--tint:var(--blue)"><span class="metric-icon" aria-hidden="true">♧</span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
       <div class="metric" style="--tint:var(--accent-1)"><span class="metric-icon" aria-hidden="true">▷</span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
       <div class="metric" style="--tint:var(--warn)"><span class="metric-icon" aria-hidden="true">▱</span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label">Dokončené úkoly</div><div class="metric-value" id="metricDone">—</div></div></div>
+      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
       <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
       <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">⌁</span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
     </div>
@@ -909,6 +909,7 @@ let activeFilter = "all";
 let selectedTask = null;
 let renderingRoom = false;
 let latestPeers = [];
+let latestBoard = null; // null = autoritativní přehled není dostupný
 let lastPaused; // undefined = stav dosud neznáme, null = provoz povolen
 let connectionMode = "loading";
 
@@ -1025,10 +1026,12 @@ function refreshDashboard() {
   const all = historyMessages();
   const tasks = all.filter(m => m.kind === "task");
   setMetric("metricAgents", latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length);
-  setMetric("metricRunning", tasks.filter(m => m.state === "started").length);
-  setMetric("metricQueued", tasks.filter(m => m.state === "pending").length);
+  // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
+  // API poskytuje nejvýše jeden aktivní úkol na agenta (leased nebo started).
+  setMetric("metricRunning", latestBoard === null ? "—" : latestBoard.filter(b => b.active).length);
+  setMetric("metricQueued", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.queued, 0));
   setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
-  setMetric("metricReview", tasks.filter(m => m.state === "needs_review").length);
+  setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
   renderSystemMetric();
   const picker = document.getElementById("taskPicker");
   const optionsKey = JSON.stringify(tasks.map(m => [m.id, m.state, m.text.slice(0, 65)]));
@@ -1352,6 +1355,7 @@ function renderReviews(list) {
 
 function renderRoom(r) {
   if (r.me) me = r.me;
+  latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));

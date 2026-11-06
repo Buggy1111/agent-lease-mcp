@@ -1,7 +1,7 @@
 {
   "checks": [
     "Comparison screenshots use the same observed Agent Lease records",
-    "Task metrics use loaded task records; bridges/operators excluded from agents",
+    "Task metrics use the whole board beyond history; bridges/operators excluded from agents",
     "Reference navigation opens actual sections and task filter",
     "Kind filters, system events, search, keyboard focus",
     "Untrusted message/review text is escaped, never executed",
@@ -12,6 +12,7 @@
     "Failed sends preserve the composer text and re-enable retry",
     "Emergency stop/resume, missing pause state and stream reconnect",
     "History is capped at 200 unique messages; missing data stays explicit",
+    "Board-only SSE updates work without messages; absent board stays unknown",
     "Quality Gate starts empty, never treats reviews or task success as quality results",
     "Explicit demo presents every result type, repository details and independent review without backend writes",
     "Quality tabs, Analytics/Settings placeholders, mobile overflow and keyboard navigation",
