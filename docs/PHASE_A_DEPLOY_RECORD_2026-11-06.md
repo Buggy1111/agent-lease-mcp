@@ -14,10 +14,21 @@ Michal dal výslovný souhlas 6. 11. ve 4:3x („Nasadit teď“). Provedla Ada 
 | 6 Start | Všechny 4 služby active. `/proc/PID/exe` = `runtime-b483265/python/bin/python3.13`, cmdline `current/venv/bin/…`. Bridge ve vlastních cgroup `…/agent-lease-bridge@{claude-code,codex}.service`, `Delegate=yes`. `doctor` (absolutně z `current`): SQLite 3.53.1, hooky a identity ok. |
 | 7 Kontrola | Integrita ok. Fronta = snímek kromě #159/#160 (staré zprávy typu result z října), které broker smazal podle pravidel uchovávání. Webové rozhraní spuštěno jako `agent-lease-webui-deploy` (přímo `agent-lease-webui`; `agent-lease web` odmítá spuštění bez agentní identity). **Zrušení stopu provádí Michal ve webovém rozhraní.** |
 
+## Dokončení (6. 11., 04:45–05:25)
+
+| Krok | Výsledek |
+|---|---|
+| Restart relací | Michal restartoval Claude Code i Codex. Nové `agent-lease-mcp` (Claude pid 2715020, Codex pid 2707979) mají `/proc/PID/exe` = `runtime-b483265/python/bin/python3.13`. |
+| Zrušení stopu | Webové rozhraní mělo chybu: živá aktualizace neposílala stav pauzy, takže tlačítko „Resume“ se hned přepsalo na „Stop“. Michal tím ve 04:50 omylem pauzu zapnul znovu. Opraveno v `0d4fd13` (regresní test), web předělán v `7a55579`. Ostrý web dočasně běží z repa jako transient `agent-lease-webui-dev`. Michal stop zrušil ~05:19. |
+| 8 Živý test | **PASS** oběma směry. `michal → claude-code` #639: bridge převzal, headless běh, výsledek #645. `claude-code → codex` #646: bridge převzal, výsledek #650 „PHASE_A_LIVE_CODEX_OK“. Michal 6. 11. potvrdil pokračování podle plánu. |
+
+Nálezy z živého testu (do fáze B):
+- Headless worker běží v plan mode a nemůže volat nástroje agent-lease; Stop hook ho přesto upomíná o cizí nepotvrzené zprávě (#642 patřila interaktivní relaci). Upomínky v headless běhu by měly být potlačené nebo omezené na vlastní úkol.
+- Headless worker vycházel ze zastaralé paměti („necommitnuté změny run_fence“), přestože strom byl čistý. Worker má stav repa ověřovat, ne přebírat z paměti.
+
 ## Zbývá
-- Michal zruší nouzový stop ve webovém rozhraní.
-- Zavřít a znovu otevřít relace Claude Code i Codexu (jejich běžící MCP procesy jsou ještě ze starého `.venv`) a ověřit `/proc/PID/exe` nových `agent-lease-mcp`.
-- Krok 8 (živý syntetický úkol) jen se zvláštním souhlasem, pak A11.
+- A11 (restart Windows/WSL) – ruční test s Michalem podle `PHASE_A_PREDEPLOY_REVIEW.md`.
+- Vrátit web z repa na připnutý runtime při příštím sestavení runtime.
 
 ## Poznámky
 - `codex-wake` hlásí víc Codex relací se jménem „nox“. Starší problém konfigurace, nesouvisí s nasazením.
