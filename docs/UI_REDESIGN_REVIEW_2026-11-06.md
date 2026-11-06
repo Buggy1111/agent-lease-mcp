@@ -28,7 +28,7 @@ Dále [notebook 1280 px](ui-redesign/after-laptop.png) a [tablet 1024 px](ui-red
 
 Produkční změna je pouze uvnitř `PAGE_HTML` v `src/agent_lease_mcp/webui.py`. Skript `tests/ui/prepare_pages.py` ověřuje bajtovou shodu Python kódu před a za touto konstantou vůči základnímu commitu. Nemění se handlery, SQLite, ownership, leases, edit gate, karanténa, checkpoint ověřování, emergency stop, oprávnění, bridge, probouzení, služby ani API kontrakty. CSS a JS jsou nadále inline kvůli původnímu CSP.
 
-[Inventura před změnami](UI_REDESIGN_AUDIT_2026-11-06.md) dokumentuje zachované funkce a datová omezení. [Frontendový diff](ui-redesign/frontend.patch) ukazuje změnu samotné konstanty; další soubory jsou pouze testy, dokumentace a lokální důkazy.
+[Inventura před změnami](UI_REDESIGN_AUDIT_2026-11-06.md) dokumentuje zachované funkce a datová omezení. [Frontendový diff](ui-redesign/frontend.patch) ukazuje změnu samotné konstanty (unified diff bez kontextu, pro případné aplikování s `git apply --unidiff-zero`); další soubory jsou pouze testy, dokumentace a lokální důkazy.
 
 ## Ověření
 

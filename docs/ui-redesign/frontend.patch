@@ -2,15 +2,10 @@ diff --git a/src/agent_lease_mcp/webui.py b/src/agent_lease_mcp/webui.py
 index cd6d0d9..f08ade1 100644
 --- a/src/agent_lease_mcp/webui.py
 +++ b/src/agent_lease_mcp/webui.py
-@@ -494,232 +494,337 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
- 
- PAGE_HTML = """<!doctype html>
- <html lang="cs">
+@@ -497 +497 @@ PAGE_HTML = """<!doctype html>
 -<title>agent-lease · místnost</title>
 +<title>Agent Lease · řídicí přehled</title>
- <meta charset="utf-8">
- <meta name="viewport" content="width=device-width, initial-scale=1">
- <style>
+@@ -501,187 +501,278 @@ PAGE_HTML = """<!doctype html>
 -  :root {
 -    color-scheme: dark light;
 -    --bg: #0a0b10; --surface: #12141c; --surface-2: #171a24; --raised: #1d212c;
@@ -476,7 +471,7 @@ index cd6d0d9..f08ade1 100644
 +  #inspector { display:flex; align-items:stretch; }
 +  #topbar,#feed,#compose { padding-left:12px; padding-right:12px; }
 +}
- </style>
+@@ -689,15 +780,16 @@ PAGE_HTML = """<!doctype html>
 -<div id="pause"></div>
 -<div id="app">
 -<div id="side">
@@ -508,7 +503,7 @@ index cd6d0d9..f08ade1 100644
 +      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label">Dokončené úkoly</div><div class="metric-value" id="metricDone">—</div></div></div>
 +      <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
 +      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">⌁</span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
-     </div>
+@@ -705,7 +797,15 @@ PAGE_HTML = """<!doctype html>
 -  </div>
 -  <div id="feed"></div>
 -  <div id="compose">
@@ -531,7 +526,7 @@ index cd6d0d9..f08ade1 100644
 +          <button class="filter on" data-filter="all" aria-pressed="true">Vše</button><button class="filter" data-filter="task" aria-pressed="false">Úkoly</button><button class="filter" data-filter="result" aria-pressed="false">Výsledky</button><button class="filter" data-filter="system" aria-pressed="false">Systém</button>
 +        </div></div>
 +        <div class="tools feed-tools"><span id="messageCount" class="note">Načítám zprávy…</span><label class="search"><span class="sr-only">Hledat ve zprávách</span><input id="search" type="search" placeholder="Hledat text, agenta, #ID…"></label><label class="system-toggle"><input type="checkbox" id="showSystem"> systémové příjemky</label></div>
-       </div>
+@@ -713,7 +813,13 @@ PAGE_HTML = """<!doctype html>
 -      <label>Komu <select id="to"></select></label>
 -    </div>
 -    <div id="hint"></div>
@@ -552,16 +547,9 @@ index cd6d0d9..f08ade1 100644
 +      <section class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
 +      <section id="historyPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◷</span><h2>Poslední události</h2></div><div class="panel-body" id="recentEvents"><div class="empty">Čekám na zaznamenané zprávy.</div></div></section>
 +    </aside>
-   </div>
- </div>
+@@ -722 +827,0 @@ PAGE_HTML = """<!doctype html>
 -</div>
- <script>
- const feed = document.getElementById("feed");
- const statusDot = document.querySelector("#status .dot");
-@@ -731,10 +836,123 @@ const showSystemEl = document.getElementById("showSystem");
- let me = "";
- let kind = "chat";
- let knownAgents = ["claude-code", "codex"];
+@@ -733,0 +839,113 @@ let knownAgents = ["claude-code", "codex"];
 +// Pouze prezentace existujících dat; žádné nové endpointy nebo odvozování fází.
 +const messageCache = new Map();
 +const expandedMessages = new Set();
@@ -675,27 +663,13 @@ index cd6d0d9..f08ade1 100644
 +  document.getElementById("projects").innerHTML = repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`;
 +}
 +
- 
- const NAMES = {
-   "claude-code": "Ada · Claude Code", "codex": "Nox · Codex",
+@@ -737 +955 @@ const NAMES = {
 -  "claude-code-bridge": "Most Ady (práce na pozadí)", "codex-bridge": "Most Noxe (práce na pozadí)",
 +  "claude-code-bridge": "Most Ady", "codex-bridge": "Most Noxe",
-   "broker": "systém",
- };
- const KIND = { chat: "zpráva", task: "úkol", broadcast: "všem", control: "řízení", result: "výsledek" };
-@@ -769,6 +987,8 @@ function clock(t) { return new Date(t * 1000).toLocaleTimeString("cs-CZ", {hour:
- function tag(text, cls) { return `<span class="tag ${cls || ""}">${esc(text)}</span>`; }
- 
- function updateStatus(mode) {
+@@ -771,0 +990,2 @@ function updateStatus(mode) {
 +  connectionMode = mode;
 +  renderSystemMetric();
-   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
-   statusText.textContent = mode === "live" ? "živě" : mode === "retry" ? "spojení přerušeno, zkouším znovu…" : "připojuji…";
- }
-@@ -778,38 +998,67 @@ function isSystem(m) {
-   return m.agent === "broker" || (m.kind === "result" && /^✔ taking #/.test(m.text || ""));
- }
- 
+@@ -781 +1001,10 @@ function isSystem(m) {
 -function renderMessage(m) {
 +function renderMessage(incoming) {
 +  const m = incoming;
@@ -707,8 +681,7 @@ index cd6d0d9..f08ade1 100644
 +    document.getElementById("msg-" + oldest)?.remove();
 +    if (oldest === m.id) return;
 +  }
-   let div = document.getElementById("msg-" + m.id);
-   const fresh = !div;
+@@ -783,0 +1013,7 @@ function renderMessage(m) {
 +  const renderKey = JSON.stringify([m.text, m.kind, m.state, m.agent, m.recipient, m.accepted, m.seen, m.accept_note, m.last_error, m.attempts]);
 +  if (!fresh && div.dataset.renderKey === renderKey) {
 +    const time = div.querySelector(".message-time");
@@ -716,47 +689,32 @@ index cd6d0d9..f08ade1 100644
 +    if (!renderingRoom) refreshDashboard();
 +    return;
 +  }
-   if (fresh) div = document.createElement("div");
+@@ -784,0 +1021,2 @@ function renderMessage(m) {
 +  div.dataset.renderKey = renderKey;
 +  div.dataset.messageId = String(m.id);
-   div.id = "msg-" + m.id;
-   const system = isSystem(m);
-   div.className = "bubble" + (m.agent === me ? " mine" : "") + (system ? " system" : "")
-     + (system && !showSystemEl.checked ? " hidden" : "");
-   const k = m.kind || "chat";
+@@ -789,0 +1028,3 @@ function renderMessage(m) {
 +  div.classList.toggle("task", k === "task");
 +  div.classList.toggle("result", k === "result");
 +  div.classList.toggle("selected", selectedTask === m.id);
-   const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
-   // Stav doručení má smysl jen u úkolu; u zprávy stačí, jestli ji příjemce viděl.
-   const st = k !== "task" ? "" : m.state && STATE[m.state] ? tag(STATE[m.state][0], STATE[m.state][1]) : (m.state ? tag(m.state) : "");
-   const rcpt = (m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker")
+@@ -794,3 +1035,3 @@ function renderMessage(m) {
 -    ? (m.accepted ? tag("✔ převzal" + (m.accept_note ? ": " + m.accept_note : ""), "ok")
 -       : m.seen ? tag("👁 viděl, zatím nepřevzal", "work")
 -       : tag("⏳ ještě nedoručeno")) : "";
 +    ? (m.accepted ? tag("✓ převzal" + (m.accept_note ? ": " + m.accept_note : ""), "ok")
 +       : m.seen ? tag("viděl, zatím nepřevzal", "work")
 +       : tag("ještě nedoručeno")) : "";
-   const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
-   div.innerHTML =
-     `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span>` +
+@@ -800 +1041 @@ function renderMessage(m) {
 -    `<span class="who">${esc(nameOf(m.agent))}</span> ${to}<span>· ${ago(m.seconds_ago)}</span>` +
 +    `<span class="who">${esc(nameOf(m.agent))}</span> ${to}<span class="message-time" title="Stáří podle poslední aktualizace">· ${ago(m.seconds_ago)}</span>` +
-     st + rcpt + `<span class="num">#${m.id}</span></div>` +
+@@ -802 +1043 @@ function renderMessage(m) {
 -    `<div class="text${long ? " clip" : ""}">${esc(m.text)}</div>`;
 +    `<div class="text${long && !expandedMessages.has(m.id) ? " clip" : ""}">${esc(m.text)}</div>`;
-   if (long) {
-     const more = document.createElement("button");
+@@ -805 +1046 @@ function renderMessage(m) {
 -    more.className = "more"; more.textContent = "Zobrazit celé";
 +    more.className = "more"; more.textContent = expandedMessages.has(m.id) ? "Sbalit" : "Zobrazit celé";
-     more.onclick = () => {
-       const t = div.querySelector(".text");
-       t.classList.toggle("clip");
+@@ -808,0 +1050 @@ function renderMessage(m) {
 +      if (t.classList.contains("clip")) expandedMessages.delete(m.id); else expandedMessages.add(m.id);
-       more.textContent = t.classList.contains("clip") ? "Zobrazit celé" : "Sbalit";
-     };
-     div.appendChild(more);
-   }
+@@ -812,0 +1055,7 @@ function renderMessage(m) {
 +  if (k === "task") {
 +    const detail = document.createElement("button");
 +    detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
@@ -764,161 +722,73 @@ index cd6d0d9..f08ade1 100644
 +    detail.onclick = () => selectTask(m.id, true);
 +    div.appendChild(detail);
 +  }
-   if (k === "task" && m.recipient && m.state) {
-     const actions = document.createElement("div");
-     actions.className = "actions";
-@@ -836,13 +1085,17 @@ function renderMessage(m) {
-   }
-   if (fresh) {
-     const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+@@ -839 +1088,2 @@ function renderMessage(m) {
 -    feed.appendChild(div);
 +    const next = [...feed.querySelectorAll(".bubble")].find(el => Number(el.dataset.messageId) > m.id);
 +    feed.insertBefore(div, next || document.getElementById("filterEmpty"));
-     if (stick) feed.scrollTop = feed.scrollHeight;
-   }
+@@ -841,0 +1092 @@ function renderMessage(m) {
 +  if (!renderingRoom) refreshDashboard();
- }
- 
- function renderPause(p) {
-   if (p === undefined) return;  // zpráva bez stavu pauzy nesmí přepsat tlačítko
+@@ -845,0 +1097,2 @@ function renderPause(p) {
 +  lastPaused = p;
 +  renderSystemMetric();
-   const el = document.getElementById("pause");
-   el.innerHTML = "";
-   const bar = document.createElement("div");
-@@ -855,8 +1108,8 @@ function renderPause(p) {
-     b.onclick = () => { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); };
-   } else {
-     bar.className = "pausebar running";
+@@ -858,2 +1111,2 @@ function renderPause(p) {
 -    bar.innerHTML = `<div class="ptext"><div class="big">▶ Agenti běží</div></div>`;
 -    b.textContent = "🛑 Zastavit všechny agenty";
 +    bar.innerHTML = `<div class="ptext"><div class="big">● Provoz povolen</div></div>`;
 +    b.textContent = "Zastavit všechny agenty";
-     b.onclick = () => { const r = prompt("Opravdu zastavit všechny agenty? Napiš důvod (zaznamená se):", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); };
-   }
-   bar.appendChild(b);
-@@ -885,11 +1138,11 @@ function agentCard(p, b) {
-   else if (p.status) line = esc(p.status);
-   else if (!p.active) line = "naposledy " + ago(p.seen_seconds_ago);
-   if (b && b.blocked_reason) line += `<br>čeká: ${esc(b.blocked_reason)}`;
+@@ -888,2 +1141,2 @@ function agentCard(p, b) {
 -  if (b && b.blocked_task) line += `<br>🔒 #${b.blocked_task.id} ${esc(b.blocked_task.path)} drží ${esc(nameOf(b.blocked_task.held_by))}`;
 -  return `<div class="card ${p.active ? "" : "offline"}">
 +  if (b && b.blocked_task) line += `<br>⌑ #${b.blocked_task.id} ${esc(b.blocked_task.path)} drží ${esc(nameOf(b.blocked_task.held_by))}`;
 +  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : ""}">
-     <div class="head"><div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}<span class="dot ${p.active ? "on" : ""}"></span></div>
+@@ -891,2 +1144,2 @@ function agentCard(p, b) {
 -      <div class="who"><div class="name">${esc(nameOf(p.agent))}</div>${NAMES[p.agent] || p.agent === me ? `<div class="id">${esc(p.agent)}</div>` : ""}</div></div>
 -    ${line ? `<div class="line">${line}</div>` : ""}
 +      <div class="who"><div class="name">${esc(nameOf(p.agent))}</div>${NAMES[p.agent] || p.agent === me ? `<div class="id">${esc(p.agent)}</div>` : ""}</div><span class="role">${roleOf(p.agent)}</span></div>
 +    ${line ? `<div class="line agent-work">${line}</div>` : ""}
-     <div class="tags">${tags.join("")}</div></div>`;
- }
- 
-@@ -900,6 +1153,8 @@ const REVIEW = {
- };
- function renderReviews(list) {
-   if (list === undefined) return;
+@@ -902,0 +1156,2 @@ function renderReviews(list) {
 +  renderProjects(list);
 +  document.getElementById("reviewCount").textContent = list.length;
-   const el = document.getElementById("reviews");
-   el.innerHTML = "";
-   if (!list.length) { el.innerHTML = "<div class='empty'>žádné otevřené review</div>"; return; }
-@@ -912,7 +1167,7 @@ function renderReviews(list) {
-     const sha = v.head_commit ? ` · ${esc(v.head_commit.slice(0, 10))}` : "";
-     const why = v.verdict_note && v.state !== "approved" ? `<div class="line">„${esc(v.verdict_note.slice(0, 240))}"</div>` : "";
-     card.innerHTML = `<div class="name">#${v.id} ${esc(v.topic)}</div>`
+@@ -915 +1170 @@ function renderReviews(list) {
 -      + `<div class="line">${who}${sha}</div>${why}`
 +      + `<div class="line">${who}${sha}</div><div class="path">${esc(v.repo || "")}</div>${why}`
-       + `<div class="tags">${tag(st[0], st[1])}${tag(`kolo oprav ${v.fix_cycles}/${v.max_fix_cycles}`, v.cycles_left ? "" : "bad")}</div>`;
-     if (v.state === "escalated") {
-       const btns = document.createElement("div");
-@@ -939,19 +1194,26 @@ function renderReviews(list) {
- function renderRoom(r) {
-   if (r.me) me = r.me;
-   renderReviews(r.reviews);
+@@ -941,0 +1197 @@ function renderRoom(r) {
 +  renderingRoom = true;
-   (r.messages || []).forEach(renderMessage);
+@@ -942,0 +1199 @@ function renderRoom(r) {
 +  renderingRoom = false;
-   renderPause(r.paused);
-   const board = {};
-   (r.board || []).forEach(b => { board[b.agent] = b; });
-   const peers = (r.peers || []).filter(p => !String(p.agent).startsWith("untrusted-"));
-   (r.board || []).forEach(b => { if (!peers.some(p => p.agent === b.agent)) peers.push({agent: b.agent, active: false, status: b.status}); });
+@@ -948 +1205,4 @@ function renderRoom(r) {
 -  const online = peers.filter(p => p.active), offline = peers.filter(p => !p.active);
 +  latestPeers = peers;
 +  const coreAgent = p => ["claude-code", "codex"].includes(p.agent);
 +  const online = peers.filter(p => p.active || coreAgent(p)), offline = peers.filter(p => !p.active && !coreAgent(p));
 +  document.getElementById("agentCount").textContent = peers.length;
-   document.getElementById("agents").innerHTML = online.map(p => agentCard(p, board[p.agent])).join("") || "<div class='empty'>nikdo není online</div>";
-   document.getElementById("offline").innerHTML = offline.map(p => agentCard(p, board[p.agent])).join("");
+@@ -950,0 +1211,2 @@ function renderRoom(r) {
 +  [...document.querySelectorAll("#agents > .card"), ...document.querySelectorAll("#offline > .card")].forEach((card,i) => { card.dataset.agent = [...online,...offline][i].agent; const work = card.querySelector(".agent-work"); if (work) work.title = work.textContent; });
 +  highlightAgent();
-   document.getElementById("offlineSummary").textContent = `Offline (${offline.length})`;
-   document.getElementById("offlineBox").style.display = offline.length ? "" : "none";
-   document.getElementById("claims").innerHTML = (r.claims || []).map(c => `
+@@ -954 +1216 @@ function renderRoom(r) {
 -    <div class="card"><div class="path">🔒 ${esc(c.path)}</div>
 +    <div class="card"><div class="path">⌑ ${esc(c.path)}</div>
-       <div class="line">${esc(nameOf(c.held_by))}${c.purpose ? " · " + esc(c.purpose) : ""} · ještě ${ttl(c.expires_in_seconds)}</div></div>`).join("")
-     || "<div class='empty'>nic není zamčené</div>";
-   // Komu: skuteční agenti, bez mostů, systému a sebe.
-@@ -959,13 +1221,14 @@ function renderRoom(r) {
-   peers.forEach(p => { const a = String(p.agent); if (a !== me && a !== "broker" && !a.endsWith("-bridge")) names.add(a); });
-   const list = [...names].sort((a, b) => (NAMES[a] ? 0 : 1) - (NAMES[b] ? 0 : 1) || a.localeCompare(b));
-   if (list.join() !== knownAgents.join()) { knownAgents = list; fillRecipients(); }
+@@ -961,0 +1224 @@ function renderRoom(r) {
 +  refreshDashboard();
- }
- 
- function fillRecipients() {
-   const prev = toEl.value;
-   toEl.innerHTML = "";
-   knownAgents.forEach(a => toEl.add(new Option(nameOf(a), a)));
+@@ -968 +1231 @@ function fillRecipients() {
 -  const all = new Option("📢 Všem v místnosti", "*");
 +  const all = new Option("Všem v místnosti", "*");
-   all.disabled = kind === "task";
-   toEl.add(all);
-   if ([...toEl.options].some(o => o.value === prev && !o.disabled)) toEl.value = prev;
-@@ -973,17 +1236,17 @@ function fillRecipients() {
- }
- function setKind(k) {
-   kind = k;
+@@ -976 +1239 @@ function setKind(k) {
 -  document.querySelectorAll("#kindSeg button").forEach(b => b.classList.toggle("on", b.dataset.kind === k));
 +  document.querySelectorAll("#kindSeg button").forEach(b => { b.classList.toggle("on", b.dataset.kind === k); b.setAttribute("aria-pressed", b.dataset.kind === k); });
-   fillRecipients();
- }
- function syncHint() {
-   const to = toEl.value === "*" ? "všem v místnosti" : nameOf(toEl.value);
-   if (kind === "task") {
-     hintEl.className = "task";
+@@ -983 +1246 @@ function syncHint() {
 -    hintEl.textContent = `🛠 Úkol: ${to} ho převezme a udělá sám, klidně i na pozadí bez tebe. Posílej jen to, co má opravdu udělat.`;
 +    hintEl.textContent = `Úkol: ${to} ho převezme a udělá sám, klidně i na pozadí bez tebe. Posílej jen to, co má opravdu udělat.`;
-   } else {
-     hintEl.className = "";
+@@ -986 +1249 @@ function syncHint() {
 -    hintEl.textContent = `💬 Zpráva pro: ${to}. Jen informace — přečte si ji, až se podívá do místnosti. Nic se samo nespustí.`;
 +    hintEl.textContent = `Zpráva pro: ${to}. Jen informace — přečte si ji, až se podívá do místnosti. Nic se samo nespustí.`;
-   }
-   textEl.placeholder = kind === "task" ? "Popiš, co má udělat…" : "Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)";
- }
-@@ -1015,7 +1278,6 @@ establishSession()
-   .then(r => { if (!r.ok) throw new Error("auth"); return r.json(); })
-   .then(s => {
-     if (s.me) me = s.me;
+@@ -1018 +1280,0 @@ establishSession()
 -    s.messages.forEach(renderMessage);
-     renderRoom(s);
-     feed.scrollTop = feed.scrollHeight;
-     connect(s.messages.length ? s.messages[s.messages.length - 1].id : 0);
-@@ -1024,7 +1286,8 @@ establishSession()
- 
- function post(url, body) {
-   return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+@@ -1027 +1289,2 @@ function post(url, body) {
 -    .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; });
 +    .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; })
 +    .catch(() => { alert("Spojení se nezdařilo. Zkontroluj stav v místnosti před opakováním akce."); return false; });
- }
- function send() {
-   const text = textEl.value;
-@@ -1042,9 +1305,18 @@ function control(action, id, to) { post("/api/" + action, { id, to }); }
- 
- document.querySelectorAll("#kindSeg button").forEach(b => b.onclick = () => setKind(b.dataset.kind));
- toEl.addEventListener("change", syncHint);
+@@ -1045,2 +1308,7 @@ toEl.addEventListener("change", syncHint);
 -showSystemEl.addEventListener("change", () => {
 -  document.querySelectorAll(".bubble.system").forEach(d => d.classList.toggle("hidden", !showSystemEl.checked));
 +showSystemEl.addEventListener("change", applyFilters);
@@ -928,11 +798,8 @@ index cd6d0d9..f08ade1 100644
 +  activeFilter = b.dataset.filter;
 +  document.querySelectorAll("[data-filter]").forEach(el => { el.classList.toggle("on", el === b); el.setAttribute("aria-pressed", el === b); });
 +  applyFilters();
- });
+@@ -1047,0 +1316,4 @@ showSystemEl.addEventListener("change", () => {
 +document.getElementById("navTasks").onclick = () => {
 +  document.querySelector('[data-filter="task"]').click();
 +  document.getElementById("main").scrollIntoView({block:"start"});
 +};
- document.getElementById("sendBtn").onclick = send;
- textEl.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
- fillRecipients();
