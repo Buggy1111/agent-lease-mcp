@@ -276,6 +276,11 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
     reader = threading.Thread(target=read_output, daemon=True)
     reader.start()
     sampled_at, cpu_seen = started, _cgroup_cpu_usec(group)
+    # Vzorkovat aspoň 3× za limit nečinnosti, jinak by krátký limit uplynul dřív než první
+    # vzorek postupu (Nox #4). CPU práh se úměrně zmenší (1 s CPU za 30 s).
+    sample_every = (min(PROGRESS_SAMPLE_SECONDS, max(0.05, idle_timeout / 3))
+                    if idle_timeout is not None else PROGRESS_SAMPLE_SECONDS)
+    cpu_needed = PROGRESS_CPU_USEC * sample_every / PROGRESS_SAMPLE_SECONDS
     tick_error = None
     try:
         while proc.poll() is None:
@@ -290,10 +295,10 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                 reader.join(2)
                 return RunResult(False, f"timed out after {int(timeout)} s",
                                  cleanup_failed=not gone or reader.is_alive())
-            if idle_timeout is not None and now - sampled_at >= PROGRESS_SAMPLE_SECONDS:
+            if idle_timeout is not None and now - sampled_at >= sample_every:
                 sampled_at = now
                 cpu_now = _cgroup_cpu_usec(group)
-                if cpu_now is not None and cpu_seen is not None and cpu_now - cpu_seen >= PROGRESS_CPU_USEC:
+                if cpu_now is not None and cpu_seen is not None and cpu_now - cpu_seen >= cpu_needed:
                     activity[0] = now
                 cpu_seen = cpu_now if cpu_now is not None else cpu_seen
                 if progress is not None and progress():

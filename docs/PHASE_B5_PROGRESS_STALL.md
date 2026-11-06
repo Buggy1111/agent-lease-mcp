@@ -36,3 +36,11 @@ se mu neprodlouží. Produkční bridge běží s `--cgroup`.
 stalled, strop platí i pro aktivní, vnější postup (checkpoint) drží tichý příkaz, beze změny
 bez `idle_timeout`, mapování voleb v Bridge, jen nové checkpointy, čtení `cpu.stat`, CPU jako
 postup. Plná sada: 551 passed, 1 xfailed.
+
+## Po review Noxe #4
+
+Vzorkování postupu (checkpoint, CPU) běží aspoň 3× za limit nečinnosti (`min(30 s, limit/3)`),
+CPU práh se úměrně zmenší. Krátký limit tak neuplyne dřív než první vzorek. Regrese Noxe
+s produkčním intervalem v `tests/test_nox_review_regressions.py`. 15min chaos snímku eefc55c
+s `AGENT_LEASE_MAX_RUNTIME=600` a `--cgroup`: **PROŠLO** (331 úkolů, žádné dvojité efekty,
+přeživší procesy ani visící úkoly, integrita ok).
