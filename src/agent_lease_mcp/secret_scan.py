@@ -19,11 +19,15 @@ _PATTERNS = (
     ("bearer-token", re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/-]{20,}=*")),
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
-    # Přiřazení dlouhé hodnoty s písmeny i číslicemi. Výraz v kódu (volání funkce, např.
-    # `token = uuid.uuid4().hex`) tajemství není: hodnota nesmí obsahovat závorky.
+    # Přiřazení dlouhé hodnoty s písmeny i číslicemi: buď řetězcový literál (uvnitř smí být
+    # cokoli, i závorky), nebo hodnota bez uvozovek (env soubor). Výraz v kódu bez uvozovek
+    # (`token = uuid.uuid4().hex`) tajemství není. Délka omezena a kvantifikátory posesivní,
+    # ať dlouhý řádek nevyvolá katastrofické zpětné vyhledávání (ReDoS).
     ("assigned-secret", re.compile(
-        r"(?i)\b[\w.-]*(api[_-]?key|secret|token|passw(or)?d|pwd)[\w.-]*\s*[:=]\s*"
-        r"[\"']?(?=[^\"'\s()]*[0-9])(?=[^\"'\s()]*[A-Za-z])[^\"'\s()]{16,}(?![^\"'\s]*[()])")),
+        r"(?i)\b[\w.-]{0,64}(?:api[_-]?key|secret|token|passw(?:or)?d|pwd)[\w.-]{0,64}\s{0,8}[:=]\s{0,8}"
+        r"(?:([\"'])(?=[^\"'\n]{0,512}[0-9])(?=[^\"'\n]{0,512}[A-Za-z])[^\"'\n]{16,512}+\1"
+        r"|(?![A-Za-z_][\w.]*\()(?=[^\"'\s()]{0,512}[0-9])(?=[^\"'\s()]{0,512}[A-Za-z])"
+        r"[^\"'\s()]{16,512}+(?![(.\w]))")),
 )
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 MAX_FINDINGS = 50

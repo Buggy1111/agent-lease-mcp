@@ -141,3 +141,17 @@ def test_code_expressions_are_not_secrets():
     assert scan_diff(diff_of(code)) == []
     assert scan_diff(diff_of(['+API_TOKEN = "' + "a1B2c3D4e5F6g7H8" + '"']))  # skutečný literál dál ano
     assert scan_diff(diff_of(["+API_TOKEN=" + "a1B2c3D4e5F6g7H8"]))  # i bez uvozovek (env soubor)
+
+
+def test_quoted_secret_with_parentheses_is_still_found():
+    assert scan_diff(diff_of(['+PASSWORD = "' + "ab(c1)d2e3f4g5h6i7" + '"']))
+    assert scan_diff(diff_of(["+api_key: '" + "x9(y8)z7w6v5u4t3s2" + "'"]))
+
+
+def test_long_lines_do_not_backtrack_catastrophically():
+    import time
+    for line in ["+token=" + "a1" * 50000, "+token = " + "a" * 100000 + "(",
+                 '+password = "' + "1a" * 50000, "+" + "token " * 20000 + "= x"]:
+        started = time.monotonic()
+        scan_diff(diff_of([line]))
+        assert time.monotonic() - started < 1.0, line[:40]
