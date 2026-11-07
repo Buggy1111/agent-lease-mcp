@@ -327,3 +327,17 @@ def test_human_policy_approval_never_waives_failure(store, repo):
     with pytest.raises(PermissionError):
         store.quality_human_approve_policy("michal", run["run_id"], plan.commit_sha, "fixture approval reason")
     assert store.quality_get(run["run_id"])["overall_status"] == "FAIL"
+
+
+@pytest.mark.parametrize("bad_id", [True, 1.5, "1"])
+def test_human_http_approval_never_coerces_an_identity(store, repo, bad_id):
+    plan = inspect_repository(repo, python_project(repo))
+    review(store, plan)
+    run = record(store, plan)
+    handler = authenticated_handler(store, store.settings, "fixture-only")
+    status, _ = call_handler(store, store.settings, "fixture-only", "POST", "/api/quality-policy-approve",
+        headers={"Cookie": "agent_lease_session=session"},
+        body={"run_id":bad_id,"commit_sha":plan.commit_sha,"reason":"fixture approval reason"},
+        handler_type=handler)
+    assert status == 400
+    assert store.quality_get(run["run_id"])["policy_review_status"] == "pending"

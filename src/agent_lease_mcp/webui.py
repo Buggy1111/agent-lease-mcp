@@ -223,7 +223,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 if data is None:
                     return
                 try:
-                    result = store.quality_human_approve_policy(web_agent, int(data["run_id"]),
+                    result = store.quality_human_approve_policy(web_agent, data["run_id"],
                                                                 data["commit_sha"], data["reason"])
                 except (ValueError, TypeError, KeyError, PermissionError):
                     return self._reject(400, "critical approval requires matching run/commit, reason and passing independent review/checks")
