@@ -61,4 +61,8 @@ Diff se váže na vybraný plný SHA a skutečný ancestor base. Bez explicitní
 
 ## Co navazuje
 
-[REA mapa dashboardu](research/2026-11-07-b7-rea-dashboard-reuse.md) dokládá existující snapshot/SSE a QG renderery k opětovnému použití. B7.2 musí doplnit skutečný izolovaný runner a ověření nástrojů/prostředí, autoritativní `quality_runs` přes existující Store/broker, vazbu úkol+commit a adaptér do existujícího snapshotu/SSE. Plán inspection se **nesmí** uložit/vykreslit jako úspěšně provedený run. Následují Python/TS E2E a samostatně schválené globální připojení klientů. `quality check`, persistence/API, skutečné QG výsledky v dashboardu a hooky ještě nejsou hotové; do C se nepřechází.
+Místní [B7.2a — evidence běhů](PHASE_B7_2_RUN_EVIDENCE.md) již přidává privátní
+runner sink a čtecí Store/broker/snapshot/SSE/UI adaptér. Zatím jej plní pouze
+syntetické testy; skutečný izolovaný runner a zbývající akceptace níže nejsou hotové.
+
+[REA mapa dashboardu](research/2026-11-07-b7-rea-dashboard-reuse.md) dokládá existující snapshot/SSE a QG renderery, které místní B7.2a znovu používá. B7.2 stále musí doplnit skutečný izolovaný runner a ověření nástrojů/prostředí i vazbu úkol+commit. Plán inspection se **nesmí** uložit/vykreslit jako úspěšně provedený run. Následují Python/TS skutečné E2E a samostatně schválené globální připojení klientů. `quality check`, skutečné běhy projektových kontrol a hooky ještě nejsou hotové; do C se nepřechází.

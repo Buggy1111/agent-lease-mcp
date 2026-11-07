@@ -246,7 +246,7 @@ function fixture() {
       await wait(async()=>await text(page,'#metricQueued')==='0','known empty board');
       assert.equal(await text(page,'#metricRunning'),'0'); assert.equal(await text(page,'#metricReview'),'0');
     });
-    if(process.env.UI_PREMIUM==='1') await require('./quality_gate_checks.cjs')({page,check,load,text,calls,outDir,fixture,setSnapshot:s=>{snapshot=s;}});
+    if(process.env.UI_PREMIUM==='1') await require('./quality_gate_checks.cjs')({page,check,load,text,calls,outDir,fixture,emit,wait,setSnapshot:s=>{snapshot=s;}});
     if(process.env.UI_PREMIUM==='1') await require('./premium_checks.cjs')({page,check,load,fixture,emit,wait,text,getSnapshot:()=>snapshot,setSnapshot:s=>{snapshot=s;},outDir});
     await check('No script errors, external requests or horizontal overflow',async()=>{
       assert.deepEqual(errors,[]); assert.deepEqual(external,[]);

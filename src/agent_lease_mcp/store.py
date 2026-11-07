@@ -25,6 +25,7 @@ from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
 from ._messaging import MessagingMixin
+from ._quality_runs import QualityRunsMixin
 from ._reviews import ReviewsMixin
 from ._store_common import (
     BRIDGE_ACCEPT_NOTE,
@@ -246,10 +247,24 @@ CREATE TABLE IF NOT EXISTS review_events (
     commit_sha  TEXT NOT NULL DEFAULT '',
     note        TEXT NOT NULL DEFAULT ''
 );
+
+-- Internal runner observations; clients have only the read methods.
+-- No raw command/output, submitted verdict, or inspection masquerading as a run.
+CREATE TABLE IF NOT EXISTS quality_runs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id    TEXT NOT NULL UNIQUE,
+    repository      TEXT NOT NULL,
+    commit_sha      TEXT NOT NULL,
+    recorded_at     REAL NOT NULL,
+    evidence_sha256 TEXT NOT NULL,
+    evidence_json   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quality_repository ON quality_runs(repository, id DESC);
 """
 
 
-class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin):
+class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
+            QualityRunsMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i

@@ -1,6 +1,6 @@
 const assert=require('node:assert/strict');
 const path=require('node:path');
-module.exports=async({page,check,load,text,calls,outDir,fixture,setSnapshot})=>{
+module.exports=async({page,check,load,text,calls,outDir,fixture,setSnapshot,emit,wait})=>{
   setSnapshot(fixture()); await page.setViewportSize({width:1920,height:1080}); await load('/after');
   await check('Quality Gate starts empty, never treats reviews or task success as quality results',async()=>{
     assert((await text(page,'#qgOverviewPanel')).includes('Dosud bez výsledků'));
@@ -45,5 +45,38 @@ module.exports=async({page,check,load,text,calls,outDir,fixture,setSnapshot})=>{
     await page.locator('#qualityPage [data-qg-demo]').click(); assert.equal(await text(page,'#qgRepoCount'),'—');
     assert.equal(await page.locator('#qgProjectTable [data-qg-project]').count(),0);
     await page.locator('.primary-nav [data-view="overview"]').click();
+  });
+  await check('Live quality runs arrive through existing snapshot/SSE, stay separate from demo and escape untrusted labels',async()=>{
+    const live={kind:'quality_run',executed:true,run_id:101,repository:'fixture/<img src=x onerror="window.injected=1">',commit_sha:'a'.repeat(40),agent:'codex',timestamp:'2026-11-07T12:00:00Z',overall_status:'REVIEW',checks:{tests:{status:'PASS',detail:'Configured command exited successfully.'},security:{status:'REVIEW'}},review_status:'pending',history:[]};
+    const s={...fixture(),quality_runs:[live,{kind:'inspection',executed:false,repository:'MUST_NOT_RENDER',overall_status:'PASS'}]};
+    setSnapshot(s);await load('/after');
+    await page.locator('.primary-nav [data-view="quality"]').click();
+    assert.equal(await text(page,'#qgRepoCount'),'1');
+    assert(!(await text(page,'#qgProjectTable')).includes('MUST_NOT_RENDER'));
+    assert.equal(await page.locator('#qgProjectTable img').count(),0);
+    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
+    assert((await text(page,'#qgProjectDetail')).includes('Čeká na nezávislé review'));
+    assert(!(await text(page,'#qgProjectDetail')).includes('DEMO'));
+    const before=calls.length;
+    await page.locator('#qualityPage [data-qg-demo]').click();
+    assert.equal(await text(page,'#qgRepoCount'),'6');
+    const updated={...live,overall_status:'FAIL',checks:{...live.checks,tests:{status:'FAIL'}}};
+    emit('room',{...s,quality_runs:[updated]});
+    await wait(()=>page.evaluate(()=>qgRecords?.[0]?.overall_status==='FAIL'),'quality SSE in demo');
+    assert.equal(await text(page,'#qgRepoCount'),'6');
+    await page.locator('#qualityPage [data-qg-demo]').click();
+    assert.equal(await text(page,'#qgRepoCount'),'1');
+    assert((await text(page,'#qgProjectTable')).includes('FAIL'));
+    // Keep selection bound to a run id when a new repository is prepended.
+    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
+    emit('room',{...s,quality_runs:[{...live,run_id:202,repository:'different'},updated]});
+    await wait(async()=>await text(page,'#qgRepoCount')==='2','second quality repo');
+    assert.equal(await text(page,'#qgProjectTitle'),live.repository);
+    assert.equal(calls.length,before);
+    emit('room',{...s,quality_runs:[]});
+    await wait(async()=>await text(page,'#qgRepoCount')==='0','empty quality snapshot');
+    assert((await text(page,'#qgProjectDetail')).includes('Vyber zaznamenaný běh'));
+    assert.equal(await page.evaluate(()=>window.injected),undefined);
+    setSnapshot(fixture());await load('/after');
   });
 };

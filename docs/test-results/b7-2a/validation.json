@@ -1,0 +1,52 @@
+{
+  "phase": "B7.2a internal run evidence and read-only dashboard adapter",
+  "source_base": "45ca371647ab3628da1006d0b9ce59a2181794a5",
+  "python": "3.13.18",
+  "sqlite": "3.53.1",
+  "pytest": {
+    "tests": 703,
+    "failures": 0,
+    "errors": 0,
+    "skipped_or_xfailed": 1,
+    "seconds": 251.571,
+    "summary": "702 passed, 1 xfailed, 1 existing Authlib deprecation warning",
+    "new_evidence_tests": 45
+  },
+  "browser": {
+    "checks": 28,
+    "script_errors": [],
+    "external_requests": [],
+    "data": "synthetic HTTP/SSE fixtures for behavior; existing observed snapshot for screenshots"
+  },
+  "ruff": "src tests PASS",
+  "javascript_syntax": "node --check PASS",
+  "diff_whitespace": "git diff --check PASS",
+  "build": {
+    "wheel": "agent_lease_mcp-0.2.0-py3-none-any.whl",
+    "sha256": "d7cce133026304e5f9c8c9689e2cb9ddc9bdb91fccac3e7ce786321248a6d2ea",
+    "source_identity_modules": [
+      "_quality_runs.py",
+      "quality.py",
+      "store.py",
+      "broker.py",
+      "webui.py"
+    ],
+    "license_present": true,
+    "dependencies_installed": false
+  },
+  "source_sha256": {
+    "src/agent_lease_mcp/_quality_runs.py": "e3e1a592d7ce956ac9da5f5b7e67f521f067c2075aaeff4d8baa60ec2513ef54",
+    "src/agent_lease_mcp/quality.py": "f277579c8213c322e7af590af4154d31e08847a0848c65b60969765560f647cf",
+    "src/agent_lease_mcp/store.py": "498010e00ab7c85ff307816edeb84cf6b8fef8c9f3e28ffaafc9f1dfb7eeb21c",
+    "src/agent_lease_mcp/broker.py": "3aa071265ace114b0fd5737442399a4cbdecd541f360485e51c796f4f5daa2f6",
+    "src/agent_lease_mcp/webui.py": "41c33e4eff8faa375dca1097a0da5212bf439c5dcf13e43c7f8f682945739147"
+  },
+  "runner_implemented": false,
+  "real_pipeline_e2e": false,
+  "production_data_written": false,
+  "independent_review": "pending",
+  "deployed": false,
+  "pushed": false,
+  "staged_secret_scan": [],
+  "webui_recheck": "24 passed in 10.93s; isolated recheck of request-thread disconnect diagnostic from full run, no diagnostic reproduced"
+}

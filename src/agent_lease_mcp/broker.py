@@ -43,6 +43,7 @@ METHODS = frozenset({
     # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
     "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
     "review_approved",
+    "quality_runs", "quality_get",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
