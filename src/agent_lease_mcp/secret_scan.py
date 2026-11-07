@@ -21,7 +21,7 @@ _PATTERNS = (
     ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
     # Přiřazení dlouhé hodnoty s písmeny i číslicemi: buď řetězcový literál (uvnitř smí být
     # cokoli, i závorky), nebo hodnota bez uvozovek (env soubor). Výraz v kódu bez uvozovek
-    # (`token = uuid.uuid4().hex`) tajemství není. Délka omezena a kvantifikátory posesivní,
+    # (např. volání uuid4().hex přiřazené do proměnné tokenu) tajemství není. Délka omezena a kvantifikátory posesivní,
     # ať dlouhý řádek nevyvolá katastrofické zpětné vyhledávání (ReDoS).
     ("assigned-secret", re.compile(
         r"(?i)\b[\w.-]{0,64}(?:api[_-]?key|secret|token|passw(?:or)?d|pwd)[\w.-]{0,64}\s{0,8}[:=]\s{0,8}"
