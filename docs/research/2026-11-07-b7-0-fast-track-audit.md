@@ -1,5 +1,8 @@
 # B7.0 – fast-track audit před Quality Gate (7. 11. 2026, Ada)
 
+**Revize 1 (po review Noxe #7, `2026-11-07-b7-0-independent-review.md`):** opraven CI build,
+doplněna skutečná izolace cizího kódu, bezpečný pilot scannerů, upřesněný CRAP a piny zdrojů.
+
 Read-only průzkum podle `docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md` (B7.0) a `TODO.md` (Priorita B).
 Nic se neinstalovalo, žádný pilot ještě neběžel. Licence a verze ověřeny přes GitHub API
 (`gh api repos/…`, 7. 11. 2026). Čeká na nezávislé ověření Noxem (licence, bezpečnost, přínos).
@@ -10,7 +13,7 @@ Nic se neinstalovalo, žádný pilot ještě neběžel. Licence a verze ověřen
 |---|---|---|
 | Testy | `pytest` (586 testů, ~3 min), CI `ci.yml`, matice Pythonů | Zdroj výsledku **Testy** |
 | Lint | `ruff check src tests` v CI | Zdroj **Lint**; formát (ruff format) se nekontroluje |
-| Build | `release.yml` (sdist + wheel), lokálně `uv build` ověřen 7. 11. | Zdroj **Build**; v CI zatím jen při release |
+| Build | `ci.yml` krok Build (`python -m build`) v testovací matici + `release.yml`; lokálně `uv build` ověřen 7. 11. | Zdroj **Build** (existuje, žádný druhý build systém) |
 | Závislosti | Dependabot (pip, actions) týdně; lokálně `pip-audit` (~/.local/bin) | Zdroj části **Security**; pip-audit v CI chybí |
 | Tajemství v diffu | B6 `secret_scan.py` (review diff, fail closed) | Zdroj **Security/secrets** pro review; repo-wide scan chybí |
 | Review | B3/B4 stavový automat, B6 `security="pass"` | Zdroj **REVIEW** a nezávislého verdiktu; neduplikovat |
@@ -28,17 +31,21 @@ Další projekty pro adaptér: `earth-pulse`, `lili` (Godot – mimo MVP), `sili
 | Nástroj | Verze (7. 11.) | Licence | Offline | Pro co | Rozhodnutí |
 |---|---|---|---|---|---|
 | **coverage.py** | 7.17.2 | Apache-2.0 | ano | pokrytí Pythonu (řádky/větve, JSON report) | **POUŽÍT** (dev závislost, ne v runtime) |
-| **lizard** | 1.25.0 | vlastní permisivní text (GitHub: NOASSERTION; registry uvádějí MIT) | ano | cyklomatická složitost Python + **TS/JS** jedním nástrojem | **POUŽÍT po ověření licence Noxem** |
+| **lizard** | 1.25.0 | MIT oprávnění v `LICENSE.txt` @ `edbb09b` (GitHub klasifikátor NOASSERTION ≠ zákaz; zachovat notice) | ano | cyklomatická složitost Python + **TS/JS** jedním nástrojem | **POUŽÍT v dev pilotu** (Nox ověřil licenci) |
 | radon | (poslední push 2024-10) | MIT | ano | složitost jen Python | VYNECHAT (lizard pokrývá i TS, radon stagnuje) |
 | **Gitleaks** | v8.30.1 (2026-03-21) | MIT | ano (Go binárka) | tajemství v celé historii repa | **INSPIROVAT SE / pilot** – jeho autor přešel na Betterleaks |
-| **Betterleaks** | v1.10.0 (2026-11-04) | MIT | ano | nástupce Gitleaks, drop-in | **PILOT spolu s Gitleaks** (čerstvý projekt → ověřit stabilitu, falešné poplachy) |
-| **Semgrep CE** | v1.184.0 | engine LGPL-2.1, pravidla Semgrep Rules License v1.0 (NOASSERTION) | ano s lokálními pravidly | SAST | **INSPIROVAT SE**: engine volat jako externí nástroj jen s **vlastními** pravidly; registry pravidla jen pro interní použití, nedistribuovat. Rozhodnout po Noxově licenční kontrole |
-| eslint (systémový) / tsc | eslint v /usr/bin, tsc chybí | MIT / Apache-2.0 | ano | TS lint/typy | použít **projektové** verze z `package.json` (npx), ne globální |
+| **Betterleaks** | v1.10.0 (2026-11-04) | MIT | ano jen s vypnutou validací | od autora Gitleaks; **ne plně drop-in** (online `--validation`, načítání configu z cíle, jiné limity dekódování, výchozí `redact=0`) | **PILOT spolu s Gitleaks**, jen v režimu z §6 |
+| **Semgrep CE** | v1.184.0 | engine LGPL-2.1; registry pravidla Semgrep Rules License 1.0 = jen interní účely, **zakázaná i jako služba** | ano s lokálními pravidly | SAST | **INSPIROVAT SE**: případně externí engine jen s **vlastními, nezávisle napsanými** pravidly; registry pravidla do Agent Lease (MIT) ani do služby nikdy |
+| eslint / tsc | eslint v /usr/bin, tsc chybí | MIT / Apache-2.0 | ano | TS lint/typy | jen **už nainstalované** projektové binárky (`node_modules/.bin`); **žádné `npx`** (umí stáhnout balíček), chybí-li → SETUP REQUIRED |
 | pip-audit | lokálně nainstalován | Apache-2.0 | potřebuje síť (OSV) | známé zranitelnosti závislostí | POUŽÍT v CI, lokálně N/A bez sítě |
 
 ### CRAP
-`CRAP(m) = comp(m)² × (1 − cov(m))³ + comp(m)`, kde `comp` je cyklomatická složitost metody a `cov`
-pokrytí řádků/větví té metody (0–1). Plně pokrytá metoda má CRAP = comp; nepokrytá comp² + comp.
+`CRAP(m) = comp(m)² × (1 − cov(m))³ + comp(m)`, kde `comp` je cyklomatická složitost funkce a `cov`
+pokrytí jejích **spustitelných příkazů** (z coverage JSON `executed_lines`/`missing_lines`), ne všech
+fyzických řádků mezi začátkem a koncem. Vnořené funkce se z rodiče vyčlení; dekorátory a async patří
+funkci; TS jen přes ověřené source mapy. Coverage musí pocházet ze **stejného commitu** jako zdroj.
+Chybějící nebo nepřiřaditelné coverage = **N/A**, nikdy cov = 0 ani PASS. Ověření ručně spočítanými
+případy (100 %, 0 %, chybějící data) před měřením. Plně pokrytá metoda má CRAP = comp; nepokrytá comp² + comp.
 Klasický práh 30. Plán: lizard (comp + rozsahy řádků funkcí) × coverage JSON (pokryté řádky) → CRAP
 na funkci; **jen report, REVIEW při > prahu, nikdy FAIL ani bezpečnostní verdikt** (TODO). Práh kalibrovat
 na reálných datech Agent Lease a jednoho TS projektu.
@@ -67,13 +74,52 @@ Reverzní inženýrství nebylo potřeba: vše má veřejné zdroje a dokumentac
 4. Ochrana brány: diff, který mění testy, CI, `.agent-lease/quality.toml` nebo prahy → **REVIEW**,
    nikdy automatický PASS; prahy mění jen člověk (stejně jako `review_grant_cycle`).
 5. Napojení: QG PASS + `review_approved` (B6) = podmínka pro budoucí merge v C1/C2.
-6. Běh příkazů repa = spouštění cizího kódu → stejná izolace jako bridge (cgroup, timeout, bez sítě
-   kde jde), čtení výsledků fail closed.
+6. Běh příkazů repa = **spouštění cizího kódu** (conftest, build backend, npm skripty). Cgroup, timeout a
+   run-fence bridge řeší jen životnost procesů, **ne** přístup k účtu – nestačí. Detekce příkazů je
+   oddělená od důvěry a od spuštění; spouští se jen v sandboxu z §6, jinak SETUP REQUIRED / REVIEW.
+
+## 6. Izolace a bezpečný pilot (doplněno po review Noxe)
+
+### Sandbox pro cizí příkazy – ověřeno na tomto stroji (bubblewrap 0.9.0, 7. 11.)
+
+```
+bwrap --unshare-all --die-with-parent --new-session --clearenv \
+  --setenv PATH /usr/bin:/bin --setenv HOME /tmp/home \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --proc /proc --dev /dev --tmpfs /tmp --dir /tmp/home \
+  --ro-bind <snapshot commitu> /work --bind <scratch výstup> /out --chdir /work <příkaz>
+```
+
+Sonda uvnitř: prostředí jen `HOME`, `PATH`, `PWD`; `/home` neexistuje; socket brokeru, SSH/agent
+sockety ani `~/.agent-lease` nejsou vidět; síť `Network is unreachable` (vlastní netns jen s `lo`);
+snapshot jen pro čtení; zapisovat jde jen do `/out`; uid 1000, žádná eskalace. Navíc obal
+`systemd-run --user --scope -p MemoryMax=… -p TasksMax=… -p CPUQuota=… -p RuntimeMaxSec=…` a
+`head -c` na logy. **Fail closed:** když `bwrap` chybí nebo sonda selže (síť dostupná, viditelný HOME
+nebo socket), QG cizí příkazy nespustí a vrátí SETUP REQUIRED. Žádná změna host sandboxu, služeb ani
+oprávnění. Vlastní venv s nástroji (coverage, lizard) se do sandboxu mapuje jen pro čtení.
+
+### Pilot – jen náš repozitář a předem vypsané příkazy (čeká na OK Noxe)
+
+Cíl: `agent-lease-mcp` @ přesný commit (archiv do scratch), žádné libovolné repozitáře.
+1. Nástroje do izolovaného venv ve scratch s pinem verze a hashem wheelu
+   (`coverage==7.17.2`, `lizard==1.25.0`), nic globálně.
+2. V sandboxu: `python -m coverage run -m pytest -q` → `coverage json`; `lizard --csv src`;
+   výpočet CRAP ve vlastním skriptu (bez sítě) a ruční kontrola tří funkcí.
+3. Scannery (pinnuté binárky ověřené checksumem z releasu, ve scratch): nejdřív **syntetický korpus**
+   se známými falešnými klíči a negativními kontrolami, teprve pak lokální kopie historie repa.
+   Gitleaks i Betterleaks s **vlastním configem z naší cesty**, ignorovat config z cíle,
+   **redakce 100 %**, Betterleaks `--validation=false`, bez diagnostického HTTP serveru, vše uvnitř
+   sandboxu bez sítě. Měřit: čas, nálezy, falešně pozitivní, přehlédnuté známé nálezy, rozsah refs.
+   Ověřit redakci ve **všech** výstupech (stdout, report, log) – do místnosti, reportu ani commitu nikdy
+   hodnota.
+4. Rollback: smazat jen vlastní scratch; žádná runtime závislost, změna politiky, DB ani služeb.
+
+Piny zdrojů (licence a analyzované soubory): `2026-11-07-b7-0-source-evidence.json` (Nox).
 
 ## 5. Další kroky
 
-- [ ] Nox: nezávisle ověřit licence (lizard text, Semgrep Rules License, Betterleaks), bezpečnost
-      spouštění repo příkazů, přínos vs. duplicita.
+- [x] Nox: licence ověřeny (review #7, piny v evidence JSON).
+- [ ] Nox: OK k pilotu podle §6 (izolace + přesné příkazy).
 - [ ] Pilot (izolovaný venv v scratch, ne globálně): coverage + lizard → CRAP report Agent Lease;
       Gitleaks vs. Betterleaks nad historií repa (počet nálezů, falešné poplachy, čas).
 - [ ] Baseline: dnes pytest ~3 min, ruff < 1 s; pilot nesmí CI výrazně prodloužit.
