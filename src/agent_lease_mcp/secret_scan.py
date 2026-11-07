@@ -27,7 +27,7 @@ _PATTERNS = (
 # bez umělých limitů na délku jména, mezer ani hodnoty:
 #  - jméno = souvislý úsek [\w.-] obsahující klíčové slovo, za ním mezery a `=` nebo `:`;
 #  - literál v uvozovkách smí obsahovat cokoli kromě mezer (i závorky) a uzavírací uvozovka
-#    nemusí být blízko – dlouhý token se pozná podle prvních _WINDOW znaků; mezera literál
+#    nemusí být blízko; mezera literál
 #    končí jako u původního vzoru, jinak by uzavírací uvozovka v shellu
 #    (`X=$(grep "^X=" … | cut -d= -f2)`) vypadala jako otevírací a hodnotou by byl zbytek řádku;
 #  - hodnota bez uvozovek je celý úsek bez mezer, uvozovek a závorek; když za ním hned
@@ -36,7 +36,6 @@ _PATTERNS = (
 # takže ani řádky typu „token:a1token:a1…(“ nebo „token token … “ nejsou kvadratické.
 _KEYWORD = re.compile(r"(?i)api[_-]?key|secret|token|passw(?:or)?d|pwd")
 _MIN_LEN = 16
-_WINDOW = 512
 _QUOTES = "\"'"
 
 
@@ -60,9 +59,8 @@ class _Tables:
             self.alpha[i] = i if "a" <= ch <= "z" or "A" <= ch <= "Z" else self.alpha[i + 1]
 
     def looks_secret(self, start: int, end: int) -> bool:
-        """Hodnota [start, end) je dost dlouhá a v prvních _WINDOW znacích má číslici i písmeno."""
-        stop = min(end, start + _WINDOW)
-        return end - start >= _MIN_LEN and self.digit[start] < stop and self.alpha[start] < stop
+        """Hodnota [start, end) je dost dlouhá a kdekoli v ní má číslici i písmeno."""
+        return end - start >= _MIN_LEN and self.digit[start] < end and self.alpha[start] < end
 
 
 def _has_assigned_secret(text: str) -> bool:

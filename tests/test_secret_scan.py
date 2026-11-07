@@ -169,6 +169,9 @@ def test_long_values_and_aligned_assignments_are_still_found():
         assert scan_diff(diff_of([name + " =" + " " * spaces + '"' + "a1B2c3D4e5F6g7H8" + '"'])), spaces
         assert scan_diff(diff_of([name + " " * spaces + "= " + "a1B2c3D4e5F6g7H8"])), spaces
     assert scan_diff(diff_of([name + "=" + "a1B2c3D4e5F6g7H8" + "=="]))  # base64 zarovnání
+    for value in ("a" * 512 + "1", "1" * 512 + "a", "a" * 5000 + "1"):  # Nox #9: znak až za oknem
+        assert scan_diff(diff_of([name + ' = "' + value + '"'])), len(value)
+        assert scan_diff(diff_of([name + "=" + value])), len(value)
     assert scan_diff(diff_of(["+" + "x" * 300 + "_api_k" + "ey_" + "y" * 300 + " = " + "a1B2c3D4e5F6g7H8"]))
     assert scan_diff(diff_of(["+PASS" + "WORD=" + "us3r:pa55=w0rd-xyzABC"]))  # i s `:` a `=` uvnitř
 
