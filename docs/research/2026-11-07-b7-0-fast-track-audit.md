@@ -34,7 +34,7 @@ Další projekty pro adaptér: `earth-pulse`, `lili` (Godot – mimo MVP), `sili
 | **lizard** | 1.25.0 | MIT oprávnění v `LICENSE.txt` @ `edbb09b` (GitHub klasifikátor NOASSERTION ≠ zákaz; zachovat notice) | ano | cyklomatická složitost Python + **TS/JS** jedním nástrojem | **POUŽÍT v dev pilotu** (Nox ověřil licenci) |
 | radon | (poslední push 2024-10) | MIT | ano | složitost jen Python | VYNECHAT (lizard pokrývá i TS, radon stagnuje) |
 | **Gitleaks** | v8.30.1 (2026-03-21) | MIT | ano (Go binárka) | tajemství v celé historii repa | **INSPIROVAT SE / pilot** – jeho autor přešel na Betterleaks |
-| **Betterleaks** | v1.10.0 (2026-11-04) | MIT | ano jen s vypnutou validací | od autora Gitleaks; **ne plně drop-in** (online `--validation`, načítání configu z cíle, jiné limity dekódování, výchozí `redact=0`) | **PILOT spolu s Gitleaks**, jen v režimu z §6 |
+| **Betterleaks** | v1.10.0 (2026-11-04) | MIT | ano jen s vypnutou validací | od autora Gitleaks; **ne plně drop-in** (online `--validation`, načítání configu z cíle, jiné limity dekódování, výchozí `redact=0`) | **PILOT spolu s Gitleaks**, jen v režimu z §5 |
 | **Semgrep CE** | v1.184.0 | engine LGPL-2.1; registry pravidla Semgrep Rules License 1.0 = jen interní účely, **zakázaná i jako služba** | ano s lokálními pravidly | SAST | **INSPIROVAT SE**: případně externí engine jen s **vlastními, nezávisle napsanými** pravidly; registry pravidla do Agent Lease (MIT) ani do služby nikdy |
 | eslint / tsc | eslint v /usr/bin, tsc chybí | MIT / Apache-2.0 | ano | TS lint/typy | jen **už nainstalované** projektové binárky (`node_modules/.bin`); **žádné `npx`** (umí stáhnout balíček), chybí-li → SETUP REQUIRED |
 | pip-audit | lokálně nainstalován | Apache-2.0 | potřebuje síť (OSV) | známé zranitelnosti závislostí | POUŽÍT v CI, lokálně N/A bez sítě |
@@ -76,9 +76,9 @@ Reverzní inženýrství nebylo potřeba: vše má veřejné zdroje a dokumentac
 5. Napojení: QG PASS + `review_approved` (B6) = podmínka pro budoucí merge v C1/C2.
 6. Běh příkazů repa = **spouštění cizího kódu** (conftest, build backend, npm skripty). Cgroup, timeout a
    run-fence bridge řeší jen životnost procesů, **ne** přístup k účtu – nestačí. Detekce příkazů je
-   oddělená od důvěry a od spuštění; spouští se jen v sandboxu z §6, jinak SETUP REQUIRED / REVIEW.
+   oddělená od důvěry a od spuštění; spouští se jen v sandboxu z §5, jinak SETUP REQUIRED / REVIEW.
 
-## 6. Izolace a bezpečný pilot (doplněno po review Noxe)
+## 5. Izolace a bezpečný pilot (doplněno po review Noxe)
 
 ### Sandbox pro cizí příkazy – ověřeno na tomto stroji (bubblewrap 0.9.0, 7. 11.)
 
@@ -116,10 +116,10 @@ Cíl: `agent-lease-mcp` @ přesný commit (archiv do scratch), žádné libovoln
 
 Piny zdrojů (licence a analyzované soubory): `2026-11-07-b7-0-source-evidence.json` (Nox).
 
-## 5. Další kroky
+## 6. Další kroky
 
 - [x] Nox: licence ověřeny (review #7, piny v evidence JSON).
-- [ ] Nox: OK k pilotu podle §6 (izolace + přesné příkazy).
+- [ ] Nox: OK k pilotu podle §5 (izolace + přesné příkazy).
 - [ ] Pilot (izolovaný venv v scratch, ne globálně): coverage + lizard → CRAP report Agent Lease;
       Gitleaks vs. Betterleaks nad historií repa (počet nálezů, falešné poplachy, čas).
 - [ ] Baseline: dnes pytest ~3 min, ruff < 1 s; pilot nesmí CI výrazně prodloužit.
