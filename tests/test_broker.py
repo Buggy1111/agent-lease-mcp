@@ -28,6 +28,27 @@ def test_socket_is_private_and_alive(broker):
     assert ping(sock)
 
 
+def test_quality_recovery_does_not_block_broker_start_when_database_is_locked(tmp_path):
+    settings = Settings(tmp_path / "room.db", "codex", 1800)
+    sock = tmp_path / "startup.sock"
+    server = serve(settings, sock)
+    lock = sqlite3.connect(settings.db_path)
+    lock.execute("BEGIN EXCLUSIVE")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        # Ping does not need the database. A busy quality recovery must leave
+        # the existing broker available instead of killing its serving thread.
+        assert ping(sock, timeout=1)
+    finally:
+        lock.rollback()
+        lock.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+    assert not thread.is_alive()
+
+
 def test_remote_store_mirrors_store_including_dataclasses(broker):
     settings, sock = broker
     remote = RemoteStore(settings, sock)

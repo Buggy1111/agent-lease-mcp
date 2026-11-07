@@ -110,7 +110,6 @@ class QualityWorker:
         self.thread = threading.Thread(target=self._run, daemon=True, name="agent-lease-quality")
 
     def start(self):
-        self.store._quality_recover_requests()
         self.thread.start()
 
     def close(self):
@@ -118,8 +117,15 @@ class QualityWorker:
         self.thread.join(timeout=7)
 
     def _run(self):
+        recovered = False
         while not self.stop.is_set():
             try:
+                # Recovery must finish before any queued job can run, but a
+                # transient SQLite lock must not kill the broker's serving
+                # thread before it enters serve_forever (or hang shutdown).
+                if not recovered:
+                    self.store._quality_recover_requests()
+                    recovered = True
                 worked = self.store._quality_drain_one()
             except (OSError, ValueError, RuntimeError, sqlite3.Error):
                 worked = False
