@@ -80,31 +80,45 @@ Reverzní inženýrství nebylo potřeba: vše má veřejné zdroje a dokumentac
 
 ## 5. Izolace a bezpečný pilot (doplněno po review Noxe)
 
-### Sandbox pro cizí příkazy – ověřeno na tomto stroji (bubblewrap 0.9.0, 7. 11.)
+### Sandbox pro cizí příkazy – ověřeno na tomto stroji (bubblewrap 0.9.0, 7. 11., revize 2)
 
-```
-bwrap --unshare-all --die-with-parent --new-session --clearenv \
-  --setenv PATH /usr/bin:/bin --setenv HOME /tmp/home \
-  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
-  --proc /proc --dev /dev --tmpfs /tmp --dir /tmp/home \
-  --ro-bind <snapshot commitu> /work --bind <scratch výstup> /out --chdir /work <příkaz>
-```
+Přesný obal: [`b7-0-sandbox/run.sh`](b7-0-sandbox/run.sh), spouštěný jako
+`unshare --user --map-current-user --net run.sh <příkaz>`:
 
-Sonda uvnitř: prostředí jen `HOME`, `PATH`, `PWD`; `/home` neexistuje; socket brokeru, SSH/agent
-sockety ani `~/.agent-lease` nejsou vidět; síť `Network is unreachable` (vlastní netns jen s `lo`);
-snapshot jen pro čtení; zapisovat jde jen do `/out`; uid 1000, žádná eskalace. Navíc obal
-`systemd-run --user --scope -p MemoryMax=… -p TasksMax=… -p CPUQuota=… -p RuntimeMaxSec=…` a
-`head -c` na logy. **Fail closed:** když `bwrap` chybí nebo sonda selže (síť dostupná, viditelný HOME
-nebo socket), QG cizí příkazy nespustí a vrátí SETUP REQUIRED. Žádná změna host sandboxu, služeb ani
-oprávnění. Vlastní venv s nástroji (coverage, lizard) se do sandboxu mapuje jen pro čtení.
+- Vnější `unshare` dá vlastní user + net namespace; uvnitř se zapne jen `lo` (testy s lokálními
+  sockety), **žádná routa ven**.
+- `bwrap --unshare-all --clearenv`: prostředí jen `PATH`, `HOME=/tmp/home`, `TMPDIR=/tmp`,
+  `PYTHONPATH=/work/src:/tools/site:/tools/testdeps`, `PYTHONDONTWRITEBYTECODE=1`,
+  `COVERAGE_FILE=/out/.coverage`.
+- Mounty: `/usr` RO; snapshot commitu → `/work` **RO**; ověřený standalone interpret → `/tools/python` RO;
+  site-packages nástrojů → `/tools/site` RO; testovací závislosti → `/tools/testdeps` RO; scratch
+  výstup → `/out` RW; `/tmp` soukromý tmpfs. Nástroje se spouští jako `/tools/python/bin/python3 -m …`
+  (ne přes venv se zabudovanými absolutními cestami), takže v sandboxu **není ani `/home`**.
+- `prlimit --fsize=50 MiB --nproc=256` uvnitř; zvenku `systemd-run --user --scope -p MemoryMax=…
+  -p CPUQuota=… -p RuntimeMaxSec=…` pro paměť, CPU a čas (pilot ho zatím nespouští).
+- Návratový kód příkazu se zachová (`exec`, žádná roura); výstupy se píší do souborů v `/out`
+  (žádné `| head -c`, které by kód ztratilo), jejich velikost hlídá `--fsize`.
+
+Sonda (7. 11., nástroje z `runtime-eb3a4f5`, náš snapshot `HEAD`): kořen jen `bin dev lib lib64 out proc
+tmp tools usr work`, `/home` neexistuje, `~/.agent-lease` ani socket brokeru nejsou, odchozí spojení
+`Network is unreachable`, zápis do `/work` → `Read-only file system` (EROFS), zápis do `/out` a `/tmp`
+funguje, soubor nad 50 MiB → `File size limit exceeded`, návratový kód 7 prošel ven beze změny,
+19 testů včetně testu s lokálním HTTP serverem PASS (Python 3.13.18, SQLite 3.53.1).
+
+**Fail closed:** chybí-li `bwrap`/`unshare` nebo sonda selže (síť, viditelný HOME, socket, zápis do
+`/work`), QG cizí příkazy nespustí a vrátí SETUP REQUIRED. Žádná změna host sandboxu, služeb ani oprávnění.
 
 ### Pilot – jen náš repozitář a předem vypsané příkazy (čeká na OK Noxe)
 
 Cíl: `agent-lease-mcp` @ přesný commit (archiv do scratch), žádné libovolné repozitáře.
 1. Nástroje do izolovaného venv ve scratch s pinem verze a hashem wheelu
    (`coverage==7.17.2`, `lizard==1.25.0`), nic globálně.
-2. V sandboxu: `python -m coverage run -m pytest -q` → `coverage json`; `lizard --csv src`;
-   výpočet CRAP ve vlastním skriptu (bez sítě) a ruční kontrola tří funkcí.
+2. V sandboxu (obal výše, nástroje v `/tools/site`):
+   `/tools/python/bin/python3 -m coverage run --branch -m pytest -q -p no:cacheprovider`
+   (zapisuje `COVERAGE_FILE=/out/.coverage`),
+   `/tools/python/bin/python3 -m coverage json -o /out/coverage.json`,
+   `/tools/python/bin/python3 -m lizard --csv src > /out/lizard.csv`;
+   výpočet CRAP vlastním skriptem z `/out` (bez sítě), ruční kontrola tří funkcí (100 %, 0 %, chybí).
 3. Scannery (pinnuté binárky ověřené checksumem z releasu, ve scratch): nejdřív **syntetický korpus**
    se známými falešnými klíči a negativními kontrolami, teprve pak lokální kopie historie repa.
    Gitleaks i Betterleaks s **vlastním configem z naší cesty**, ignorovat config z cíle,
