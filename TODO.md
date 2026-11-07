@@ -53,11 +53,12 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
   - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
 
-### Místní kandidát B7 — 7. 11. 2026 (dosud nezveřejněný)
+### Kandidát B7 na `main` — 7. 11. 2026
 
 Implementace a návod: [B7.2 runner](docs/PHASE_B7_2_RUNNER.md).
 Izolovaný runner, CLI/fronta, stávající dashboard, ochrana kritických změn,
-číselná coverage a Python CRAP jsou implementované v pracovní větvi Noxe.
+číselná coverage a Python CRAP jsou implementované. Michal výslovně schválil
+přenesení kandidáta z pracovní větve Noxe na `main`.
 Python/TS E2E pokrývají 30 odlišných scénářů (viz přesný průběh ve validaci);
 30 kontrol prohlížeče a vlastní kompletní pytest/lint/build prošly; jde o
 syntetické role obou klientů, nikoli nezávislé review tohoto kódu nebo ostrou
@@ -65,8 +66,14 @@ aktivaci klientů. Finální důkazy viz [validace](docs/test-results/b7-2/valid
 
 **B7 zůstává otevřené:** nezávislé review, schválená produkční/globální aktivace,
 ostrá klientská akceptace a skutečné required checks/release enforcement.
-Plán a rollback: [aktivace](docs/PHASE_B7_ACTIVATION_PLAN.md). Žádný automatický
-přechod do C, push, merge nebo produkční nasazení.
+**Rozhodnutí Michala, 7. 11. 2026:** publikace na `main` není uzavření fáze B.
+Až se Adě obnoví kapacita, musí výsledky a dokončení fáze schválit **Ada i Nox**.
+Dosavadní deterministická validace Noxova kódu nenahrazuje Adino nezávislé review.
+Do té doby fáze B zůstává otevřená a fáze C nezačíná. Po řádném uzavření B
+navazuje C podle roadmapy.
+
+Plán a rollback: [aktivace](docs/PHASE_B7_ACTIVATION_PLAN.md). Produkční aktivace
+vyžaduje vlastní výslovný souhlas; publikace na `main` ji neprovádí.
 
 ### B7.0 – FAST-TRACK AUDIT (první podúkol)
 

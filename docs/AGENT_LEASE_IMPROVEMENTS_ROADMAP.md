@@ -49,10 +49,12 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | B6 | Povinný bezpečnostní verdikt nad diffem + secret scan (před autonomními zápisy) | Orka security-review | podvržené tajemství zablokuje |
 | B7 | **Centrální Quality Gate pro všechny podporované projekty**: automatická detekce repo/jazyka, testy, build, lint, coverage, CRAP pilot, bezpečnost a PASS/REVIEW/FAIL v dashboardu; plná specifikace v kořenovém [TODO](../TODO.md) | Michal, 6. 11. 2026 | Ada i Nox samostatně; Python + TS E2E PASS/FAIL/REVIEW; neznámé projekty SETUP REQUIRED; kritické změny vyžadují člověka |
 
-Místní kandidát B7 (7. 11. 2026): [runner a kontrakt](PHASE_B7_2_RUNNER.md),
+Kandidát B7 na `main` (7. 11. 2026): [runner a kontrakt](PHASE_B7_2_RUNNER.md),
 [validace](test-results/b7-2/validation.json), [aktivace a rollback](PHASE_B7_ACTIVATION_PLAN.md).
-Kód je na pracovní větvi Noxe, bez push/merge/deploy. B7 se neuzavírá před
-nezávislým review a dokončením schválené ostré akceptace/enforcement.
+Michal výslovně schválil přenesení kandidáta na `main`; produkční aktivace tím
+neprobíhá. **Fáze B zůstává otevřená.** Po obnovení Adiny kapacity musí dokončení
+schválit **Ada i Nox** podle pravidel nezávislého review a ověřených bran, včetně
+schválené ostré akceptace/enforcement. Teprve po řádném uzavření B navazuje C.
 
 ### B7.0 – FAST-TRACK AUDIT před implementací B7 (bezpečné urychlení)
 

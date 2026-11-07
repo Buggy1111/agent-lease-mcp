@@ -1,8 +1,11 @@
 # B7 — activation plan (not executed)
 
 Production remains runtime `9134485371fdd6d1c92c16562aa04d188c3f2125`.
-The B7 runner is local in branch `nox/b7-mvp-20261107`; no push, merge, global
-hook change or persistent service change is authorized by this document.
+Michal explicitly authorized publishing the B7 candidate from
+`nox/b7-mvp-20261107` to `main`. That publication does not activate production.
+Phase B remains open until both Ada and Nox approve after Ada's capacity returns.
+Global hook changes, persistent service changes and production activation still
+require their own explicit owner approval.
 
 1. Finish the exact candidate's automated validation and record any failures.
    Obtain independent review; Nox authored this code and cannot self-approve.

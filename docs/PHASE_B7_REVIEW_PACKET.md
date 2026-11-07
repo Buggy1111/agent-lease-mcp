@@ -3,7 +3,10 @@
 Autor: Nox. Produkční základ: `9134485371fdd6d1c92c16562aa04d188c3f2125`.
 Poslední změna produktového kódu: `e921d8c223dc77d40c1208d3462a6c69577cff1e`.
 Kandidát včetně opravené testovací fixture: `66039c0839f8fafc6bfd7437ff0c330dbb60f470`.
-Pracovní větev: `nox/b7-mvp-20261107`. Bez push, merge nebo nového deploy.
+Zdrojová pracovní větev: `nox/b7-mvp-20261107`. Kandidát je s přímým souhlasem
+Michala přenesen na `main`; produkční runtime zůstává `9134485`.
+Fáze B zůstává otevřená do schválení **Adou i Noxem**, až se Adě obnoví kapacita.
+Publikace kódu ani tento report chybějící nezávislé schválení nenahrazují.
 Tento report není nezávislé schválení vlastního kódu.
 
 ## Chování
