@@ -248,7 +248,7 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
         argv += ["--ro-bind", policy["mounts"]["node_modules"], "/work/node_modules"]
     # No host-writable project mount. cp runs in the same bounded namespace;
     # quoted "$@" preserves each committed argument without shell expansion.
-    return [sys.executable, "-I", "-S", str(Path(__file__).with_name("quality_namespace.py")),
+    return [sys.executable, "-I", "-S", "-B", str(Path(__file__).with_name("quality_namespace.py")),
             str(os.getpid()), *argv,
             "--", "/bin/sh", "-c", 'cp -R --no-preserve=ownership,mode /snapshot/. /work/ && exec "$@"', "quality", *command]
 

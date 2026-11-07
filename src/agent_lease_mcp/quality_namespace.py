@@ -39,7 +39,7 @@ def main() -> int:
             os.execve(args[0], args, env)
         else:
             os.execve("/usr/bin/unshare", ["/usr/bin/unshare", "--user", "--map-root-user", "--net",
-                      sys.executable, "-I", "-S", os.path.abspath(__file__), "--inner",
+                      sys.executable, "-I", "-S", "-B", os.path.abspath(__file__), "--inner",
                       str(expected_parent), *args], env)
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return 106

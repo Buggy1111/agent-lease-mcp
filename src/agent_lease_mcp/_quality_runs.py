@@ -1,9 +1,9 @@
-"""B7 run evidence. Only an in-process runner can write; broker clients can read.
+"""B7 evidence. Broker clients request execution but cannot submit its results.
 
 The socket is trusted to the same OS user, as elsewhere in Store. This module
 does not authenticate that user's Python code or turn a supplied exit code into
-proof of execution. The future isolated runner must call the private writer
-after collecting observations itself, never from a client-supplied report.
+proof of execution. The isolated supervisor calls the private writer after
+collecting observations itself, never from a client-supplied report.
 """
 
 from __future__ import annotations
