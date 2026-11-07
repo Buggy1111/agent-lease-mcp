@@ -1,0 +1,12 @@
+version = 1
+language = "python"
+
+# Commands mirror existing CI. Inspection does not execute or approve them.
+[checks.tests]
+command = ["python", "-m", "pytest", "-q"]
+
+[checks.lint]
+command = ["python", "-m", "ruff", "check", "src", "tests"]
+
+[checks.build]
+command = ["python", "-m", "build"]

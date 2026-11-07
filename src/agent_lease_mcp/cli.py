@@ -49,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    p_quality = sub.add_parser("quality", help="inspect committed quality setup without running project code")
+    quality_sub = p_quality.add_subparsers(dest="quality_action", required=True)
+    p_quality_inspect = quality_sub.add_parser("inspect", help="read a commit-bound quality plan (no execution)")
+    p_quality_inspect.add_argument("--repo", default=".")
+    p_quality_inspect.add_argument("--commit", default="HEAD")
+    p_quality_inspect.add_argument("--base", default=None)
+
     p_room = sub.add_parser("room", help="who is here, what is held, what is new")
     p_room.add_argument("--status", default="", help="announce what you are working on")
 
@@ -186,6 +193,10 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "quality":
+        from .quality import inspect_cli
+
+        return inspect_cli(args.repo, args.commit, args.base)
     if args.cmd == "wait":
         args.timeout_given = args.timeout is not None
         if args.timeout is None:
