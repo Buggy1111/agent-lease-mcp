@@ -86,7 +86,7 @@ def test_evidence_survives_restart_and_never_contains_arguments_or_output(store,
     assert result["checks"]["tests"]["status"] == "PASS"
     assert result["checks"]["security"]["status"] == "REVIEW"
     assert result["checks"]["coverage"]["status"] == "NA"
-    assert result["logs"] == [] and result["branch"] is None
+    assert len(result["logs"]) == 3 and result["branch"] is None
     with store._connect() as con:
         raw = con.execute("SELECT evidence_json FROM quality_runs").fetchone()[0]
     assert '"command":' not in raw and '"-m"' not in raw
@@ -301,3 +301,29 @@ def test_typescript_typecheck_failure_is_required(store, repo):
 def test_read_limits_reject_invalid_values(store, bad):
     with pytest.raises(ValueError):
         store.quality_runs(limit=bad)
+
+
+def test_critical_policy_approval_requires_human_and_exact_run(store, repo):
+    plan = inspect_repository(repo, python_project(repo))
+    run = record(store, plan)
+    with pytest.raises(PermissionError):
+        store.quality_human_approve_policy("codex", run["run_id"], plan.commit_sha, "fixture approval reason")
+    with pytest.raises(PermissionError):
+        store.quality_human_approve_policy("michal", run["run_id"], plan.commit_sha, "fixture approval reason")
+    review(store, plan)
+    with pytest.raises(ValueError):
+        store.quality_human_approve_policy("michal", run["run_id"], "f" * 40, "fixture approval reason")
+    approved = store.quality_human_approve_policy("michal", run["run_id"], plan.commit_sha, "fixture approval reason")
+    assert approved["overall_status"] == "PASS"
+    assert approved["policy_review_status"] == "approved"
+    assert record(store, plan)["overall_status"] == "REVIEW"  # new execution is not approved
+    assert "quality_human_approve_policy" not in METHODS
+
+
+def test_human_policy_approval_never_waives_failure(store, repo):
+    plan = inspect_repository(repo, python_project(repo))
+    review(store, plan)
+    run = record(store, plan, outcomes=(observation(exit_code=1),))
+    with pytest.raises(PermissionError):
+        store.quality_human_approve_policy("michal", run["run_id"], plan.commit_sha, "fixture approval reason")
+    assert store.quality_get(run["run_id"])["overall_status"] == "FAIL"

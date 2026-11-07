@@ -15,7 +15,8 @@ import time
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 
-from .hygiene import check_path
+from .config import human_name
+from .hygiene import check_path, check_short
 from .policy import normalize_path
 from .quality import COMMAND_CHECKS, Check, Inspection, Status, aggregate, inspect_repository
 
@@ -30,12 +31,16 @@ class CommandObservation:
     duration_ms: int
     output_bytes: int
     output_sha256: str
+    interrupted: bool = False
+    output_limited: bool = False
 
     def __post_init__(self) -> None:
         if self.check not in COMMAND_CHECKS:
             raise ValueError("Only configured command checks have process observations")
         if type(self.timed_out) is not bool:
             raise ValueError("Invalid process timeout flag")
+        if type(self.interrupted) is not bool or type(self.output_limited) is not bool:
+            raise ValueError("Invalid supervision flags")
         if (self.exit_code is None and not self.timed_out) or (
             self.exit_code is not None and
             (type(self.exit_code) is not int or not -255 <= self.exit_code <= 255)
@@ -50,6 +55,10 @@ class CommandObservation:
 
 
 def _command_result(observation: CommandObservation) -> tuple[Status, str]:
+    if observation.interrupted:
+        return Status.REVIEW, "Run was interrupted by pause, lost ownership or its total time budget."
+    if observation.output_limited:
+        return Status.REVIEW, "Command exceeded the bounded output capture limit."
     if observation.timed_out:
         return Status.FAIL, "Command exceeded the runner time limit."
     if observation.exit_code != 0:
@@ -62,7 +71,8 @@ def _command_result(observation: CommandObservation) -> tuple[Status, str]:
 class QualityRunsMixin:
     def _quality_record_run(self, agent: str, inspection: Inspection,
                             observations: tuple[CommandObservation, ...], *,
-                            execution_id: str) -> dict:
+                            execution_id: str, task_id: int | None = None,
+                            sandbox: dict | None = None, branch: str | None = None) -> dict:
         """Private runner sink, deliberately absent from the broker/MCP write API.
 
         Re-inspect immutable Git objects; no raw commands/output are persisted.
@@ -70,6 +80,11 @@ class QualityRunsMixin:
         This method itself never starts a process or creates an execution claim.
         """
         self._check_review_agent(agent)
+        if task_id is not None and (type(task_id) is not int or task_id <= 0):
+            raise ValueError("Invalid quality task identity")
+        if branch is not None and (not isinstance(branch, str) or not 0 < len(branch) <= 256
+                                   or any(ord(c) < 32 or ord(c) == 127 for c in branch)):
+            raise ValueError("Invalid quality branch label")
         if (not isinstance(execution_id, str)
                 or not re.fullmatch(r"[0-9a-f]{32}", execution_id)):
             raise ValueError("Invalid execution identity")
@@ -101,6 +116,8 @@ class QualityRunsMixin:
                     "base_commit": inspection.base_commit, "agent": agent,
                     "language": inspection.language, "config_digest": inspection.config_digest,
                     "policy_paths": list(inspection.policy_paths), "checks": checks,
+                    "task_id": task_id, "sandbox": sandbox,
+                    "branch": branch,
                     "observations": [asdict(by_name[name]) for name in sorted(by_name)]}
         body = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(body.encode()).hexdigest()
@@ -136,7 +153,6 @@ class QualityRunsMixin:
         ).fetchone()
         independent = bool(review and review["verdict_by"]
                            and review["verdict_by"] != review["author"]
-                           and review["verdict_by"] != evidence["agent"]
                            and review["verdict_commit"] == row["commit_sha"])
         approved = bool(independent and review["state"] in ("approved", "closed")
                         and review["verdict"] == "approved" and review["security"] == "pass"
@@ -159,23 +175,78 @@ class QualityRunsMixin:
                     item["detail"] = "Independent B6 security review rejected this commit."
             public_checks[name] = item
             checks.append(Check(name, Status(item["status"]), item["required"], item["detail"]))
+        policy_approval = con.execute("SELECT approved_by,approved_at FROM quality_policy_approvals WHERE run_id=?",
+                                      (row["id"],)).fetchone()
         status = aggregate(tuple(checks), peer_review="approved" if approved else "pending",
-                           policy_review_required=bool(evidence["policy_paths"]))
+                           policy_review_required=bool(evidence["policy_paths"]) and not policy_approval)
+        interrupted = any(o.get("interrupted") or o.get("output_limited") for o in evidence["observations"])
+        if interrupted and status is not Status.FAIL:
+            status = Status.REVIEW
         return {"schema_version": 1, "kind": "quality_run", "executed": True,
                 "run_id": row["id"], "execution_id": row["execution_id"],
                 "repository": row["repository"], "commit_sha": row["commit_sha"],
                 "base_commit": evidence["base_commit"] or None,
-                "branch": None, "agent": evidence["agent"],
+                "branch": evidence.get("branch"), "agent": evidence["agent"],
+                "task_id": evidence.get("task_id"), "sandbox": evidence.get("sandbox"),
+                "execution_status": "interrupted" if interrupted else "completed",
                 "timestamp": datetime.fromtimestamp(row["recorded_at"], UTC).isoformat(),
                 "language": evidence["language"], "config_digest": evidence["config_digest"],
                 "checks": public_checks, "observations": evidence["observations"],
                 "overall_status": status.value,
                 "policy_review_required": bool(evidence["policy_paths"]),
+                "policy_review_status": "approved" if policy_approval else "pending" if evidence["policy_paths"] else "not_required",
+                "policy_approval": dict(policy_approval) if policy_approval else None,
                 "policy_paths": evidence["policy_paths"],
                 "reviewer": review["verdict_by"] if independent else None,
                 "review_status": "approved" if approved else "pending",
                 "review_id": review["id"] if review else None,
-                "logs": [], "history": [], "evidence_sha256": row["evidence_sha256"]}
+                "logs": [{"check": o["check"],
+                          "url": f"/api/quality-log?run_id={row['id']}&check={o['check']}"}
+                         for o in evidence["observations"]],
+                "history": [], "evidence_sha256": row["evidence_sha256"]}
+
+    def quality_human_approve_policy(self, by: str, run_id: int, commit_sha: str, reason: str) -> dict:
+        """Human-only, exact-run approval. Never bypasses failed checks or peer review."""
+        if by != human_name(self.db_path):
+            raise PermissionError("Only the human web operator can approve critical policy changes")
+        reason = check_short("reason", reason).strip()
+        if len(reason) < 10:
+            raise ValueError("Describe why the critical change is accepted")
+        if type(run_id) is not int or run_id <= 0:
+            raise ValueError("Invalid run identity")
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute("SELECT * FROM quality_runs WHERE id=?", (run_id,)).fetchone()
+            if row is None or row["commit_sha"] != commit_sha:
+                raise ValueError("Approval must match the exact recorded run and commit")
+            run = self._quality_public(con, row)
+            if (not run["policy_review_required"] or run["review_status"] != "approved"
+                    or any(c["required"] and c["status"] != "PASS" for c in run["checks"].values())
+                    or run["execution_status"] != "completed"):
+                raise PermissionError("Required checks and independent B6 review must pass first")
+            if run["policy_approval"] is None:
+                con.execute("INSERT INTO quality_policy_approvals VALUES(?,?,?,?)",
+                            (run_id, by, time.time(), reason))
+                self._record(con, by, "quality-policy-approval", run["repository"],
+                             f"run={run_id} commit={commit_sha} {reason}")
+            return self._quality_public(con, row)
+
+    def quality_check(self, agent: str, repo: str, commit: str = "HEAD", base: str | None = None,
+                      *, task_id: int | None = None, lease_token: str | None = None) -> dict:
+        from .quality_runner import run_quality
+        return run_quality(self, agent, repo, commit, base, task_id=task_id, lease_token=lease_token)
+
+    def quality_log(self, run_id: int, check: str) -> str | None:
+        """Fully redacted process log: no raw project output or arbitrary path serving."""
+        run = self.quality_get(run_id)
+        if run is None:
+            return None
+        observation = next((o for o in run["observations"] if o["check"] == check), None)
+        if observation is None:
+            return None
+        return json.dumps({"run_id": run_id, "commit_sha": run["commit_sha"],
+                           "output_policy": "Project output fully withheld; process metadata only.",
+                           "observation": observation}, indent=2) + "\n"
 
     def quality_runs(self, *, repository: str | None = None, limit: int = 30) -> list[dict]:
         """Latest run per repository, bounded and read-only; no Git/process calls."""

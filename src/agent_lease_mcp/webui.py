@@ -180,6 +180,24 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_events(qs)
             if parts.path == "/api/snapshot":
                 return self._handle_snapshot(qs)
+            if parts.path == "/api/quality-log":
+                if not self._session_ok():
+                    return self._reject(403, "bad token")
+                try:
+                    log = store.quality_log(int(qs.get("run_id", ["0"])[0]),
+                                            qs.get("check", [""])[0])
+                except (ValueError, TypeError):
+                    return self._reject(400, "invalid run")
+                if log is None:
+                    return self._reject(404, "log not found")
+                body = log.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self._security_headers()
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             self._reject(404, "not found")
 
         def do_POST(self) -> None:
@@ -200,6 +218,16 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_approve()
             if parts.path == "/api/approve-resume":
                 return self._handle_approve_resume()
+            if parts.path == "/api/quality-policy-approve":
+                data = self._read_json()
+                if data is None:
+                    return
+                try:
+                    result = store.quality_human_approve_policy(web_agent, int(data["run_id"]),
+                                                                data["commit_sha"], data["reason"])
+                except (ValueError, TypeError, KeyError, PermissionError):
+                    return self._reject(400, "critical approval requires matching run/commit, reason and passing independent review/checks")
+                return self._json_response(result)
             if parts.path in ("/api/pause", "/api/resume"):
                 return self._handle_pause(parts.path.endswith("pause"))
             if parts.path in ("/api/review-grant", "/api/review-close"):
@@ -263,6 +291,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "paused": store.paused(),
                 "reviews": store.reviews(limit=30),
                 "quality_runs": store.quality_runs(limit=30),
+                "quality_requests": store.quality_requests(limit=30),
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -471,6 +500,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             "paused": store.paused(),
                             "reviews": store.reviews(limit=30),
                             "quality_runs": store.quality_runs(limit=30),
+                            "quality_requests": store.quality_requests(limit=30),
                             "messages": store.latest_messages(limit=200),
                         }
                         self.wfile.write(_sse("room", None, room))
@@ -888,7 +918,7 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
     </aside>
   </div>
 </div>
-  <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
+  <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
   <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
 </div>
@@ -1080,7 +1110,8 @@ function renderTaskDetail() {
     return;
   }
   const related = historyMessages().filter(r => r.reply_to === m.id);
-  const detailKey = JSON.stringify([m.id, m.text, m.agent, m.recipient, m.state, m.attempts, m.accept_note, m.last_error, related.map(r => [r.id, r.kind, r.text])]);
+  const qualityRun = (qgRecords || []).find(r => r.task_id === m.id);
+  const detailKey = JSON.stringify([m.id, m.text, m.agent, m.recipient, m.state, m.attempts, m.accept_note, m.last_error, qualityRun?.run_id, qualityRun?.overall_status, related.map(r => [r.id, r.kind, r.text])]);
   if (el.dataset.detailKey === detailKey) {
     [...el.querySelectorAll("[data-relative-id]"), ...timeline.querySelectorAll("[data-relative-id]")].forEach(span => {
       const record = messageCache.get(Number(span.dataset.relativeId));
@@ -1097,7 +1128,7 @@ function renderTaskDetail() {
     + `<details class="detail-section task-description" data-section="assignment"><summary>Zadání úkolu v plném znění</summary><div class="detail-text">${esc(m.text)}</div></details>`
     + (m.accept_note ? `<div class="detail-section"><h3>Potvrzení převzetí</h3><div class="detail-text">${esc(m.accept_note)}</div></div>` : "")
     + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "")
-    + `<section class="task-quality"><h3><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h3><span class="tag">NOT RUN</span><p class="note">Kontrola zatím není dostupná. Budoucí výsledek se sváže s konkrétním commitem nebo diffem tohoto úkolu.</p></section>`;
+    + `<section class="task-quality"><h3><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h3>${qualityRun ? qgBadge(qualityRun.overall_status) + `<p class="note">Commit: ${esc(qualityRun.commit_sha)}</p>` : '<span class="tag">NOT RUN</span><p class="note">Kontrola zatím není dostupná. Pro tento úkol není zaznamenaný běh.</p>'}</section>`;
   timeline.innerHTML = `<div class="timeline-current" data-tone="${stateTone(m.state)}"><span class="timeline-marker" aria-hidden="true"></span><span>Aktuální stav: ${esc((STATE[m.state] || [m.state || "nedostupný"])[0])}</span></div><ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
     + related.map(r => `<li><details data-section="reply-${r.id}"><summary><span class="event-meta">#${r.id} · ${esc(KIND[r.kind] || r.kind)} · <span data-relative-id="${r.id}">${ago(r.seconds_ago)}</span></span><br>${esc(r.text.slice(0,80))}${r.text.length > 80 ? "…" : ""}</summary><div class="detail-text">${esc(r.text)}</div></details></li>`).join("")
     + `</ol><p class="note">${related.length ? "Přímo navázané zprávy z načtené historie." : "Žádné navázané zprávy v načtené historii."} Strukturované kroky ani úplná historie přechodů nejsou v API dostupné.</p>`;
@@ -1368,8 +1399,9 @@ function renderRoom(r) {
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
     qgRecords = records.filter(record => record && record.kind === "quality_run" && record.executed === true);
-    renderQualityGate();
   }
+  if (Array.isArray(r.quality_requests)) qgRequests = r.quality_requests;
+  if (Object.prototype.hasOwnProperty.call(r, "quality_runs") || Object.prototype.hasOwnProperty.call(r, "quality_requests")) renderQualityGate();
   latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
   renderingRoom = true;
@@ -1508,9 +1540,9 @@ const QG_STATUS = {
   SETUP_REQUIRED:{label:"SETUP REQUIRED",tone:"work",icon:"⚙",meaning:"Projekt nemá nastavené povinné kontroly."},
   NOT_RUN:{label:"NOT RUN",tone:"muted",icon:"○",meaning:"Kontrola dosud neproběhla."},
 };
-const QG_CHECKS = [["tests","Testy"],["lint","Lint"],["build","Build"],["coverage","Coverage"],["security","Security"],["crap","CRAP score"]];
+const QG_CHECKS = [["tests","Testy"],["lint","Lint"],["typecheck","Type check"],["build","Build"],["coverage","Coverage"],["security","Security"],["crap","CRAP score"]];
 const QG_SUMMARY = ["PASS","REVIEW","FAIL","NA","SETUP_REQUIRED"];
-const demoChecks = (status,detail) => Object.fromEntries([...QG_CHECKS,["typecheck","Type check"]].map(([key])=>[key,{status,detail}]));
+const demoChecks = (status,detail) => Object.fromEntries(QG_CHECKS.map(([key])=>[key,{status,detail}]));
 const QG_DEMO = [
   {repository:"demo/agent-lease",branch:"demo/ui",commit_sha:"a".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T12:00:00Z",overall_status:"PASS",checks:demoChecks("PASS","Ukázka: kontrola prošla. Žádný nástroj se nespustil."),logs:[],reviewer:"Ada (ukázka)",review_status:"Schváleno — ukázka",history:[{timestamp:"2026-11-05T12:00:00Z",status:"REVIEW",note:"Demonstrační starší záznam."}]},
   {repository:"demo/frontend-s-velmi-dlouhym-nazvem-repozitare-pro-overeni-responzivni-tabulky",branch:"demo/coverage",commit_sha:"b".repeat(40),agent:"Ada (ukázka)",timestamp:"2026-11-06T11:00:00Z",overall_status:"REVIEW",checks:{...demoChecks("PASS","Ukázkový výsledek."),coverage:{status:"REVIEW",value:"72 % (demo)",detail:"Ukázka: coverage vyžaduje kontrolu; nejde o skutečnou metriku."}},logs:[],reviewer:"Nox (ukázka)",review_status:"Čeká na nezávislé review — ukázka"},
@@ -1521,6 +1553,7 @@ const QG_DEMO = [
 ];
 let qgDemo = false;
 let qgRecords = null;
+let qgRequests = [];
 let qgSelected = null;
 let currentView = "overview";
 function qgBadge(status) {
@@ -1529,6 +1562,11 @@ function qgBadge(status) {
 }
 function qgSummary(records) {
   return QG_SUMMARY.map(status=>{const s=QG_STATUS[status];return `<div class="qg-stat" data-qg-state="${status}" data-tone="${s.tone}"><span aria-hidden="true">${s.icon}</span><span class="qg-stat-name">${s.label}</span><strong>${qgDemo || qgRecords !== null ? records.filter(r=>r.overall_status===status).length : "—"}</strong></div>`;}).join("");
+}
+function qgLogs(record) {
+  const logs = Array.isArray(record.logs) ? record.logs : [];
+  const safe = logs.filter(log => /^[/]api[/]quality-log[?]run_id=[1-9][0-9]*&check=(tests|lint|typecheck|build|coverage)$/.test(log.url || ""));
+  return safe.length ? `<ul>${safe.map(log => `<li><a href="${esc(log.url)}" target="_blank" rel="noopener">${esc(log.check)} · procesní protokol</a></li>`).join("")}</ul>` : "";
 }
 function qgDate(value) { return value ? new Date(value).toLocaleString("cs-CZ") : "Není známá"; }
 function qgTable(records,{compact=false}={}) {
@@ -1549,6 +1587,9 @@ function renderQualityGate() {
   document.getElementById("qgCompactTable").innerHTML=qgTable(records,{compact:true});
   document.getElementById("qgProjectTable").innerHTML=qgTable(records);
   document.querySelectorAll("[data-qg-project]").forEach(b=>b.onclick=()=>{const record=records[Number(b.dataset.qgProject)];qgSelected=qgDemo ? record.repository : record.run_id;showView("quality");renderQualityProject();document.getElementById("qgProjectTitle").focus({preventScroll:true});});
+  const pending = qgDemo ? [] : qgRequests.filter(request=>request.state !== "completed").slice(0,10);
+  const requestLabels = {queued:"Čeká ve frontě",running:"Kontroly běží",refused:"Je potřeba nastavení",interrupted:"Běh byl přerušen"};
+  document.getElementById("qgRequests").innerHTML = pending.length ? `<div class="card"><h3>Požadavky na kontrolu</h3><ul>${pending.map(request=>`<li>${esc(request.repository)} · ${esc(requestLabels[request.state] || "Stav není známý")} ${request.detail ? "· " + esc(request.detail) : ""}</li>`).join("")}</ul></div>` : "";
   renderQualityProject();
 }
 function renderQualityProject() {
@@ -1556,10 +1597,17 @@ function renderQualityProject() {
   const el=document.getElementById("qgProjectDetail");
   document.getElementById("qgProjectTitle").textContent=r ? r.repository : "Detail repozitáře";
   if(!r){el.innerHTML=`<div class="empty">${qgDemo ? "Vyber ukázkový repozitář z tabulky." : "Vyber zaznamenaný běh z tabulky repozitářů."}</div>`;return;}
-  const checks=[...QG_CHECKS,["typecheck","Type check"]];
+  const checks=QG_CHECKS;
   el.innerHTML=`${qgDemo ? '<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p>' : ''}<dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
     + checks.map(([key,label])=>{const c=r.checks?.[key];return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`;}).join("")
-    + `</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status === 'approved' ? 'Schváleno pro tento commit.' : r.review_status === 'pending' ? 'Čeká na nezávislé review.' : r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>${qgDemo ? 'Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.' : 'Úplné protokoly nejsou připojené; dostupná jsou pouze procesní metadata a otisky výstupu.'}</p></div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
+    + `</div><div class="detail-section"><h3>Změny testů a pravidel</h3><p>${r.policy_review_required ? r.policy_review_status === "approved" ? "Kritické změny schválil člověk pro tento běh." : "Kritické změny čekají na lidské schválení." : "Další schválení kritických změn není požadováno."}</p>${!qgDemo && r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c=>!c.required || c.status === "PASS") ? '<button class="btn" id="qgApprovePolicy">Schválit kritické změny</button>' : ""}</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status === 'approved' ? 'Schváleno pro tento commit.' : r.review_status === 'pending' ? 'Čeká na nezávislé review.' : r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>${qgDemo ? 'Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.' : 'Úplné protokoly nejsou připojené; dostupná jsou pouze procesní metadata a otisky výstupu.'}</p>${qgDemo ? '' : qgLogs(r)}</div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
+  const approve = document.getElementById("qgApprovePolicy");
+  if (approve) approve.onclick=()=>{
+    const reason=prompt("Proč schvaluješ změny testů nebo pravidel pro tento commit?");
+    if (!reason || reason.trim().length < 10 || !confirm("Schválit kritické změny pro commit " + r.commit_sha + "?")) return;
+    approve.disabled=true;
+    post("/api/quality-policy-approve",{run_id:r.run_id,commit_sha:r.commit_sha,reason}).then(ok=>{if(!ok)approve.disabled=false;});
+  };
   motion(el,[{opacity:.4},{opacity:1}],180);
 }
 function showView(view,{focus=true}={}) {

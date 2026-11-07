@@ -55,6 +55,16 @@ def main(argv: list[str] | None = None) -> int:
     p_quality_inspect.add_argument("--repo", default=".")
     p_quality_inspect.add_argument("--commit", default="HEAD")
     p_quality_inspect.add_argument("--base", default=None)
+    p_quality_check = quality_sub.add_parser("check", help="run pinned project checks in the operator-approved offline sandbox")
+    p_quality_check.add_argument("--repo", default=".")
+    p_quality_check.add_argument("--commit", default="HEAD")
+    p_quality_check.add_argument("--base", default=None)
+    p_quality_check.add_argument("--task-id", type=int, default=None)
+    p_quality_check.add_argument("--lease-token", default=None)
+    p_quality_enqueue = quality_sub.add_parser("enqueue", help="queue a deterministic check; request acceptance is not a gate verdict")
+    p_quality_enqueue.add_argument("--repo", default=".")
+    p_quality_enqueue.add_argument("--commit", default="HEAD")
+    p_quality_enqueue.add_argument("--base", default=None)
 
     p_room = sub.add_parser("room", help="who is here, what is held, what is new")
     p_room.add_argument("--status", default="", help="announce what you are working on")
@@ -194,6 +204,12 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "quality":
+        if args.quality_action == "enqueue":
+            from .quality_runner import check_cli
+            return check_cli(args.repo, args.commit, args.base, None, None, enqueue=True)
+        if args.quality_action == "check":
+            from .quality_runner import check_cli
+            return check_cli(args.repo, args.commit, args.base, args.task_id, args.lease_token)
         from .quality import inspect_cli
 
         return inspect_cli(args.repo, args.commit, args.base)

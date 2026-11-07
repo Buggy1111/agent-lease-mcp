@@ -159,6 +159,7 @@ class ReviewsMixin:
             row = self._review_row(con, review_id)
         if head:
             self._review_notify(author, reviewer, f"Review #{review_id} čeká na tebe: {topic} @ {head[:12]}")
+            self._quality_auto_request(author, repo, head, base)
         return self._review_dict(row)
 
     def review_submit(self, author: str, review_id: int, head_commit: str, base_commit: str = "",
@@ -205,6 +206,7 @@ class ReviewsMixin:
         label = f"kolo oprav {cycles}/{row['max_fix_cycles']}" if cycles else "nové"
         self._review_notify(author, row["reviewer"],
                             f"Review #{review_id} čeká na tebe ({label}): {row['topic']} @ {head[:12]}")
+        self._quality_auto_request(author, row["repo"], head, row["base_commit"])
         return self._review_dict(row)
 
     def review_verdict(self, reviewer: str, review_id: int, verdict: str, commit: str,

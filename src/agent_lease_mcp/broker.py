@@ -43,7 +43,8 @@ METHODS = frozenset({
     # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
     "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
     "review_approved",
-    "quality_runs", "quality_get",
+    "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
+    "quality_autorun_enabled",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
@@ -151,6 +152,15 @@ class _Handler(socketserver.StreamRequestHandler):
 class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
+    def serve_forever(self, poll_interval=0.5):
+        from ._quality_queue import QualityWorker
+        worker = QualityWorker(self.RequestHandlerClass.store)
+        worker.start()
+        try:
+            super().serve_forever(poll_interval)
+        finally:
+            worker.close()
+
 
 def serve(settings: Settings, path: Path | None = None) -> _Server:
     path = path or default_socket_path(settings)
@@ -222,6 +232,8 @@ class RemoteStore:
         # relative path there can silently protect the wrong file.
         args, kwargs = _normalize_client_paths(method, args, kwargs)
         with self._connect() as s:
+            if method == "quality_check":
+                s.settimeout(900)  # supervisor bounds the entire project job to 720s
             s.sendall((json.dumps({"method": method, "args": encode(list(args)),
                                    "kwargs": encode(kwargs)}) + "\n").encode())
             line = s.makefile().readline()
@@ -265,6 +277,8 @@ def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
         kwargs["paths"] = [normalize_path(path) for path in kwargs["paths"]]
     elif method == "history":
         one_path(1, "path")
+    elif method in {"quality_check", "quality_request"}:
+        one_path(1, "repo")
     return args, kwargs
 
 

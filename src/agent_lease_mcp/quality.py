@@ -217,7 +217,11 @@ def policy_path(path: str) -> bool:
                     "security", ".semgrep"} for part in name.parts):
         return True
     filename = name.name
-    return (filename.startswith(("test_", ".env", ".eslintrc", "eslint.config.", "tsconfig",
+    if ("agent_lease_mcp" in name.parts and filename in {
+            "_reviews.py", "store.py", "broker.py", "webui.py", "lifecycle.py", "config.py",
+            "launch_gate.py", "process_guard.py", "cgroup.py", "run_fence.py"}):
+        return True
+    return (filename.startswith(("test_", "test.", "tests.", ".env", ".eslintrc", "eslint.config.", "tsconfig",
                                  ".gitleaks", ".betterleaks", "vitest.config.", "jest.config.",
                                  "playwright.config.", "cypress.config.", ".nycrc"))
             or re.search(r"(?:\.test\.|\.spec\.|_test\.)[^/]+$", filename) is not None
@@ -227,7 +231,7 @@ def policy_path(path: str) -> bool:
                             ".gitlab-ci.yml", "jenkinsfile", "azure-pipelines.yml", ".gitmodules",
                             ".gitattributes", ".npmrc", ".pre-commit-config.yaml",
                             "secret_scan.py", "hygiene.py", "jev_policy.py", "quality.py",
-                            "_quality_runs.py", "quality_runner.py"}
+                            "_quality_runs.py", "_quality_queue.py", "quality_runner.py", "quality_namespace.py"}
             or filename in LOCKS)
 
 

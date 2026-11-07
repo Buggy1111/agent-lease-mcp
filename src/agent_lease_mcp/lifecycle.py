@@ -144,9 +144,24 @@ def release_main() -> int:
     """
     settings = Settings.from_env()
     try:
-        released = open_store(settings).release_all(settings.agent)
+        store = open_store(settings)
+        released = store.release_all(settings.agent)
         if released:
             print(f"[agent-lease] released {len(released)} lease(s)", file=sys.stderr)
+        automatic = os.environ.get("AGENT_LEASE_QUALITY_AUTORUN", "").lower() in {"1", "true", "yes"}
+        if not automatic:
+            try:
+                automatic = getattr(store, "quality_autorun_enabled", lambda: False)() is True
+            except (OSError, ValueError, RuntimeError):
+                automatic = False  # compatible with a broker preceding B7
+        if automatic:
+            from .workspace import resolve_commit
+            try:
+                repo, commit, dirty = resolve_commit(os.getcwd())
+                if not dirty:
+                    store.quality_request(settings.agent, repo, commit)
+            except (OSError, ValueError, RuntimeError, KeyError):
+                print("[agent-lease] automatic quality request unavailable; inspect setup/results before retrying.", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001
         print(f"[agent-lease] release failed: {exc}", file=sys.stderr)
     return 0

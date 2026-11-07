@@ -1,7 +1,8 @@
 version = 1
 language = "python"
 
-# Commands mirror existing CI. Inspection does not execute or approve them.
+# Same checks as CI. The OS sandbox replaces build's networked environment
+# creation; the operator must pin build+hatchling and their dependencies.
 [checks.tests]
 command = ["python", "-m", "pytest", "-q"]
 
@@ -9,4 +10,4 @@ command = ["python", "-m", "pytest", "-q"]
 command = ["python", "-m", "ruff", "check", "src", "tests"]
 
 [checks.build]
-command = ["python", "-m", "build"]
+command = ["python", "-m", "build", "--no-isolation"]

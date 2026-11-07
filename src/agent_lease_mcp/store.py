@@ -25,6 +25,7 @@ from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
 from ._messaging import MessagingMixin
+from ._quality_queue import QualityQueueMixin
 from ._quality_runs import QualityRunsMixin
 from ._reviews import ReviewsMixin
 from ._store_common import (
@@ -260,11 +261,31 @@ CREATE TABLE IF NOT EXISTS quality_runs (
     evidence_json   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_quality_repository ON quality_runs(repository, id DESC);
+CREATE TABLE IF NOT EXISTS quality_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_key TEXT NOT NULL UNIQUE,
+    agent TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    base_commit TEXT NOT NULL,
+    policy_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL,
+    run_id INTEGER REFERENCES quality_runs(id),
+    detail TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS quality_policy_approvals (
+    run_id INTEGER PRIMARY KEY REFERENCES quality_runs(id),
+    approved_by TEXT NOT NULL,
+    approved_at REAL NOT NULL,
+    reason TEXT NOT NULL
+);
 """
 
 
 class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
-            QualityRunsMixin):
+            QualityRunsMixin, QualityQueueMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i
