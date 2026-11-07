@@ -183,7 +183,14 @@ def main() -> int:
                 if path.exists() and path.is_file():
                     path.unlink()
         child = subprocess.Popen(command, stdin=subprocess.DEVNULL, close_fds=True)
-        code = child.wait()
+        # Namespace PID 1 must reap adopted orphans while the project is still
+        # running. Otherwise zombies keep process groups apparently alive and
+        # break projects that verify cleanup of their own subprocess trees.
+        while True:
+            pid, status = os.waitpid(-1, 0)
+            if pid == child.pid:
+                code = child.returncode = os.waitstatus_to_exitcode(status)
+                break
         metric = {}
         if code == 0 and check == "coverage":
             try:

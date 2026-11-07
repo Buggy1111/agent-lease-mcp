@@ -426,3 +426,31 @@ fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:map.getC
         assert run["overall_status"] == "PASS", run
     assert "% lines" in run["checks"]["coverage"]["value"]
     assert "coverage_pipeline" not in json.dumps(run.get("observations"))
+
+
+def test_namespace_init_reaps_orphans_while_project_is_running(project):
+    root, store, _, _ = project
+    source = '''import os,subprocess,sys,time
+intermediate = subprocess.Popen([sys.executable,'-c',
+ "import subprocess,sys; c=subprocess.Popen([sys.executable,'-c','import time; time.sleep(.1)']); print(c.pid,flush=True)"],
+ stdout=subprocess.PIPE,text=True)
+orphan=int(intermediate.stdout.readline())
+intermediate.wait(timeout=2)
+deadline=time.monotonic()+2
+while time.monotonic()<deadline:
+ try: os.kill(orphan,0)
+ except ProcessLookupError: break
+ time.sleep(.02)
+else: raise AssertionError('namespace init left an adopted zombie')
+'''
+    head = commit(root, {"reaper_probe.py":source,".agent-lease/quality.toml":'''version=1
+language="python"
+[checks.tests]
+command=["python","reaper_probe.py"]
+[checks.lint]
+command=["python","-m","compileall","-q","src"]
+[checks.build]
+command=["python","-m","compileall","-q","src"]
+'''})
+    run = store.quality_check("codex", str(root), head)
+    assert run["checks"]["tests"]["status"] == "PASS", run
