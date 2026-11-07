@@ -35,6 +35,7 @@ MAX_FILES = 2000
 MAX_MEMORY = 2 * 1024**3
 MAX_PIDS = 256
 MAX_JOB_SECONDS = 720
+MAX_TOOL_BYTES = 128 * 1024**2  # approved standalone CPython 3.13 is about 81 MB
 
 
 class SetupRequired(ValueError):
@@ -157,7 +158,7 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
             if not source.is_absolute():
                 raise ValueError
             source = source.resolve(strict=True)
-            if (not source.is_file() or source.stat().st_size > 64 * 1024**2
+            if (not source.is_file() or source.stat().st_size > MAX_TOOL_BYTES
                     or not os.access(source, os.X_OK)
                     or (verify_pins and hashlib.sha256(source.read_bytes()).hexdigest() != spec["sha256"])):
                 raise ValueError
