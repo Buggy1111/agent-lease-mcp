@@ -231,7 +231,8 @@ def policy_path(path: str) -> bool:
                             ".gitlab-ci.yml", "jenkinsfile", "azure-pipelines.yml", ".gitmodules",
                             ".gitattributes", ".npmrc", ".pre-commit-config.yaml",
                             "secret_scan.py", "hygiene.py", "jev_policy.py", "quality.py",
-                            "_quality_runs.py", "_quality_queue.py", "quality_runner.py", "quality_namespace.py"}
+                            "_quality_runs.py", "_quality_queue.py", "quality_runner.py", "quality_namespace.py",
+                            "quality_collect.py"}
             or filename in LOCKS)
 
 

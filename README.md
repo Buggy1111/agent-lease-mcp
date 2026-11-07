@@ -12,6 +12,11 @@ the edit happens.
 
 [Česky / Czech version](README.cs.md)
 
+The local B7 candidate adds an opt-in offline Quality Gate for committed Python
+and TypeScript/JavaScript projects. See the [runner guide](docs/PHASE_B7_2_RUNNER.md)
+and [activation plan](docs/PHASE_B7_ACTIVATION_PLAN.md). Production activation and
+independent review are pending; the dashboard alone does not enforce merges.
+
 ## Why it exists
 
 9 September 2026. A coordination file, `docs/AGENT-HANDOFF.md`, existed and both

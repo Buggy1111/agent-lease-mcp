@@ -1,5 +1,8 @@
 # B7.2a — evidence běhů a adaptér dashboardu
 
+Historický záznam commitu c82227c. Navazující skutečný runner, číselné metriky,
+CLI a automatickou frontu popisuje [aktuální B7.2](PHASE_B7_2_RUNNER.md).
+
 Stav: místní implementace, autor Nox, nezávislé review pending. Nenasazeno.
 Navazuje na [B7.1](PHASE_B7_1_INSPECTION.md) a [REA mapu existujícího dashboardu](research/2026-11-07-b7-rea-dashboard-reuse.md).
 

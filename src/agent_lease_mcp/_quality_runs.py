@@ -22,6 +22,31 @@ from .quality import COMMAND_CHECKS, Check, Inspection, Status, aggregate, inspe
 
 
 @dataclass(frozen=True)
+class MetricObservation:
+    format: str
+    covered: int
+    total: int
+    crap_known: int = 0
+    crap_unknown: int = 0
+    crap_review: int = 0
+    crap_max_milli: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.format not in {"coverage.py", "istanbul"}:
+            raise ValueError("Unsupported metric format")
+        for value in (self.covered, self.total, self.crap_known, self.crap_unknown, self.crap_review):
+            if type(value) is not int or not 0 <= value <= 1_000_000_000:
+                raise ValueError("Invalid metric count")
+        if not 0 <= self.covered <= self.total or self.total == 0 or self.crap_review > self.crap_known:
+            raise ValueError("Inconsistent metric counts")
+        if self.crap_known:
+            if type(self.crap_max_milli) is not int or not 0 <= self.crap_max_milli <= 10**12:
+                raise ValueError("Invalid CRAP score")
+        elif self.crap_max_milli is not None:
+            raise ValueError("CRAP without measured functions is not a score")
+
+
+@dataclass(frozen=True)
 class CommandObservation:
     """Process metadata only. Raw output, arguments and arbitrary verdicts stay out."""
 
@@ -33,6 +58,7 @@ class CommandObservation:
     output_sha256: str
     interrupted: bool = False
     output_limited: bool = False
+    metrics: MetricObservation | None = None
 
     def __post_init__(self) -> None:
         if self.check not in COMMAND_CHECKS:
@@ -41,6 +67,8 @@ class CommandObservation:
             raise ValueError("Invalid process timeout flag")
         if type(self.interrupted) is not bool or type(self.output_limited) is not bool:
             raise ValueError("Invalid supervision flags")
+        if self.metrics is not None and (type(self.metrics) is not MetricObservation or self.check != "coverage"):
+            raise ValueError("Numeric metrics belong only to the coverage command")
         if (self.exit_code is None and not self.timed_out) or (
             self.exit_code is not None and
             (type(self.exit_code) is not int or not -255 <= self.exit_code <= 255)
@@ -64,6 +92,10 @@ def _command_result(observation: CommandObservation) -> tuple[Status, str]:
     if observation.exit_code != 0:
         return Status.FAIL, "Configured command exited unsuccessfully."
     if observation.check == "coverage":
+        if observation.metrics is not None:
+            metric = observation.metrics
+            status = Status.PASS if metric.covered * 100 >= 80 * metric.total else Status.REVIEW
+            return status, "Validated line coverage report; below 80% requests review, never security failure."
         return Status.REVIEW, "Coverage command succeeded; a validated numeric metric is not imported."
     return Status.PASS, "Configured command exited successfully."
 
@@ -106,11 +138,28 @@ class QualityRunsMixin:
         if by_name.keys() - configured:
             raise ValueError("Observation does not belong to a committed command")
         checks = []
+        coverage = by_name.get("coverage")
+        metric = (coverage.metrics if coverage and coverage.exit_code == 0 and not
+                  (coverage.interrupted or coverage.timed_out or coverage.output_limited) else None)
         for check in inspection.checks:
             if check.name in by_name:
                 status, detail = _command_result(by_name[check.name])
                 check = replace(check, status=status, detail=detail)
-            checks.append(check.public() | {"name": check.name})
+            if check.name == "crap" and metric is not None:
+                if metric.crap_known:
+                    status = (Status.REVIEW if metric.crap_review else Status.NA if metric.crap_unknown else Status.PASS)
+                    check = replace(check, status=status,
+                                    detail="Python CRAP uses pinned Lizard and attributable coverage; report only.")
+                elif metric.crap_unknown:
+                    check = replace(check, status=Status.NA,
+                                    detail="Function coverage could not be attributed; CRAP is N/A.")
+            public = check.public() | {"name": check.name}
+            if check.name == "coverage" and metric is not None:
+                public["value"] = f"{100 * metric.covered / metric.total:.2f}% lines ({metric.covered}/{metric.total})"
+            if check.name == "crap" and metric is not None and metric.crap_known:
+                public["value"] = (f"max {metric.crap_max_milli / 1000:.3f}; "
+                                   f"{metric.crap_known} measured, {metric.crap_review} REVIEW, {metric.crap_unknown} N/A")
+            checks.append(public)
         # Explicit allowlist: Inspection.public() is a plan, never the stored run.
         evidence = {"repository": inspection.repository, "commit_sha": inspection.commit_sha,
                     "base_commit": inspection.base_commit, "agent": agent,

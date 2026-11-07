@@ -22,7 +22,7 @@ import uuid
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
-from ._quality_runs import CommandObservation
+from ._quality_runs import CommandObservation, MetricObservation
 from .cgroup import current_cgroup
 from .config import is_trusted_agent
 from .launch_gate import launch_gate
@@ -222,10 +222,11 @@ def committed_branch(repository: str, commit: str) -> str | None:
     return name if 0 < len(name) <= 256 and all(ord(c) >= 32 and ord(c) != 127 for c in name) else None
 
 
-def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...], *, probe=False) -> list[str]:
+def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...], *, probe=False,
+                 collect_metrics=False) -> list[str]:
     if command[0] not in policy["tools"] and not (probe and command == ("/usr/bin/true",)):
         raise SetupRequired("A committed command has no explicitly pinned operator tool.")
-    argv = ["/usr/bin/bwrap", "--unshare-all", "--share-net", "--die-with-parent", "--new-session",
+    argv = ["/usr/bin/bwrap", "--unshare-all", "--share-net", "--as-pid-1", "--die-with-parent", "--new-session",
             "--cap-drop", "ALL", "--clearenv", "--ro-bind", "/usr", "/usr",
             "--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib",
             "--symlink", "usr/lib64", "/lib64", "--proc", "/proc", "--dev", "/dev",
@@ -235,6 +236,7 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
             "--ro-bind", str(work), "/snapshot", "--tmpfs", "/work",
             "--chmod", "0777", "/work",
             "--ro-bind", str(bins), "/tools/bin",
+            "--ro-bind", str(Path(__file__).with_name("quality_collect.py")), "/tools/collector.py",
             "--chdir", "/work", "--setenv", "PATH", "/tools/bin:/usr/bin:/bin",
             "--setenv", "HOME", "/tmp/home", "--setenv", "TMPDIR", "/tmp",
             "--setenv", "LANG", "C.UTF-8", "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
@@ -251,7 +253,9 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
     # quoted "$@" preserves each committed argument without shell expansion.
     return [sys.executable, "-I", "-S", "-B", str(Path(__file__).with_name("quality_namespace.py")),
             str(os.getpid()), *argv,
-            "--", "/bin/sh", "-c", 'cp -R --no-preserve=ownership,mode /snapshot/. /work/ && exec "$@"', "quality", *command]
+            "--", "/bin/sh", "-c", '/usr/bin/cp -R --no-preserve=ownership,mode /snapshot/. /work/ && exec "$@"',
+            "quality", "/usr/bin/python3", "-I", "-S", "-B", "/tools/collector.py", "__QUALITY_METRICS_FD__",
+            "coverage" if collect_metrics else "none", *command]
 
 
 def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) -> CommandObservation:
@@ -261,13 +265,18 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
     size = 0
     interrupted = timed_out = limited = False
     killed_at = None
-    with launch_gate(store.db_path):
-        if not can_continue():
-            raise SetupRequired("Runner was paused or task ownership was lost before launch.")
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, env={"PATH": "/usr/bin:/bin"},
-                                start_new_session=True)
+    metadata = os.memfd_create("agent-lease-quality-metrics", os.MFD_CLOEXEC)
+    proc = None
+    metric = None
     try:
+        argv = list(argv)
+        argv[argv.index("__QUALITY_METRICS_FD__")] = str(metadata)
+        with launch_gate(store.db_path):
+            if not can_continue():
+                raise SetupRequired("Runner was paused or task ownership was lost before launch.")
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, env={"PATH": "/usr/bin:/bin"},
+                                    pass_fds=(metadata,), start_new_session=True)
         with selectors.DefaultSelector() as selector:
             selector.register(proc.stdout, selectors.EVENT_READ)
             while selector.get_map() or proc.poll() is None:
@@ -290,13 +299,23 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
                 if killed_at is not None and time.monotonic() - killed_at >= 5:
                     raise RuntimeError("Cannot verify sandbox output cleanup.")
         code = proc.wait(timeout=5)
+        if name == "coverage" and code == 0 and os.fstat(metadata).st_size <= 4096:
+            try:
+                os.lseek(metadata, 0, os.SEEK_SET)
+                values = json.loads(os.read(metadata, 4097))
+                if values:
+                    metric = MetricObservation(**values)
+            except (ValueError, TypeError):
+                metric = None  # absent/invalid metrics never become a passing coverage check
     finally:
-        if proc.poll() is None:
-            proc.kill()
-        proc.wait(timeout=5)
-        proc.stdout.close()
+        os.close(metadata)
+        if proc is not None:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+            proc.stdout.close()
     return CommandObservation(name, code, timed_out, int((time.monotonic() - started) * 1000),
-                              size, digest.hexdigest(), interrupted, limited)
+                              size, digest.hexdigest(), interrupted, limited, metric)
 
 
 def _task_valid(store, agent: str, repository: str, task_id: int | None, lease_token: str | None) -> bool:
@@ -383,7 +402,8 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
                         observations[-1] = replace(observations[-1], interrupted=True)
                         break
                     attempted = True
-                    result = supervise(sandbox_argv(original, bins, policy, check.command), name=check.name,
+                    result = supervise(sandbox_argv(original, bins, policy, check.command,
+                                                    collect_metrics=check.name == "coverage"), name=check.name,
                                        timeout=policy["timeout"], can_continue=can_continue, store=store)
                     observations.append(result)
                     if result.interrupted or result.output_limited or result.timed_out:

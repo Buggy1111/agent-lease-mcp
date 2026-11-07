@@ -181,6 +181,13 @@ assert 'B7_PRIVATE_TEST_VALUE' not in os.environ
 assert not pathlib.Path('/home/buggy1111/.agent-lease').exists()
 assert not pathlib.Path('/sys/fs/cgroup').exists()
 assert int(next(line.split()[1] for line in pathlib.Path('/proc/self/status').read_text().splitlines() if line.startswith('CapEff:')),16)==0
+for fd in range(3,65):
+ try:
+  leaked=os.open('/proc/1/fd/'+str(fd),os.O_RDWR)
+ except OSError:
+  continue
+ else:
+  os.close(leaked);raise AssertionError('trusted collector descriptor escaped')
 os.environ.pop('HOME',None)
 assert pathlib.Path.home()==pathlib.Path('/tmp/home')
 server=socket.socket();server.bind(('127.0.0.1',0));server.listen()
@@ -379,3 +386,43 @@ command=["python","death_probe.py"]
         if owner.poll() is None:
             owner.kill()
         owner.wait(timeout=5)
+
+
+def test_real_numeric_coverage_and_report_only_crap(project):
+    root, store, language, _ = project
+    if language == "python":
+        deps = Path(os.environ["AGENT_LEASE_E2E_METRICS"]).resolve()
+        config = (root / ".agent-lease/quality.toml").read_text()
+        config += '\n[checks.coverage]\ncommand=["python","coverage_pipeline.py"]\n'
+        commit(root, {".agent-lease/quality.toml":config,
+            "coverage_pipeline.py": "import coverage,unittest\nc=coverage.Coverage(source=['src'],timid=True)\nc.start()\nr=unittest.TextTestRunner().run(unittest.defaultTestLoader.discover('tests'))\nc.stop()\nc.json_report(outfile='coverage.json')\nraise SystemExit(not r.wasSuccessful())\n"})
+        write_policy(store, root, mounts={"site":deps}, timeout=30)
+        head = commit(root, {"src/app.py":"answer = 42\ndef unused(x):\n" + ''.join(
+            f" if x == {i}: return {i}\n" for i in range(8)) + " return -1\n"})
+        approve(store, root, head)
+        run = store.quality_check("codex", str(root), head)
+        assert run["checks"]["coverage"]["status"] == "REVIEW", run
+        assert run["checks"]["crap"]["status"] == "REVIEW", run
+        assert "1 REVIEW" in run["checks"]["crap"]["value"], run
+        assert run["overall_status"] == "REVIEW", run
+    else:
+        package = json.loads((root / "package.json").read_text())
+        package["scripts"]["coverage"] = "tsc --outDir /tmp/compiled && node coverage.cjs"
+        commit(root, {"package.json":json.dumps(package), "coverage.cjs": '''const fs=require('node:fs'),vm=require('node:vm');
+const instrument=require('/usr/share/nodejs/istanbul-lib-instrument').createInstrumenter();
+const file='/tmp/compiled/app.js';
+const box={exports:{}};
+vm.runInNewContext(instrument.instrumentSync(fs.readFileSync(file,'utf8'),file),box);
+require('node:assert/strict').equal(box.exports.answer,42);
+const map=require('/usr/share/nodejs/istanbul-lib-coverage').createCoverageMap(box.__coverage__);
+fs.mkdirSync('coverage',{recursive:true});
+fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:map.getCoverageSummary().toJSON()}));
+'''})
+        head = commit(root, {"src/app.ts":"export const answer: number = 42; // measured JS output\n"})
+        approve(store, root, head)
+        run = store.quality_check("codex", str(root), head)
+        assert run["checks"]["coverage"]["status"] == "PASS", run
+        assert run["checks"]["crap"]["status"] == "NA", run
+        assert run["overall_status"] == "PASS", run
+    assert "% lines" in run["checks"]["coverage"]["value"]
+    assert "coverage_pipeline" not in json.dumps(run.get("observations"))

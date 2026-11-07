@@ -282,6 +282,25 @@ def test_coverage_command_success_is_not_a_numeric_metric(store, repo):
     assert run["overall_status"] == "REVIEW"
 
 
+@pytest.mark.parametrize("known,unknown,high,score,expected", [
+    (1,0,0,1000,"PASS"), (1,0,1,72000,"REVIEW"), (1,1,0,1000,"NA"),
+    (0,1,0,None,"NA")])
+def test_numeric_crap_is_report_only(store, repo, known, unknown, high, score, expected):
+    from test_quality import CONFIG
+
+    from agent_lease_mcp._quality_runs import MetricObservation
+    python_project(repo, CONFIG + '\n[checks.coverage]\ncommand=["python","coverage.py"]\n')
+    plan = inspect_repository(repo, commit(repo, {"src/app.py":"answer = 42\n"}))
+    review(store, plan)
+    metric = MetricObservation("coverage.py", 90, 100, known, unknown, high, score)
+    outcomes = tuple(replace(observation(check.name), metrics=metric if check.name=="coverage" else None)
+                     for check in plan.checks if check.command)
+    run = record(store, plan, outcomes=outcomes)
+    assert run["checks"]["coverage"]["status"] == "PASS"
+    assert run["checks"]["crap"]["status"] == expected
+    assert run["overall_status"] == ("REVIEW" if high else "PASS")
+
+
 def test_typescript_typecheck_failure_is_required(store, repo):
     commit(repo, {"package.json": json.dumps({"packageManager": "npm@11",
                  "devDependencies": {"typescript": "5"},
