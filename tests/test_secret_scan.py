@@ -130,3 +130,14 @@ def test_hunk_counts_follow_multiple_files():
     diff = ("diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n"
             "diff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -5,0 +6 @@\n+key = " + repr("ghp_" + "X1y2Z3" * 6) + "\n")
     assert scan_diff(diff) == [{"file": "b", "line": 6, "kind": "github-token"}]
+
+
+def test_code_expressions_are_not_secrets():
+    """Nox #869: volání funkcí v přiřazení tokenu/hesla nejsou tajemství."""
+    code = ["+        token_hash = hashlib.sha256(token.encode()).hexdigest()",
+            "+        token = uuid.uuid4().hex",
+            "+    token = secrets.token_urlsafe(32)",
+            "+    password = get_password_from_vault(name2)"]
+    assert scan_diff(diff_of(code)) == []
+    assert scan_diff(diff_of(['+API_TOKEN = "' + "a1B2c3D4e5F6g7H8" + '"']))  # skutečný literál dál ano
+    assert scan_diff(diff_of(["+API_TOKEN=" + "a1B2c3D4e5F6g7H8"]))  # i bez uvozovek (env soubor)

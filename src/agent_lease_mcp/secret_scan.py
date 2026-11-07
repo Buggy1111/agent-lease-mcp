@@ -19,9 +19,11 @@ _PATTERNS = (
     ("bearer-token", re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/-]{20,}=*")),
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    # Přiřazení dlouhé hodnoty s písmeny i číslicemi. Výraz v kódu (volání funkce, např.
+    # `token = uuid.uuid4().hex`) tajemství není: hodnota nesmí obsahovat závorky.
     ("assigned-secret", re.compile(
         r"(?i)\b[\w.-]*(api[_-]?key|secret|token|passw(or)?d|pwd)[\w.-]*\s*[:=]\s*"
-        r"[\"']?(?=[^\"'\s]*[0-9])(?=[^\"'\s]*[A-Za-z])[^\"'\s]{16,}")),
+        r"[\"']?(?=[^\"'\s()]*[0-9])(?=[^\"'\s()]*[A-Za-z])[^\"'\s()]{16,}(?![^\"'\s]*[()])")),
 )
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 MAX_FINDINGS = 50
