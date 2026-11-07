@@ -1,0 +1,58 @@
+{
+  "scanner": "B6 assigned diff scanner at 9134485",
+  "true_positive_files": 5,
+  "false_negative_files": 0,
+  "false_positive_files": 0,
+  "results": [
+    {
+      "file": "negative-0.txt",
+      "detected": false,
+      "expected": false
+    },
+    {
+      "file": "negative-1.txt",
+      "detected": false,
+      "expected": false
+    },
+    {
+      "file": "negative-2.txt",
+      "detected": false,
+      "expected": false
+    },
+    {
+      "file": "negative-3.txt",
+      "detected": false,
+      "expected": false
+    },
+    {
+      "file": "negative-4.txt",
+      "detected": false,
+      "expected": false
+    },
+    {
+      "file": "positive-0.txt",
+      "detected": true,
+      "expected": true
+    },
+    {
+      "file": "positive-1.txt",
+      "detected": true,
+      "expected": true
+    },
+    {
+      "file": "positive-2.txt",
+      "detected": true,
+      "expected": true
+    },
+    {
+      "file": "positive-3.txt",
+      "detected": true,
+      "expected": true
+    },
+    {
+      "file": "positive-4.txt",
+      "detected": true,
+      "expected": true
+    }
+  ]
+}

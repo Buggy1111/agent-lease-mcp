@@ -1,0 +1,32 @@
+{
+  "runtime": {
+    "python": "3.13.18",
+    "executable": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/venv/bin/python",
+    "sqlite": "3.53.1",
+    "package": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/venv/lib/python3.13/site-packages/agent_lease_mcp/__init__.py",
+    "fastmcp": "3.4.10"
+  },
+  "mcp_tool_count": 20,
+  "worker": {
+    "sqlite": "3.53.1"
+  },
+  "backup": {
+    "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/artifacts/final-runtime-check/backups/room-20261107-060536-bb1511.db",
+    "integrity": "ok",
+    "backup_integrity": "ok"
+  },
+  "bridge_completed": true,
+  "broker_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/venv/bin/python"
+  },
+  "mcp_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/venv/bin/python"
+  },
+  "bridge_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/venv/bin/python"
+  },
+  "integrity": "ok"
+}

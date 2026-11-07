@@ -1,0 +1,19 @@
+{
+  "unit": "agent-lease-b7-synthetic-1794028325.scope",
+  "properties": {
+    "RuntimeMaxUSec": "15min",
+    "CPUQuotaPerSecUSec": "1s",
+    "MemoryMax": "2147483648"
+  },
+  "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-b7-synthetic-1794028325.scope",
+  "limits": {
+    "memory.max": "2147483648",
+    "cpu.max": "100000 100000"
+  },
+  "command": [
+    "/tools/python/bin/python3",
+    "/tools/testdeps/scan_pilot.py",
+    "synthetic"
+  ],
+  "phase": "synthetic"
+}

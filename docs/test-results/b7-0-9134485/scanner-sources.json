@@ -1,0 +1,38 @@
+[
+  {
+    "name": "gitleaks",
+    "tag": "v8.30.1",
+    "release_url": "https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1",
+    "published_at": "2026-03-21T02:17:58Z",
+    "assets": [
+      {
+        "name": "gitleaks_8.30.1_checksums.txt",
+        "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt",
+        "digest": "sha256:061476c21adaf5441516f96f185c1a4706a83cd6329b9b38762271b3d4a52fae"
+      },
+      {
+        "name": "gitleaks_8.30.1_linux_x64.tar.gz",
+        "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+        "digest": "sha256:551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+      }
+    ]
+  },
+  {
+    "name": "betterleaks",
+    "tag": "v1.10.0",
+    "release_url": "https://github.com/betterleaks/betterleaks/releases/tag/v1.10.0",
+    "published_at": "2026-11-04T20:33:19Z",
+    "assets": [
+      {
+        "name": "betterleaks_1.10.0_linux_x64.tar.gz",
+        "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz",
+        "digest": "sha256:9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe"
+      },
+      {
+        "name": "checksums.txt",
+        "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/checksums.txt",
+        "digest": "sha256:d465c5752b3907183f4143f88fa725077ae23445447e799a812dcd6830828107"
+      }
+    ]
+  }
+]

@@ -1,0 +1,63 @@
+[
+  {
+    "scanner": "gitleaks",
+    "mode": "history",
+    "seconds": 3.8608277129969792,
+    "returncode": 1,
+    "findings": 2,
+    "true_positive_files": [],
+    "false_negative_files": [],
+    "false_positive_files": [],
+    "redaction_checked": true,
+    "target_config_ignored": false,
+    "command": [
+      "/tools/testdeps/bin/gitleaks",
+      "git",
+      "/work",
+      "--config=/tools/testdeps/scanner.toml",
+      "--gitleaks-ignore-path=/tools/testdeps/empty-ignore",
+      "--ignore-gitleaks-allow",
+      "--redact=100",
+      "--no-banner",
+      "--no-color",
+      "--report-format=json",
+      "--report-path=/out/gitleaks-redacted.json",
+      "--log-level=info",
+      "--max-archive-depth=0",
+      "--max-decode-depth=0",
+      "--timeout=600",
+      "--log-opts=--all"
+    ]
+  },
+  {
+    "scanner": "betterleaks",
+    "mode": "history",
+    "seconds": 3.6612272200000007,
+    "returncode": 1,
+    "findings": 2,
+    "true_positive_files": [],
+    "false_negative_files": [],
+    "false_positive_files": [],
+    "redaction_checked": true,
+    "target_config_ignored": false,
+    "command": [
+      "/tools/testdeps/bin/betterleaks",
+      "git",
+      "/work",
+      "--config=/tools/testdeps/scanner.toml",
+      "--gitleaks-ignore-path=/tools/testdeps/empty-ignore",
+      "--ignore-gitleaks-allow",
+      "--redact=100",
+      "--no-banner",
+      "--no-color",
+      "--report-format=json",
+      "--report-path=/out/betterleaks-redacted.json",
+      "--log-level=info",
+      "--max-archive-depth=0",
+      "--max-decode-depth=0",
+      "--timeout=600",
+      "--validation=false",
+      "--log-opts=--all"
+    ]
+  }
+]

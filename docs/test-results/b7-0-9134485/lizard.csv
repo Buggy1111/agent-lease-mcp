@@ -1,0 +1,381 @@
+3,2,44,1,3,"database_busy@57-59@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","database_busy","database_busy( exc : sqlite3 . OperationalError )",57,59
+5,2,35,1,5,"default_socket_path@62-66@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","default_socket_path","default_socket_path( settings : Settings )",62,66
+11,9,127,1,11,"encode@69-79@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","encode","encode( obj )",69,79
+13,8,111,1,13,"decode@82-94@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","decode","decode( obj )",82,94
+7,2,61,1,7,"_same_user@97-103@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_same_user","_same_user( sock )",97,103
+30,15,330,1,35,"handle@109-143@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","handle","handle( self )",109,143
+3,1,43,2,3,"_reply@145-147@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_reply","_reply( self , payload : dict )",145,147
+15,5,129,2,16,"serve@154-169@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","serve","serve( settings : Settings , path : Path | None = None )",154,169
+9,2,70,2,9,"ping@172-180@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","ping","ping( path : Path , timeout : float = 1 . 0 )",172,180
+6,2,56,4,6,"__init__@186-191@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","__init__","__init__( self , settings : Settings , path : Path | None = None , * , connect_retry : float = 15 . 0 )",186,191
+18,5,111,1,24,"_connect@193-216@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_connect","_connect( self )",193,216
+15,3,159,4,18,"_call@218-235@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_call","_call( self , method : str , args , kwargs )",218,235
+4,2,38,2,4,"__getattr__@237-240@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","__getattr__","__getattr__( self , name : str )",237,240
+5,6,70,2,5,"_normalize_client_paths.path_list@247-251@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_normalize_client_paths.path_list","_normalize_client_paths.path_list( position : int , name : str )",247,251
+5,4,64,2,5,"_normalize_client_paths.one_path@253-257@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_normalize_client_paths.one_path","_normalize_client_paths.one_path( position : int , name : str )",253,257
+14,7,112,3,25,"_normalize_client_paths@243-267@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","_normalize_client_paths","_normalize_client_paths( method : str , args , kwargs )",243,267
+15,9,145,2,26,"open_store@270-295@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","open_store","open_store( settings : Settings | None = None , * , restart_wait : float = 3 . 0 )",270,295
+24,9,168,0,24,"main.sweeper@313-336@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","main.sweeper","main.sweeper( )",313,336
+23,6,160,1,49,"main@298-346@src/agent_lease_mcp/broker.py","src/agent_lease_mcp/broker.py","main","main( argv : list [ str ] | None = None )",298,346
+2,1,26,2,3,"one_line@31-33@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","one_line","one_line( value : object , max_chars : int = 200 )",31,33
+16,3,93,2,21,"_awaiting_lines@36-56@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","_awaiting_lines","_awaiting_lines( me : str , awaiting : list [ dict ] )",36,56
+26,17,256,5,32,"session_briefing@59-90@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","session_briefing","session_briefing( me : str , peers : list [ dict ] , claims : list [ Claim ] , messages : list [ dict ] , awaiting : list [ dict ] | None = None )",59,90
+9,4,74,4,16,"prompt_update@93-108@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","prompt_update","prompt_update( me : str , claims : list [ Claim ] , messages : list [ dict ] , awaiting : list [ dict ] | None = None )",93,108
+4,3,38,1,4,"_message_lines@111-114@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","_message_lines","_message_lines( messages : list [ dict ] )",111,114
+8,4,102,1,8,"_message_line@117-124@src/agent_lease_mcp/briefing.py","src/agent_lease_mcp/briefing.py","_message_line","_message_line( m : dict )",117,124
+2,1,17,1,2,"_token_path@46-47@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","_token_path","_token_path( settings : Settings )",46,47
+21,5,151,1,31,"load_or_create_token@50-80@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","load_or_create_token","load_or_create_token( settings : Settings )",50,80
+6,2,73,3,6,"_sse@83-88@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","_sse","_sse( event : str , event_id : int | None , payload : dict )",83,88
+2,1,9,0,2,"_sse_heartbeat@91-92@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","_sse_heartbeat","_sse_heartbeat( )",91,92
+12,3,104,1,16,"ensure_human_name@95-110@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","ensure_human_name","ensure_human_name( settings : Settings )",95,110
+3,1,22,1,5,"make_handler.setup@127-131@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler.setup","make_handler.setup( self )",127,131
+2,1,15,3,2,"make_handler.log_message@133-134@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler.log_message","make_handler.log_message( self , fmt : str , * args )",133,134
+5,1,39,1,5,"make_handler._security_headers@136-140@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._security_headers","make_handler._security_headers( self )",136,140
+3,2,33,1,3,"make_handler._bearer_ok@143-145@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._bearer_ok","make_handler._bearer_ok( self )",143,145
+12,6,96,1,12,"make_handler._session_ok@147-158@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._session_ok","make_handler._session_ok( self )",147,158
+3,2,25,1,3,"make_handler._origin_ok@160-162@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._origin_ok","make_handler._origin_ok( self )",160,162
+8,1,69,3,8,"make_handler._reject@164-171@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._reject","make_handler._reject( self , code : int , message : str )",164,171
+10,4,72,1,10,"make_handler.do_GET@174-183@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler.do_GET","make_handler.do_GET( self )",174,183
+23,11,185,1,23,"make_handler.do_POST@185-207@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler.do_POST","make_handler.do_POST( self )",185,207
+13,1,71,1,13,"make_handler._handle_index@210-222@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_index","make_handler._handle_index( self )",210,222
+20,4,123,1,22,"make_handler._handle_session@224-245@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_session","make_handler._handle_session( self )",224,245
+26,5,225,2,26,"make_handler._handle_snapshot@247-272@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_snapshot","make_handler._handle_snapshot( self , qs : dict [ str , list [ str ] ] )",247,272
+15,6,101,1,15,"make_handler._read_json@274-288@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._read_json","make_handler._read_json( self )",274,288
+8,1,74,2,8,"make_handler._json_response@290-297@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._json_response","make_handler._json_response( self , payload : dict )",290,297
+20,7,167,1,20,"make_handler._handle_send@299-318@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_send","make_handler._handle_send( self )",299,318
+15,5,126,1,15,"make_handler._handle_retry@320-334@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_retry","make_handler._handle_retry( self )",320,334
+19,6,131,1,19,"make_handler._handle_cancel@336-354@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_cancel","make_handler._handle_cancel( self )",336,354
+15,6,138,1,16,"make_handler._handle_approve@356-371@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_approve","make_handler._handle_approve( self )",356,371
+15,6,138,1,16,"make_handler._handle_approve_resume@373-388@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_approve_resume","make_handler._handle_approve_resume( self )",373,388
+19,6,137,2,20,"make_handler._handle_review@390-409@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_review","make_handler._handle_review( self , grant : bool )",390,409
+14,4,96,2,15,"make_handler._handle_pause@411-425@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_pause","make_handler._handle_pause( self , stop : bool )",411,425
+51,13,390,2,61,"make_handler._handle_events@427-487@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler._handle_events","make_handler._handle_events( self , qs : dict [ str , list [ str ] ] )",427,487
+38,1,150,4,380,"make_handler@113-492@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","make_handler","make_handler( store : Store , settings : Settings , token : str , port : int )",113,492
+26,5,147,3,26,"run@1575-1600@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","run","run( host : str = '127.0.0.1' , port : int = 8765 , * , open_browser : bool = False )",1575,1600
+10,2,123,1,10,"main@1603-1612@src/agent_lease_mcp/webui.py","src/agent_lease_mcp/webui.py","main","main( argv : list [ str ] | None = None )",1603,1612
+5,3,48,2,6,"is_service@26-31@src/agent_lease_mcp/routing.py","src/agent_lease_mcp/routing.py","is_service","is_service( name : str , db_path : Path )",26,31
+7,5,83,0,7,"capabilities@34-40@src/agent_lease_mcp/routing.py","src/agent_lease_mcp/routing.py","capabilities","capabilities( )",34,40
+10,11,123,3,11,"candidates@43-53@src/agent_lease_mcp/routing.py","src/agent_lease_mcp/routing.py","candidates","candidates( peers : list [ dict ] , me : str , db_path : Path )",43,53
+38,6,240,1,45,"classify_command@48-92@src/agent_lease_mcp/jev_client.py","src/agent_lease_mcp/jev_client.py","classify_command","classify_command( command : str )",48,92
+7,3,44,2,7,"_stop_group@16-22@src/agent_lease_mcp/process_guard.py","src/agent_lease_mcp/process_guard.py","_stop_group","_stop_group( _signum , _frame )",16,22
+25,10,217,0,25,"main@25-49@src/agent_lease_mcp/process_guard.py","src/agent_lease_mcp/process_guard.py","main","main( )",25,49
+4,2,42,0,4,"_log_path@45-48@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","_log_path","_log_path( )",45,48
+10,2,101,1,12,"_log@51-62@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","_log","_log( entry : dict )",51,62
+5,2,34,2,5,"_float_env@65-69@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","_float_env","_float_env( name : str , default : float )",65,69
+9,11,103,1,11,"_bash_command@72-82@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","_bash_command","_bash_command( payload : dict )",72,82
+42,6,267,2,54,"evaluate@85-138@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","evaluate","evaluate( payload : dict , classify = classify_command )",85,138
+9,3,52,0,10,"main@141-150@src/agent_lease_mcp/jev_guard.py","src/agent_lease_mcp/jev_guard.py","main","main( )",141,150
+2,1,33,3,3,"say@46-48@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","say","say( self , agent : str , text : str )",46,48
+72,19,445,12,74,"send@50-123@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","send","send( self , agent : str , recipient : str , text : str , * , kind : MessageKind | str = MessageKind . CHAT , project : str = '' , not_before : float = 0 , expires_at : float | None = None , dedupe_key : str | None = None , reply_to : int | None = None , paths : list [ str ] | None = None , priority : int = 0 , )",50,123
+3,5,47,2,3,"_signal_path@125-127@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","_signal_path","_signal_path( self , recipient : str )",125,127
+10,5,92,2,11,"_signal@129-139@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","_signal","_signal( self , recipient : str )",129,139
+5,2,33,2,5,"signal_mtime@141-145@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","signal_mtime","signal_mtime( self , recipient : str )",141,145
+26,9,217,3,31,"mark_seen@147-177@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","mark_seen","mark_seen( self , recipient : str , message_ids : list [ int ] )",147,177
+68,36,493,6,91,"accept@179-269@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","accept","accept( self , message_id : int , recipient : str , note : str = '' , lease_token : str | None = None , owner : str | None = None )",179,269
+21,2,136,3,24,"awaiting_accept@271-294@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","awaiting_accept","awaiting_accept( self , recipient : str , * , limit : int = 10 )",271,294
+9,2,85,3,9,"inbox@296-304@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","inbox","inbox( self , since_id : int = 0 , limit : int = 50 )",296,304
+11,2,81,2,12,"latest_messages@306-317@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","latest_messages","latest_messages( self , limit : int = 200 )",306,317
+7,1,58,6,13,"_insert_event@320-332@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","_insert_event","_insert_event( con : sqlite3 . Connection , agent : str , recipient : str , text : str , reply_to : int , now : float )",320,332
+4,2,49,2,4,"cursor@334-337@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","cursor","cursor( self , agent : str )",334,337
+7,1,38,3,7,"set_cursor@339-345@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","set_cursor","set_cursor( self , agent : str , last_msg : int )",339,345
+12,2,92,3,14,"undelivered@347-360@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","undelivered","undelivered( self , agent : str , limit : int = 20 )",347,360
+14,2,106,4,21,"jobs@362-382@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","jobs","jobs( self , recipient : str , * , limit : int = 50 , viewer : str | None = None )",362,382
+3,1,53,1,3,"outcome.item@433-435@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","outcome.item","outcome.item( r : sqlite3 . Row )",433,435
+39,10,289,3,61,"outcome@384-444@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","outcome","outcome( self , message_id : int , * , viewer : str | None = None )",384,444
+10,2,91,4,11,"addressed@446-456@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","addressed","addressed( self , recipient : str , * , since_id : int = 0 , limit : int = 20 )",446,456
+34,9,263,2,44,"expire_stale_chats@458-501@src/agent_lease_mcp/_messaging.py","src/agent_lease_mcp/_messaging.py","expire_stale_chats","expire_stale_chats( self , older_than_hours : int | None = None )",458,501
+10,3,97,1,12,"parse_until@31-42@src/agent_lease_mcp/cli.py","src/agent_lease_mcp/cli.py","parse_until","parse_until( text : str )",31,42
+351,100,3355,1,418,"main@45-462@src/agent_lease_mcp/cli.py","src/agent_lease_mcp/cli.py","main","main( argv : list [ str ] | None = None )",45,462
+6,4,115,3,18,"claim@38-55@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","claim","claim( paths : list [ str ] , purpose : str = '' , ttl_seconds : int | None = None )",38,55
+7,2,49,1,12,"release@59-70@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","release","release( paths : list [ str ] | None = None )",59,70
+3,2,36,1,4,"owner@74-77@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","owner","owner( path : str )",74,77
+4,1,44,1,10,"say@81-90@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","say","say( text : str )",81,90
+15,1,122,7,16,"send@94-109@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","send","send( to : str , text : str , kind : str = 'chat' , dedupe_key : str | None = None , reply_to : int | None = None , paths : list [ str ] | None = None , priority : int = 0 , )",94,109
+6,2,56,2,7,"jobs@113-119@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","jobs","jobs( recipient : str | None = None , limit : int = 50 )",113,119
+14,6,131,1,15,"_checkpoint_view@122-136@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","_checkpoint_view","_checkpoint_view( message_id : int )",122,136
+30,6,214,1,39,"next_task@140-178@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","next_task","next_task( lease_seconds : int = 3600 )",140,178
+11,3,129,5,16,"ack@182-197@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","ack","ack( message_id : int , state : str , lease_token : str | None = None , error : str = '' , result : str | None = None )",182,197
+3,1,56,3,14,"accept@201-214@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","accept","accept( message_id : int , note : str = '' , lease_token : str | None = None )",201,214
+4,1,57,2,11,"report_limit@218-228@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","report_limit","report_limit( minutes : int = 60 , reason : str = '' )",218,228
+8,1,52,3,9,"retry@232-240@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","retry","retry( message_id : int , recipient : str , not_before : float = 0 )",232,240
+6,1,42,2,7,"cancel@244-250@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","cancel","cancel( message_id : int , recipient : str )",244,250
+3,2,56,2,4,"inbox@254-257@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","inbox","inbox( since_id : int = 0 , limit : int = 50 )",254,257
+21,14,235,1,26,"_visible_messages@266-291@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","_visible_messages","_visible_messages( messages : list [ dict ] )",266,291
+5,3,48,1,5,"_brief@294-298@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","_brief","_brief( message : dict )",294,298
+16,8,146,2,24,"room@302-325@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","room","room( status : str = '' , all_peers : bool = False )",302,325
+14,5,168,2,20,"wait@329-348@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","wait","wait( message_id : int , timeout_seconds : int = 120 )",329,348
+2,1,23,0,3,"_workspace_state@351-353@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","_workspace_state","_workspace_state( )",351,353
+6,1,75,5,12,"checkpoint@357-368@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","checkpoint","checkpoint( message_id : int , lease_token : str , step_done : str , next_step : str = '' , evidence : str = '' )",357,368
+51,21,553,9,79,"review@375-453@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","review","review( action : str , review_id : int | None = None , topic : str = '' , reviewer : str = '' , commit : str = 'HEAD' , base : str = '' , note : str = '' , state : str | None = None , repo : str = '' )",375,453
+18,7,215,6,31,"verdict@457-487@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","verdict","verdict( review_id : int , verdict : str , commit : str , note : str = '' , security : str = '' , repo : str = '' )",457,487
+3,1,34,1,9,"emergency_stop@491-499@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","emergency_stop","emergency_stop( reason : str = '' )",491,499
+2,1,37,2,7,"history@503-509@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","history","history( path : str | None = None , limit : int = 30 )",503,509
+2,1,11,0,2,"main@512-513@src/agent_lease_mcp/server.py","src/agent_lease_mcp/server.py","main","main( )",512,513
+15,7,162,1,16,"check_findings@53-68@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","check_findings","check_findings( findings : list [ dict ] | None )",53,68
+7,5,70,3,8,"check_commit@71-78@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","check_commit","check_commit( label : str , value : str , * , optional : bool = False )",71,78
+4,2,39,2,5,"_check_review_agent@82-86@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_check_review_agent","_check_review_agent( self , agent : str )",82,86
+5,2,51,2,5,"_review_row@89-93@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_review_row","_review_row( con : sqlite3 . Connection , review_id : int )",89,93
+7,1,73,8,7,"_review_event@96-102@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_review_event","_review_event( con : sqlite3 . Connection , review_id : int , actor : str , event : str , from_state : str , to_state : str , commit : str = '' , note : str = '' )",96,102
+7,3,77,1,8,"_review_dict@105-112@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_review_dict","_review_dict( row : sqlite3 . Row )",105,112
+7,4,57,4,8,"_review_notify@114-121@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_review_notify","_review_notify( self , sender : str , recipient : str , text : str )",114,121
+39,9,341,8,40,"review_open@123-162@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_open","review_open( self , author : str , repo : str , topic : str , reviewer : str = '' , base_commit : str = '' , head_commit : str = '' , secret_findings : list [ dict ] | None = None )",123,162
+40,13,399,7,45,"review_submit@164-208@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_submit","review_submit( self , author : str , review_id : int , head_commit : str , base_commit : str = '' , note : str = '' , secret_findings : list [ dict ] | None = None )",164,208
+64,26,594,8,71,"review_verdict@210-280@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_verdict","review_verdict( self , reviewer : str , review_id : int , verdict : str , commit : str , note : str = '' , security : str = '' , reviewer_findings : list [ dict ] | None = None )",210,280
+3,1,43,4,8,"review_close@282-289@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_close","review_close( self , actor : str , review_id : int , note : str = '' )",282,289
+2,1,37,4,3,"review_human_close@291-293@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_human_close","review_human_close( self , human : str , review_id : int , note : str = '' )",291,293
+17,6,201,5,17,"_close_review@295-311@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","_close_review","_close_review( self , actor : str , review_id : int , note : str , * , human : bool )",295,311
+19,3,185,4,23,"review_grant_cycle@313-335@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_grant_cycle","review_grant_cycle( self , human : str , review_id : int , reason : str )",313,335
+8,3,77,3,8,"review_get@337-344@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_get","review_get( self , review_id : int , * , events : bool = True )",337,344
+19,7,183,5,19,"reviews@346-364@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","reviews","reviews( self , state : str | None = None , repo : str | None = None , * , include_closed : bool = False , limit : int = 50 )",346,364
+11,2,84,3,12,"review_approved@366-377@src/agent_lease_mcp/_reviews.py","src/agent_lease_mcp/_reviews.py","review_approved","review_approved( self , repo : str , commit : str )",366,377
+2,1,25,1,2,"expires_in@19-20@src/agent_lease_mcp/models.py","src/agent_lease_mcp/models.py","expires_in","expires_in( self )",19,20
+7,1,34,1,7,"as_dict@22-28@src/agent_lease_mcp/models.py","src/agent_lease_mcp/models.py","as_dict","as_dict( self )",22,28
+2,1,12,1,2,"ok@39-40@src/agent_lease_mcp/models.py","src/agent_lease_mcp/models.py","ok","ok( self )",39,40
+2,1,15,1,2,"blocks@100-101@src/agent_lease_mcp/models.py","src/agent_lease_mcp/models.py","blocks","blocks( self )",100,101
+4,2,35,2,4,"run_simulation.step@21-24@src/agent_lease_mcp/simulate.py","src/agent_lease_mcp/simulate.py","run_simulation.step","run_simulation.step( text : str , cond : bool = True )",21,24
+45,12,495,1,50,"run_simulation@18-67@src/agent_lease_mcp/simulate.py","src/agent_lease_mcp/simulate.py","run_simulation","run_simulation( out = print )",18,67
+2,3,25,1,2,"is_write_tool@35-36@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","is_write_tool","is_write_tool( tool : str )",35,36
+23,21,266,1,29,"extract_targets@39-67@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","extract_targets","extract_targets( payload : dict )",39,67
+2,1,26,1,8,"normalize_path@74-81@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","normalize_path","normalize_path( path : str )",74,81
+4,2,35,2,12,"covers@84-95@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","covers","covers( claim_path : str , target : str )",84,95
+10,11,110,1,11,"extract_target@98-108@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","extract_target","extract_target( payload : dict )",98,108
+18,6,146,4,28,"decide@111-138@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","decide","decide( tool : str , path : str | None , holder : Claim | None , me : str )",111,138
+17,13,158,1,26,"script_target@152-177@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","script_target","script_target( command : str )",152,177
+37,29,359,0,40,"shell_write_targets.flush@211-250@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","shell_write_targets.flush","shell_write_targets.flush( )",211,250
+27,13,201,2,75,"shell_write_targets@192-266@src/agent_lease_mcp/policy.py","src/agent_lease_mcp/policy.py","shell_write_targets","shell_write_targets( command : str , _depth : int = 0 )",192,266
+2,1,19,1,2,"valid_agent_name@44-45@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","valid_agent_name","valid_agent_name( name : str )",44,45
+2,1,31,1,3,"_label@48-50@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","_label","_label( value : str )",48,50
+6,4,50,1,7,"human_name@53-59@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","human_name","human_name( db_path : Path )",53,59
+2,2,33,1,3,"reserved_names@62-64@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","reserved_names","reserved_names( db_path : Path )",62,64
+2,1,18,1,3,"is_trusted_agent@67-69@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","is_trusted_agent","is_trusted_agent( name : str )",67,69
+18,4,173,1,18,"from_env@92-109@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","from_env","from_env( cls )",92,109
+4,3,36,2,4,"may_send_task@111-114@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","may_send_task","may_send_task( self , sender : str )",111,114
+6,7,88,1,16,"_agent_from_env@117-132@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","_agent_from_env","_agent_from_env( db_path : Path )",117,132
+10,7,111,1,11,"parse_fallbacks@135-145@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","parse_fallbacks","parse_fallbacks( raw : str )",135,145
+5,2,34,2,5,"_int_env@148-152@src/agent_lease_mcp/config.py","src/agent_lease_mcp/config.py","_int_env","_int_env( name : str , default : int )",148,152
+4,2,26,1,4,"redact@27-30@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","redact","redact( text : str )",27,30
+4,2,36,3,4,"check_len@33-36@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","check_len","check_len( label : str , value : str , limit : int )",33,36
+2,1,25,1,2,"check_text@39-40@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","check_text","check_text( text : str )",39,40
+2,1,22,2,2,"check_name@43-44@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","check_name","check_name( label : str , value : str )",43,44
+2,1,22,2,2,"check_short@47-48@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","check_short","check_short( label : str , value : str )",47,48
+2,1,18,1,2,"check_path@51-52@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","check_path","check_path( value : str )",51,52
+5,2,63,2,12,"untrusted@55-66@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","untrusted","untrusted( text : str , limit : int = 600 )",55,66
+14,6,152,5,16,"_quote_bounds@100-115@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","_quote_bounds","_quote_bounds( text : str , start : int , end : int , opener : str , closer : str , )",100,115
+19,6,217,2,21,"_quoted_meta_mention@118-138@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","_quoted_meta_mention","_quoted_meta_mention( text : str , match : re . Match )",118,138
+5,6,58,1,6,"heuristic_risk@141-146@src/agent_lease_mcp/hygiene.py","src/agent_lease_mcp/hygiene.py","heuristic_risk","heuristic_risk( text : str )",141,146
+7,3,82,3,7,"_git@22-28@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","_git","_git( cwd : Path , * argv : str , env : dict | None = None )",22,28
+37,14,376,1,38,"workspace_state@31-68@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","workspace_state","workspace_state( cwd : str | Path )",31,68
+3,3,61,3,4,"matches@71-74@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","matches","matches( cp : dict , head : str , dirty : str )",71,74
+6,3,70,0,7,"_hardened_env@83-89@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","_hardened_env","_hardened_env( )",83,89
+3,1,43,2,4,"_git_hardened@92-95@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","_git_hardened","_git_hardened( cwd : Path , * argv : str )",92,95
+6,4,63,1,10,"_repo_runs_programs@98-107@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","_repo_runs_programs","_repo_runs_programs( top : Path )",98,107
+18,9,240,2,26,"resolve_commit@110-135@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","resolve_commit","resolve_commit( cwd : str | Path , rev : str = 'HEAD' )",110,135
+12,4,122,3,19,"commit_diff@138-156@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","commit_diff","commit_diff( top : str | Path , head : str , base : str = '' )",138,156
+3,2,51,2,4,"parent_commit@159-162@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","parent_commit","parent_commit( top : str | Path , sha : str )",159,162
+4,3,49,3,5,"is_strict_ancestor@165-169@src/agent_lease_mcp/workspace.py","src/agent_lease_mcp/workspace.py","is_strict_ancestor","is_strict_ancestor( top : str | Path , base : str , head : str )",165,169
+8,3,73,0,8,"current_cgroup@14-21@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","current_cgroup","current_cgroup( )",14,21
+48,21,418,2,49,"recover_cgroup@24-72@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","recover_cgroup","recover_cgroup( record : object , timeout : float = 5 )",24,72
+21,5,163,1,22,"__init__@76-97@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","__init__","__init__( self )",76,97
+5,3,62,1,5,"_populated@99-103@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","_populated","_populated( self )",99,103
+17,6,107,2,17,"cleanup@105-121@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","cleanup","cleanup( self , timeout : float = 5 )",105,121
+46,13,332,2,46,"__init__@127-172@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","__init__","__init__( self , group : CommandCgroup )",127,172
+2,1,18,1,2,"failed@174-175@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","failed","failed( self )",174,175
+16,8,106,2,17,"finish@177-193@src/agent_lease_mcp/cgroup.py","src/agent_lease_mcp/cgroup.py","finish","finish( self , * , clean : bool )",177,193
+4,2,37,0,4,"enabled@45-48@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","enabled","enabled( )",45,48
+2,1,34,3,2,"build_request@51-52@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","build_request","build_request( state : str , questions : list [ dict ] , model : str )",51,52
+17,9,193,2,18,"parse_response@55-72@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","parse_response","parse_response( data : dict , ids : list [ str ] )",55,72
+2,3,35,1,2,"_num@75-76@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","_num","_num( value )",75,76
+17,4,192,3,18,"ask@79-96@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","ask","ask( state : str , questions : list [ dict ] , * , timeout : float = 2 . 0 )",79,96
+2,1,27,2,2,"noul@108-109@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","noul","noul( qid : str , prompt : str )",108,109
+3,2,36,2,3,"_p@112-114@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","_p","_p( ans : dict [ str , Answer ] , qid : str )",112,114
+3,3,45,2,3,"_confident@117-119@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","_confident","_confident( ans : dict [ str , Answer ] , qid : str )",117,119
+16,7,119,2,21,"triage@128-148@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","triage","triage( text : str , sender : str )",128,148
+16,5,119,2,20,"result_matches_task@151-170@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","result_matches_task","result_matches_task( task : str , result : str )",151,170
+11,10,146,3,12,"route@173-184@src/agent_lease_mcp/jev.py","src/agent_lease_mcp/jev.py","route","route( text : str , agents : list [ str ] , descriptions : dict [ str , str ] | None = None )",173,184
+4,1,83,5,4,"_final_hashes@43-46@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_final_hashes","_final_hashes( token : str , method : str , state : str , result : str , error : str )",43,46
+4,4,64,2,4,"_same_completion@49-52@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_same_completion","_same_completion( row : sqlite3 . Row , hashes : tuple [ str , str ] )",49,52
+2,1,33,3,3,"worker_activation@54-56@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","worker_activation","worker_activation( self , agent : str , * , include_existing : bool = False )",54,56
+23,4,157,5,24,"_activate@61-84@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_activate","_activate( self , table : str , action : str , agent : str , include_existing : bool )",61,84
+13,3,90,2,14,"activation_status@86-99@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","activation_status","activation_status( self , agent : str )",86,99
+20,2,123,3,25,"_expire_leases@102-126@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_expire_leases","_expire_leases( con : sqlite3 . Connection , now : float , recipient : str | None = None )",102,126
+7,1,50,1,12,"reconcile@128-139@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","reconcile","reconcile( self )",128,139
+84,16,574,9,104,"lease_next@141-244@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","lease_next","lease_next( self , recipient : str , * , lease_seconds : int = 60 , after_message_id : int = 0 , skip_accepted : bool = False , defer_if_present : float = 0 , owner : str | None = None , start : bool = False , workspace : Sequence [ str ] | None = None , )",141,244
+56,16,352,7,67,"ack@246-312@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","ack","ack( self , message_id : int , recipient : str , state : DeliveryState | str , * , lease_token : str | None = None , error : str = '' , workspace : Sequence [ str ] | None = None , )",246,312
+38,13,276,7,44,"complete@314-357@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","complete","complete( self , message_id : int , recipient : str , lease_token : str , state : DeliveryState | str , result_text : str , * , error : str = '' )",314,357
+8,3,67,1,9,"paused@361-369@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","paused","paused( self )",361,369
+15,2,101,3,22,"pause@371-392@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","pause","pause( self , by : str , reason : str = '' )",371,392
+12,1,80,3,13,"resume@394-406@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","resume","resume( self , by : str , reason : str = '' )",394,406
+26,9,206,9,32,"_checkpoint_hold@410-441@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_checkpoint_hold","_checkpoint_hold( self , con : sqlite3 . Connection , message_id : int , recipient : str , attempt : int , workspace : Sequence [ str ] | None , sender : str , now : float , * , held_state : str = 'pending' )",410,441
+27,4,186,9,31,"checkpoint@443-473@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","checkpoint","checkpoint( self , message_id : int , recipient : str , lease_token : str , step_done : str , next_step : str = '' , git_head : str = '' , dirty : str = '' , evidence : str = '' )",443,473
+7,2,54,3,7,"get_checkpoint@475-481@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","get_checkpoint","get_checkpoint( self , message_id : int , recipient : str )",475,481
+23,6,232,3,29,"backup@485-513@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","backup","backup( self , directory : Path | None = None , keep : int = 7 )",485,513
+2,1,25,1,2,"_integrity@516-517@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_integrity","_integrity( con : sqlite3 . Connection )",516,517
+2,1,14,1,3,"backup_now@519-521@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","backup_now","backup_now( self )",519,521
+20,10,169,5,25,"_quarantined@525-549@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_quarantined","_quarantined( self , con : sqlite3 . Connection , message_id : int , recipient : str , * , next_attempt : bool = True )",525,549
+10,2,78,4,12,"holds@551-562@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","holds","holds( self , message_id : int , recipient : str , lease_token : str )",551,562
+22,6,176,7,29,"defer@564-592@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","defer","defer( self , message_id : int , recipient : str , lease_token : str , not_before : float , notice : str , * , error : str = '' )",564,592
+3,1,27,1,3,"_text_hash@595-597@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_text_hash","_text_hash( text : str )",595,597
+11,5,92,4,15,"quarantine_approved@599-613@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","quarantine_approved","quarantine_approved( self , message_id : int , recipient : str , text : str )",599,613
+33,6,202,5,41,"approve_quarantine@615-655@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","approve_quarantine","approve_quarantine( self , message_id : int , recipient : str , approver : str , reason : str )",615,655
+29,6,176,5,35,"approve_checkpoint_resume@657-691@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","approve_checkpoint_resume","approve_checkpoint_resume( self , message_id : int , recipient : str , approver : str , reason : str )",657,691
+9,3,67,3,10,"checkpoint_resume_approved@693-702@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","checkpoint_resume_approved","checkpoint_resume_approved( self , message_id : int , recipient : str )",693,702
+6,3,68,5,7,"_may_manage@704-710@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","_may_manage","_may_manage( self , con : sqlite3 . Connection , message_id : int , recipient : str , actor : str | None )",704,710
+23,6,159,5,28,"retry@712-739@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","retry","retry( self , message_id : int , recipient : str , * , not_before : float = 0 , actor : str | None = None )",712,739
+15,3,107,4,18,"cancel@741-758@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","cancel","cancel( self , message_id : int , recipient : str , * , actor : str | None = None )",741,758
+18,3,130,2,19,"overdue@760-778@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","overdue","overdue( self , seconds : int = 120 )",760,778
+14,1,107,5,16,"extend_lease@780-795@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","extend_lease","extend_lease( self , message_id : int , recipient : str , lease_token : str , lease_seconds : int = 60 )",780,795
+9,2,88,2,9,"needs_review_list@797-805@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","needs_review_list","needs_review_list( self , limit : int = 20 )",797,805
+5,2,62,2,5,"get_screen@807-811@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","get_screen","get_screen( self , message_id : int )",807,811
+14,3,136,4,19,"set_screen@813-831@src/agent_lease_mcp/_deliveries.py","src/agent_lease_mcp/_deliveries.py","set_screen","set_screen( self , message_id : int , risk : float , actionable : float | None = None )",813,831
+6,2,32,2,6,"main.parent_died@12-17@src/agent_lease_mcp/cgroup_watchdog.py","src/agent_lease_mcp/cgroup_watchdog.py","main.parent_died","main.parent_died( _signum = None , _frame = None )",12,17
+22,9,157,0,34,"main@9-42@src/agent_lease_mcp/cgroup_watchdog.py","src/agent_lease_mcp/cgroup_watchdog.py","main","main( )",9,42
+3,2,33,1,3,"_bin@22-24@src/agent_lease_mcp/init_cmd.py","src/agent_lease_mcp/init_cmd.py","_bin","_bin( name : str )",22,24
+17,3,205,2,20,"build_hooks@27-46@src/agent_lease_mcp/init_cmd.py","src/agent_lease_mcp/init_cmd.py","build_hooks","build_hooks( agent : str , * , rewake : bool )",27,46
+2,2,35,1,2,"_is_ours@49-50@src/agent_lease_mcp/init_cmd.py","src/agent_lease_mcp/init_cmd.py","_is_ours","_is_ours( entry : dict )",49,50
+7,4,81,2,7,"merge@53-59@src/agent_lease_mcp/init_cmd.py","src/agent_lease_mcp/init_cmd.py","merge","merge( existing : dict , ours : dict )",53,59
+27,10,260,4,27,"run_init@62-88@src/agent_lease_mcp/init_cmd.py","src/agent_lease_mcp/init_cmd.py","run_init","run_init( agent : str , * , write : bool , rewake : bool , home : Path | None = None )",62,88
+25,10,250,3,36,"__init__@253-288@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","__init__","__init__( self , db_path : Path | None = None , * , settings : Settings | None = None )",253,288
+5,4,52,1,5,"_migrate_deliveries@291-295@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_deliveries","_migrate_deliveries( con : sqlite3 . Connection )",291,295
+6,4,76,1,7,"_migrate_reviews@298-304@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_reviews","_migrate_reviews( con : sqlite3 . Connection )",298,304
+6,4,70,1,7,"_migrate_checkpoints@307-313@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_checkpoints","_migrate_checkpoints( con : sqlite3 . Connection )",307,313
+12,4,67,1,18,"_migrate_receipts@316-333@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_receipts","_migrate_receipts( con : sqlite3 . Connection )",316,333
+7,4,88,1,8,"_migrate_screens@336-343@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_screens","_migrate_screens( con : sqlite3 . Connection )",336,343
+19,4,101,1,20,"_migrate_messages@346-365@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_migrate_messages","_migrate_messages( con : sqlite3 . Connection )",346,365
+15,3,87,1,19,"_connect@368-386@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_connect","_connect( self )",368,386
+4,1,43,2,5,"mark_notified@427-431@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","mark_notified","mark_notified( self , key : str )",427,431
+3,1,31,2,3,"unmark_notified@433-435@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","unmark_notified","unmark_notified( self , key : str )",433,435
+8,2,91,4,8,"recent_audit@438-445@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","recent_audit","recent_audit( self , actions : tuple [ str , ... ] , since_id : int = 0 , limit : int = 50 )",438,445
+3,1,50,5,3,"record@458-460@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","record","record( self , agent : str , action : str , path : str = '' , detail : str = '' )",458,460
+7,1,54,5,7,"_record@464-470@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","_record","_record( con : sqlite3 . Connection , agent : str , action : str , path : str = '' , detail : str = '' )",464,470
+28,7,212,2,40,"prune@488-527@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","prune","prune( self , older_than_days : int | None = None )",488,527
+21,3,140,3,22,"history@529-550@src/agent_lease_mcp/store.py","src/agent_lease_mcp/store.py","history","history( self , limit : int = 50 , path : str | None = None )",529,550
+15,3,134,2,15,"_atomic_write@33-47@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_atomic_write","_atomic_write( path : Path , value : int )",33,47
+12,4,68,1,12,"_read_cursor@50-61@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_read_cursor","_read_cursor( path : Path )",50,61
+3,2,33,1,3,"_high_water@64-66@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_high_water","_high_water( store )",64,66
+9,3,78,3,9,"_addressed_after@69-77@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_addressed_after","_addressed_after( store , recipient : str , cursor : int )",69,77
+16,5,124,3,16,"_queue_text@80-95@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_queue_text","_queue_text( thread : str , notice : str , * , runner = subprocess . run )",80,95
+8,3,77,3,8,"queue_nudge@98-105@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","queue_nudge","queue_nudge( thread : str , message_ids : list [ int ] , * , runner = subprocess . run )",98,105
+26,2,152,7,26,"__init__@109-134@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","__init__","__init__( self , store , thread : str , cursor_path : Path , * , runner = subprocess . run , clock = time . monotonic , retry_seconds : float = 30 . 0 , )",109,134
+39,10,257,1,43,"step@136-178@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","step","step( self )",136,178
+16,8,122,1,16,"_current_recovery@180-195@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_current_recovery","_current_recovery( self )",180,195
+20,10,144,1,21,"_scan_provider_audit@197-217@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_scan_provider_audit","_scan_provider_audit( self )",197,217
+5,2,38,1,5,"_mark_current_recovery@219-223@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_mark_current_recovery","_mark_current_recovery( self )",219,223
+31,13,225,1,31,"_wake_recovered_work@225-255@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_wake_recovered_work","_wake_recovered_work( self )",225,255
+16,4,121,5,17,"_poll_once@258-274@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","_poll_once","_poll_once( wake : CodexWake , seen_signal : float | None , next_db : float , now : float , transport_delay : float , )",258,274
+46,8,275,1,52,"main@277-328@src/agent_lease_mcp/codex_wake.py","src/agent_lease_mcp/codex_wake.py","main","main( argv : list [ str ] | None = None )",277,328
+45,22,365,0,54,"main@31-84@src/agent_lease_mcp/guard.py","src/agent_lease_mcp/guard.py","main","main( )",31,84
+4,5,64,2,5,"_in_cwd@87-91@src/agent_lease_mcp/guard.py","src/agent_lease_mcp/guard.py","_in_cwd","_in_cwd( paths : list [ str ] , cwd : object )",87,91
+12,14,237,2,12,"__init__@48-59@src/agent_lease_mcp/secret_scan.py","src/agent_lease_mcp/secret_scan.py","__init__","__init__( self , text : str )",48,59
+2,3,40,3,3,"looks_secret@61-63@src/agent_lease_mcp/secret_scan.py","src/agent_lease_mcp/secret_scan.py","looks_secret","looks_secret( self , start : int , end : int )",61,63
+23,12,178,1,23,"_has_assigned_secret@66-88@src/agent_lease_mcp/secret_scan.py","src/agent_lease_mcp/secret_scan.py","_has_assigned_secret","_has_assigned_secret( text : str )",66,88
+37,17,290,1,46,"scan_diff@94-139@src/agent_lease_mcp/secret_scan.py","src/agent_lease_mcp/secret_scan.py","scan_diff","scan_diff( diff : str )",94,139
+23,10,238,2,23,"parse_retry_after@99-121@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","parse_retry_after","parse_retry_after( text : str , * , now : float | None = None )",99,121
+44,18,329,10,50,"run_command@124-173@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","run_command","run_command( template : str , prompt : str , * , timeout : float , on_tick = None , gate = None , can_launch = None , use_cgroup : bool = False , on_cgroup_created = None , idle_timeout : float | None = None , progress = None )",124,173
+11,5,74,1,11,"_cgroup_cpu_usec@181-191@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_cgroup_cpu_usec","_cgroup_cpu_usec( group : CommandCgroup | None )",181,191
+8,4,48,0,8,"_run.setup_child@217-224@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_run.setup_child","_run.setup_child( )",217,224
+11,5,64,0,12,"_run.read_output@263-274@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_run.read_output","_run.read_output( )",263,274
+116,49,958,11,148,"_run@194-341@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_run","_run( template : str , prompt : str , last : str , * , timeout : float , on_tick = None , gate = None , can_launch = None , group : CommandCgroup | None = None , watchdog : CgroupWatchdog | None = None , idle_timeout : float | None = None , progress = None )",194,341
+6,2,30,0,6,"_resolve_prctl@344-349@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_resolve_prctl","_resolve_prctl( )",344,349
+4,4,46,1,9,"_die_with_parent@356-364@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_die_with_parent","_die_with_parent( parent_pid : int )",356,364
+34,11,173,2,40,"_kill_group@367-406@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_kill_group","_kill_group( proc : subprocess . Popen , grace : float = 3 . 0 )",367,406
+24,7,281,5,31,"run_openrouter@412-442@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","run_openrouter","run_openrouter( prompt : str , * , model : str , api_key : str , base_url : str = OPENROUTER_URL , timeout : float = 600 )",412,442
+27,7,293,16,40,"__init__@446-485@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","__init__","__init__( self , store : Store , agent : str , command : str , * , lease_seconds : int = 120 , timeout : float = 1800 , max_per_hour : int = 12 , runner = None , after_message_id : int = 0 , provider_probe = None , provider_probe_interval : float = 60 , worker_identity : str | None = None , interactive_grace : float = 300 , read_only : bool | None = None , use_cgroup : bool = False , max_runtime : float | None = None )",446,485
+4,3,44,1,4,"_budget_left@487-490@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_budget_left","_budget_left( self )",487,490
+12,5,106,0,19,"step.tick@614-632@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","step.tick","step.tick( )",614,632
+201,68,1644,1,257,"step@492-748@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","step","step( self )",492,748
+6,3,34,0,6,"_checkpoint_progress.stamp@752-757@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_checkpoint_progress.stamp","_checkpoint_progress.stamp( )",752,757
+6,3,33,0,6,"_checkpoint_progress.changed@761-766@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_checkpoint_progress.changed","_checkpoint_progress.changed( )",761,766
+5,1,23,2,19,"_checkpoint_progress@750-768@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_checkpoint_progress","_checkpoint_progress( self , mid : int )",750,768
+19,7,164,3,23,"_supervised_runner@770-792@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_supervised_runner","_supervised_runner( self , prompt : str , tick )",770,792
+14,5,102,2,17,"run_forever@794-810@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","run_forever","run_forever( self , poll : float = 1 . 0 )",794,810
+7,4,70,2,8,"_tick@812-819@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","_tick","_tick( self , poll : float )",812,819
+2,1,30,1,2,"main.runner@860-861@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","main.runner","main.runner( prompt : str )",860,861
+62,12,475,1,64,"main@822-885@src/agent_lease_mcp/bridge.py","src/agent_lease_mcp/bridge.py","main","main( argv : list [ str ] | None = None )",822,885
+20,6,140,2,21,"launch_gate@12-32@src/agent_lease_mcp/launch_gate.py","src/agent_lease_mcp/launch_gate.py","launch_gate","launch_gate( db_path : Path , * , timeout : float = 10 . 0 )",12,32
+9,5,87,1,9,"_snapshots@28-36@src/agent_lease_mcp/rate_limits.py","src/agent_lease_mcp/rate_limits.py","_snapshots","_snapshots( payload : dict [ str , Any ] )",28,36
+25,17,251,2,28,"parse_codex_rate_limits@39-66@src/agent_lease_mcp/rate_limits.py","src/agent_lease_mcp/rate_limits.py","parse_codex_rate_limits","parse_codex_rate_limits( payload : dict [ str , Any ] , * , now : float | None = None )",39,66
+34,11,270,3,35,"_read_codex_response@69-103@src/agent_lease_mcp/rate_limits.py","src/agent_lease_mcp/rate_limits.py","_read_codex_response","_read_codex_response( binary : str , requests : tuple [ dict , ... ] , timeout : float )",69,103
+17,3,169,2,18,"probe_codex_rate_limits@106-123@src/agent_lease_mcp/rate_limits.py","src/agent_lease_mcp/rate_limits.py","probe_codex_rate_limits","probe_codex_rate_limits( * , binary : str = 'codex' , timeout : float = 15 )",106,123
+25,7,201,5,37,"claim@28-64@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","claim","claim( self , paths : list [ str ] , agent : str , purpose : str = '' , ttl_seconds : int | None = None , )",28,64
+2,2,37,2,3,"_ttl@66-68@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","_ttl","_ttl( self , ttl_seconds : int | None = None )",66,68
+9,1,71,7,10,"_upsert_claim@70-79@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","_upsert_claim","_upsert_claim( self , con : sqlite3 . Connection , path : str , agent : str , purpose : str , now : float , ttl : int )",70,79
+27,7,226,4,35,"edit_gate@81-115@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","edit_gate","edit_gate( self , path : str , agent : str , purpose : str = 'auto (edit)' )",81,115
+16,3,144,1,23,"_held@118-140@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","_held","_held( con : sqlite3 . Connection )",118,140
+13,11,150,6,21,"_conflicts@142-162@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","_conflicts","_conflicts( self , con : sqlite3 . Connection , wanted : list [ str ] , agent : str , * , task_id : int | None = None , held : list [ tuple [ Claim , int | None ] ] | None = None )",142,162
+10,4,90,3,11,"release@164-174@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","release","release( self , paths : list [ str ] , agent : str )",164,174
+7,3,82,2,7,"release_all@176-182@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","release_all","release_all( self , agent : str )",176,182
+19,5,151,2,21,"holder_of@184-204@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","holder_of","holder_of( self , path : str )",184,204
+6,2,57,1,6,"claims@206-211@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","claims","claims( self )",206,211
+2,1,26,2,2,"_prune@214-215@src/agent_lease_mcp/_claims.py","src/agent_lease_mcp/_claims.py","_prune","_prune( con : sqlite3 . Connection , now : float )",214,215
+7,3,54,2,7,"_hooks_mention@28-34@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_hooks_mention","_hooks_mention( path : Path , needle : str )",28,34
+8,3,66,1,9,"_hook_agent_names@37-45@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_hook_agent_names","_hook_agent_names( path : Path )",37,45
+9,3,83,1,10,"_codex_mcp_agent@48-57@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_codex_mcp_agent","_codex_mcp_agent( path : Path )",48,57
+11,3,71,1,11,"_codex_queue_supported@60-70@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_codex_queue_supported","_codex_queue_supported( binary : str | None )",60,70
+10,4,82,2,11,"_service_env_value@73-83@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_service_env_value","_service_env_value( path : Path , key : str )",73,83
+3,2,38,1,4,"_service_fallbacks@86-89@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_service_fallbacks","_service_fallbacks( path : Path )",86,89
+8,4,73,1,8,"_user_service_active@92-99@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_user_service_active","_user_service_active( name : str )",92,99
+17,8,146,1,18,"_user_service_restarts@107-124@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","_user_service_restarts","_user_service_restarts( name : str )",107,124
+4,1,63,4,4,"run_doctor.line@132-135@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","run_doctor.line","run_doctor.line( check_id : str , level : str , text : str , ** details )",132,135
+213,69,1679,1,237,"run_doctor@127-363@src/agent_lease_mcp/doctor.py","src/agent_lease_mcp/doctor.py","run_doctor","run_doctor( * , json_output : bool = False )",127,363
+8,2,45,2,8,"_emit@31-38@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_emit","_emit( event : str , text : str )",31,38
+22,7,202,2,34,"screen_risk@44-77@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","screen_risk","screen_risk( store , m : dict )",44,77
+8,3,67,2,14,"_screen@80-93@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_screen","_screen( store , messages : list [ dict ] )",80,93
+26,9,223,0,38,"context_main@96-133@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","context_main","context_main( )",96,133
+9,3,67,0,17,"release_main@136-152@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","release_main","release_main( )",136,152
+9,7,94,1,15,"is_receipt@157-171@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","is_receipt","is_receipt( m : dict )",157,171
+4,5,59,2,6,"wakes@174-179@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","wakes","wakes( m : dict , me : str )",174,179
+6,2,50,1,7,"_proc_start@185-191@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_proc_start","_proc_start( pid : int )",185,191
+5,2,32,1,5,"_proc_comm@194-198@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_proc_comm","_proc_comm( pid : int )",194,198
+5,2,54,1,5,"_proc_ppid@201-205@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_proc_ppid","_proc_ppid( pid : int )",201,205
+14,5,90,0,23,"owner_watch@208-230@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","owner_watch","owner_watch( )",208,230
+9,5,76,2,10,"_first_wake@233-242@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_first_wake","_first_wake( store , me : str )",233,242
+12,5,117,3,14,"_wake_lock@245-258@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_wake_lock","_wake_lock( store , me : str , session : str )",245,258
+34,18,292,6,45,"rewake_wait@261-305@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","rewake_wait","rewake_wait( store , me : str , * , session : str = 'default' , timeout : float = 0 , alive : Callable [ [ ] , bool ] | None = None , out = None )",261,305
+8,7,74,0,9,"_hook_session@308-316@src/agent_lease_mcp/lifecycle.py","src/agent_lease_mcp/lifecycle.py","_hook_session","_hook_session( )",308,316
+15,5,90,4,23,"heartbeat@34-56@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","heartbeat","heartbeat( self , agent : str , status : str | None = None , cwd : str | None = None )",34,56
+30,8,331,2,32,"peers@58-89@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","peers","peers( self , stale_after : int = STALE_PEER_SECONDS )",58,89
+9,1,111,4,10,"report_limit@91-100@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","report_limit","report_limit( self , agent : str , until : float , reason : str = '' )",91,100
+3,1,37,2,3,"clear_limit@102-104@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","clear_limit","clear_limit( self , agent : str )",102,104
+7,2,90,1,7,"limits@106-112@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","limits","limits( self )",106,112
+20,4,165,7,21,"report_provider_state@114-134@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","report_provider_state","report_provider_state( self , agent : str , state : str , source : str , * , observed_at : float | None = None , resets_at : float | None = None , reason : str = '' )",114,134
+4,2,42,1,4,"provider_states@136-139@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","provider_states","provider_states( self )",136,139
+5,2,52,2,5,"provider_state@141-145@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","provider_state","provider_state( self , agent : str )",141,145
+11,3,71,2,12,"clear_provider_state@147-158@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","clear_provider_state","clear_provider_state( self , agent : str )",147,158
+3,4,49,2,4,"is_available@160-163@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","is_available","is_available( self , agent : str )",160,163
+2,1,33,3,3,"failover_activation@165-167@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","failover_activation","failover_activation( self , agent : str , * , include_existing : bool = False )",165,167
+2,2,19,1,2,"failover_sweep.can_run@188-189@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","failover_sweep.can_run","failover_sweep.can_run( agent : str )",188,189
+71,27,654,2,90,"failover_sweep@169-258@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","failover_sweep","failover_sweep( self , * , grace : int | None = None )",169,258
+69,32,676,1,70,"board@260-329@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","board","board( self )",260,329
+23,6,168,2,24,"task_summary@331-354@src/agent_lease_mcp/_availability.py","src/agent_lease_mcp/_availability.py","task_summary","task_summary( self , recipient : str )",331,354
+17,10,281,2,18,"collect@31-48@src/agent_lease_mcp/notifier.py","src/agent_lease_mcp/notifier.py","collect","collect( store , * , overdue_seconds : int = 300 )",31,48
+9,2,130,5,9,"send_telegram@51-59@src/agent_lease_mcp/notifier.py","src/agent_lease_mcp/notifier.py","send_telegram","send_telegram( token : str , chat_id : str , text : str , * , base : str = 'https://api.telegram.org' , timeout : float = 10 . 0 )",51,59
+17,7,128,4,18,"run_once@62-79@src/agent_lease_mcp/notifier.py","src/agent_lease_mcp/notifier.py","run_once","run_once( store , * , overdue_seconds : int , dry : bool , sender = send_telegram )",62,79
+13,4,143,1,13,"main@82-94@src/agent_lease_mcp/notifier.py","src/agent_lease_mcp/notifier.py","main","main( argv : list [ str ] | None = None )",82,94
+3,1,66,2,3,"_sealed@31-33@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_sealed","_sealed( key : str , record : dict )",31,33
+9,5,110,2,9,"_unseal@36-44@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_unseal","_unseal( data : object , key : str )",36,44
+6,1,64,3,6,"__init__@48-53@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","__init__","__init__( self , db_path : Path , agent : str )",48,53
+6,2,23,1,6,"present@55-60@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","present","present( self )",55,60
+6,2,43,1,6,"_sync_parent@62-67@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_sync_parent","_sync_parent( self )",62,67
+7,3,68,2,10,"_directory_lock@70-79@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_directory_lock","_directory_lock( self , * , blocking : bool = True )",70,79
+3,1,36,3,3,"acquire@81-83@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","acquire","acquire( self , message_id : int , * , cgroup : bool = False )",81,83
+17,4,164,3,19,"_acquire_locked@85-103@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_acquire_locked","_acquire_locked( self , message_id : int , * , cgroup : bool )",85,103
+13,3,136,2,15,"record_cgroup@105-119@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","record_cgroup","record_cgroup( self , group )",105,119
+6,2,31,1,7,"try_recover@121-127@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","try_recover","try_recover( self )",121,127
+35,12,260,1,36,"_try_recover_locked@129-164@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","_try_recover_locked","_try_recover_locked( self )",129,164
+6,2,39,1,6,"release@166-171@src/agent_lease_mcp/run_fence.py","src/agent_lease_mcp/run_fence.py","release","release( self )",166,171
+2,2,24,1,2,"_values@16-17@src/agent_lease_mcp/states.py","src/agent_lease_mcp/states.py","_values","_values( * states : S )",16,17
+3,4,50,1,4,"sql_in@41-44@src/agent_lease_mcp/states.py","src/agent_lease_mcp/states.py","sql_in","sql_in( states : frozenset [ str ] )",41,44
+4,3,43,1,4,"_check_agent@30-33@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_check_agent","_check_agent( agent : str )",30,33
+8,1,50,1,8,"_row_to_claim@36-43@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_row_to_claim","_row_to_claim( row : sqlite3 . Row )",36,43
+9,7,65,1,12,"_job_state@46-57@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_job_state","_job_state( row : sqlite3 . Row )",46,57
+8,1,100,2,9,"_row_to_job@60-68@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_row_to_job","_row_to_job( row : sqlite3 . Row , now : float )",60,68
+11,4,145,2,11,"_row_to_message@71-81@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_row_to_message","_row_to_message( row : sqlite3 . Row , now : float )",71,81
+3,4,46,2,3,"_limit_reset_passed@84-86@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_limit_reset_passed","_limit_reset_passed( provider : dict | None , now : float )",84,86
+9,8,63,3,9,"_presence_state@89-97@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_presence_state","_presence_state( status : str , age : float , stale_after : int )",89,97
+2,1,25,1,3,"_limit@100-102@src/agent_lease_mcp/_store_common.py","src/agent_lease_mcp/_store_common.py","_limit","_limit( value : int )",100,102
+12,5,141,1,13,"migrate@10-22@src/agent_lease_mcp/sqlite_migrate.py","src/agent_lease_mcp/sqlite_migrate.py","migrate","migrate( db : Path )",10,22
+9,1,63,0,9,"main@25-33@src/agent_lease_mcp/sqlite_migrate.py","src/agent_lease_mcp/sqlite_migrate.py","main","main( )",25,33
+2,1,15,1,2,"blocks@32-33@src/agent_lease_mcp/jev_policy.py","src/agent_lease_mcp/jev_policy.py","blocks","blocks( self )",32,33
+5,3,31,1,6,"hard_block@62-67@src/agent_lease_mcp/jev_policy.py","src/agent_lease_mcp/jev_policy.py","hard_block","hard_block( command : str )",62,67
+14,3,82,3,23,"decide_from_jev@70-92@src/agent_lease_mcp/jev_policy.py","src/agent_lease_mcp/jev_policy.py","decide_from_jev","decide_from_jev( p_destructive : float , threshold : float , enforce : bool )",70,92
+7,4,76,1,8,"redact@113-120@src/agent_lease_mcp/jev_policy.py","src/agent_lease_mcp/jev_policy.py","redact","redact( command : str )",113,120

@@ -143,3 +143,16 @@ Zdroje: GitHub API (licence, releases) pro gitleaks/gitleaks, betterleaks/better
 semgrep/semgrep-rules, terryyin/lizard, rubik/radon, coveragepy/coveragepy, gastownhall/gastown,
 gastownhall/gascity, steveyegge/beads, crewship-ai/crewship; [Semgrep FAQ – licence](https://semgrep.dev/docs/faq/overview);
 [Gas Town README](https://github.com/gastownhall/gastown); [Betterleaks jako nástupce Gitleaks](https://vpncentral.com/?p=246688).
+
+## Dodatek 7. 11. 2026 — měření po převzetí Noxem
+
+Výše uvedený audit je historický podklad před pilotem; jeho tehdejší tvrzení nejsou přepisována.
+Michal následně schválil nasazení scanneru 9134485 a omezený místní pilot s limity
+2 GiB / 100 % CPU / 15 minut na dávku. [Naměřený report](2026-11-07-b7-0-pilot.md)
+dokládá coverage/lizard/CRAP i porovnání scannerů nad syntetickým korpusem a 229 commity.
+Pilotní obal dostal pouze syntetický passwd/group pro testy bez HOME; všechny původní
+hranice zůstaly ověřené. Původní i opravený pokus jsou popsány, bez fingovaného PASS.
+
+Scanner je [nasazený](../PHASE_B_SCANNER_DEPLOY_RECORD_2026-11-07.md). B7 MVP, globální
+hooky, dashboard API a TS E2E **ještě nejsou implementované**. Nox je autorem pilotu,
+takže jeho nezávislé review zůstává pending; Ada kvůli limitu není kontaktována.

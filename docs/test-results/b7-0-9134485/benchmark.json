@@ -1,0 +1,21 @@
+{
+  "commit": "9134485371fdd6d1c92c16562aa04d188c3f2125",
+  "baseline": {
+    "phase": "baseline",
+    "returncode": 0,
+    "seconds": 121.9654760409976,
+    "stdout_bytes": 1185,
+    "stderr_bytes": 0
+  },
+  "coverage": {
+    "phase": "coverage-fixed",
+    "returncode": 0,
+    "seconds": 139.57913022699358,
+    "stdout_bytes": 1185,
+    "stderr_bytes": 0
+  },
+  "coverage_run_overhead_percent": 14.441508169143958,
+  "single_measurement_only": true,
+  "same_snapshot_sandbox_limits_and_identity": true,
+  "subprocess_coverage": "not configured; parent process measurements only"
+}

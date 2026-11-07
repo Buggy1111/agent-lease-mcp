@@ -1,0 +1,21 @@
+{
+  "unit": "agent-lease-b7-lizard-1794028380.scope",
+  "properties": {
+    "RuntimeMaxUSec": "15min",
+    "CPUQuotaPerSecUSec": "1s",
+    "MemoryMax": "2147483648"
+  },
+  "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-b7-lizard-1794028380.scope",
+  "limits": {
+    "memory.max": "2147483648",
+    "cpu.max": "100000 100000"
+  },
+  "command": [
+    "/tools/python/bin/python3",
+    "-m",
+    "lizard",
+    "--csv",
+    "src"
+  ],
+  "phase": "lizard"
+}

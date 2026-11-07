@@ -1,0 +1,17 @@
+{
+  "status": "pass",
+  "host_home_hidden": true,
+  "broker_hidden": true,
+  "routes_empty": true,
+  "snapshot_readonly": true,
+  "loopback": true,
+  "fsize": 52428800,
+  "nproc": 256,
+  "python": "3.13.18",
+  "tools": {
+    "coverage": "7.17.2",
+    "lizard": "1.25.0",
+    "Pygments": "2.21.0",
+    "pathspec": "1.1.1"
+  }
+}

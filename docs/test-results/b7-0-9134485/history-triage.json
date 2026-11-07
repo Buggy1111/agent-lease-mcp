@@ -1,0 +1,86 @@
+[
+  {
+    "scanner": "gitleaks",
+    "rule": "generic-api-key",
+    "file": "src/agent_lease_mcp/_deliveries.py",
+    "line": 158,
+    "commit": "7a154a195556cdbe4464d47795565b7a20f24d81",
+    "rhs_type": "NoneType",
+    "called_function": null,
+    "test_function": null,
+    "category": "generated-token-code-false-positive",
+    "calls_on_line": [
+      "Delivery",
+      "max"
+    ],
+    "keywords_on_line": [
+      {
+        "keyword": "lease_token",
+        "value_type": "Name",
+        "call": null
+      },
+      {
+        "keyword": "lease_until",
+        "value_type": "BinOp",
+        "call": null
+      }
+    ],
+    "value_origin_type": "Attribute",
+    "value_origin_calls": [
+      "uuid.uuid4"
+    ]
+  },
+  {
+    "scanner": "gitleaks",
+    "rule": "generic-api-key",
+    "file": "src/agent_lease_mcp/store.py",
+    "line": 473,
+    "commit": "98371632bb16acb15113bd1e79bd502473d08725",
+    "rhs_type": "NoneType",
+    "called_function": null,
+    "test_function": null,
+    "category": "generated-token-code-false-positive",
+    "calls_on_line": [
+      "Delivery",
+      "max"
+    ],
+    "keywords_on_line": [
+      {
+        "keyword": "lease_token",
+        "value_type": "Name",
+        "call": null
+      },
+      {
+        "keyword": "lease_until",
+        "value_type": "BinOp",
+        "call": null
+      }
+    ],
+    "value_origin_type": "Attribute",
+    "value_origin_calls": [
+      "uuid.uuid4"
+    ]
+  },
+  {
+    "scanner": "betterleaks",
+    "rule": "generic-credential-uri",
+    "file": "tests/test_jev_policy.py",
+    "line": 121,
+    "commit": "022350ad6b8daa38481b2da4e93aaa7af8005d56",
+    "rhs_type": "Call",
+    "called_function": "redact",
+    "test_function": "test_redact_masks_secrets_and_keeps_shape",
+    "category": "synthetic-redaction-test"
+  },
+  {
+    "scanner": "betterleaks",
+    "rule": "generic-credential-uri",
+    "file": "tests/test_jev_policy.py",
+    "line": 120,
+    "commit": "62d958ffaa5f8edd4805f13c1ce8e8d3c0ccbc24",
+    "rhs_type": "Call",
+    "called_function": "redact",
+    "test_function": "test_redact_masks_secrets_and_keeps_shape",
+    "category": "synthetic-redaction-test"
+  }
+]

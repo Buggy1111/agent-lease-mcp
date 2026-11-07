@@ -1,0 +1,6 @@
+{
+  "reason": "Tests drop HOME; pwd.getpwuid must resolve to private /tmp/home",
+  "only_change": "Readonly synthetic passwd/group mounts; no host /etc or HOME",
+  "base_wrapper_sha256": "bd0ee5125129b1f7b9f3dfb523312f7cd9f3261ee3e95c6a71bd2df04c534188",
+  "pilot_wrapper_sha256": "8477304bd5c560f97ff9806ff634441dd5f997c9edd2e42d6fdda12bb1dbaeb4"
+}

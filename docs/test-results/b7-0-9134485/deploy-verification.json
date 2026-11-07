@@ -1,0 +1,49 @@
+{
+  "services": [
+    {
+      "unit": "agent-lease-broker.service",
+      "MainPID": "2154659",
+      "Delegate": "no",
+      "ActiveState": "active",
+      "exe": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/python/bin/python3.13",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-broker.service"
+    },
+    {
+      "unit": "agent-lease-bridge@claude-code.service",
+      "MainPID": "2154661",
+      "Delegate": "yes",
+      "ActiveState": "active",
+      "exe": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/python/bin/python3.13",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-agent\\x2dlease\\x2dbridge.slice/agent-lease-bridge@claude-code.service"
+    },
+    {
+      "unit": "agent-lease-bridge@codex.service",
+      "MainPID": "2154662",
+      "Delegate": "yes",
+      "ActiveState": "active",
+      "exe": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/python/bin/python3.13",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-agent\\x2dlease\\x2dbridge.slice/agent-lease-bridge@codex.service"
+    },
+    {
+      "unit": "agent-lease-codex-wake.service",
+      "MainPID": "2154663",
+      "Delegate": "no",
+      "ActiveState": "active",
+      "exe": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/python/bin/python3.13",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-codex-wake.service"
+    },
+    {
+      "unit": "agent-lease-webui-deploy.service",
+      "MainPID": "2155394",
+      "Delegate": "no",
+      "ActiveState": "active",
+      "exe": "/home/buggy1111/.local/share/agent-lease/runtime-9134485/python/bin/python3.13",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-webui-deploy.service"
+    }
+  ],
+  "integrity": "ok",
+  "queue_unchanged": true,
+  "queue_rows": 101,
+  "paused": true,
+  "current": "runtime-9134485"
+}
