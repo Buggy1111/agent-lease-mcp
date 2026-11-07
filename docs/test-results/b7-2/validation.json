@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "code_commit": "66039c0839f8fafc6bfd7437ff0c330dbb60f470",
+  "production_commit": "9134485371fdd6d1c92c16562aa04d188c3f2125",
+  "branch": "nox/b7-mvp-20261107",
+  "independent_review": "pending",
+  "production_activation": false,
+  "github_published": false,
+  "merge_enforcement": "not_active",
+  "canonical_github_docs": {
+    "TODO.md": "a87110b7b2490524b54ca676812df1947726325f",
+    "docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md": "2b6b1bb507dd1baad51aeddfd548c90ae4396b12"
+  },
+  "e2e": {
+    "passed": 28,
+    "seconds": 312.672,
+    "code_commit": "d92f6c5",
+    "roles": "synthetic",
+    "compiler_and_namespaces": "real",
+    "artifact": "e2e.xml"
+  },
+  "numeric_unit": {
+    "passed": 95,
+    "artifact": "numeric-unit.xml",
+    "additional_crap_cases_passed": 4
+  },
+  "queue_recovery": {
+    "passed": 7,
+    "artifact": "queue-recovery.xml",
+    "additional_locked_start_and_queue_passed": 7
+  },
+  "browser": {
+    "passed": 30,
+    "artifact": "browser-results.json",
+    "frontend_unchanged_since_run": true
+  },
+  "ruff": "PASS",
+  "diff_secret_scan_findings": [],
+  "package": {
+    "commit": "66039c0839f8fafc6bfd7437ff0c330dbb60f470",
+    "wheel_sha256": "5b3be02483b40696e18962523d0054c3e7149bd81445bb0f7045e8d74a23052c",
+    "sdist_sha256": "c21bf624e587e6c434f8a2064c0b42e573eec14d5194b0ab0d86d3cd3d8bff50",
+    "policy_sha256": "42770bea2dc6e438ce523256386bb953d4e4be563020ef96fc1c3d014ffe17ad",
+    "production_modified": false,
+    "source_modules_identical": 46,
+    "license_in_wheel": true,
+    "metadata_mit": true,
+    "staging_only": true
+  },
+  "own_gate": {
+    "status": "REVIEW",
+    "execution_status": "completed",
+    "comparison_base": "9134485371fdd6d1c92c16562aa04d188c3f2125",
+    "checks": {
+      "tests": "PASS",
+      "lint": "PASS",
+      "typecheck": "NA",
+      "build": "PASS",
+      "coverage": "NA",
+      "security": "REVIEW",
+      "crap": "NA"
+    },
+    "observations": [
+      {
+        "check": "build",
+        "duration_ms": 3932,
+        "exit_code": 0,
+        "interrupted": false,
+        "metrics": null,
+        "output_bytes": 243,
+        "output_limited": false,
+        "output_sha256": "cf8c1f9452cd7ce8b7848fcba32d4988831052f7a5c26e81575d8167c13803b7",
+        "timed_out": false
+      },
+      {
+        "check": "lint",
+        "duration_ms": 406,
+        "exit_code": 0,
+        "interrupted": false,
+        "metrics": null,
+        "output_bytes": 19,
+        "output_limited": false,
+        "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "timed_out": false
+      },
+      {
+        "check": "tests",
+        "duration_ms": 134880,
+        "exit_code": 0,
+        "interrupted": false,
+        "metrics": null,
+        "output_bytes": 3213,
+        "output_limited": false,
+        "output_sha256": "e212eb0b58238f9efa5d32444056f125e05757fd62f5b56c4d9fc762924fa6cb",
+        "timed_out": false
+      }
+    ],
+    "artifact": "own-run.json",
+    "independent_review": "pending",
+    "previous_failure_artifact": "own-run-before-reaper.json"
+  },
+  "external_changes": {
+    "push": false,
+    "merge": false,
+    "deploy": false,
+    "global_agent_config": false,
+    "ada_notifications": false
+  },
+  "product_code_commit": "e921d8c223dc77d40c1208d3462a6c69577cff1e",
+  "e2e_final": {
+    "distinct_cases_verified": 30,
+    "full_run": {
+      "commit": "e921d8c223dc77d40c1208d3462a6c69577cff1e",
+      "passed": 29,
+      "failed": 1,
+      "seconds": 296.502,
+      "artifact": "final-e2e-before-fixture-fix.xml",
+      "raw_xml_sha256": "01f3433fca15ea6459c29ee26d74286b7445f16bc495c9d40a8e0c2209fc72b7",
+      "xml_normalization": "Trailing horizontal whitespace removed; test results unchanged."
+    },
+    "failure": "New mixed TS/Python reaper fixture lacked Python manifest; detector correctly returned SETUP_REQUIRED.",
+    "correction": {
+      "commit": "66039c0839f8fafc6bfd7437ff0c330dbb60f470",
+      "product_code_changed": false,
+      "passed": 2,
+      "seconds": 3.802,
+      "artifact": "final-reaper.xml"
+    },
+    "full_suite_repeated_after_fixture_only_fix": false
+  },
+  "final_metrics_unit": {
+    "passed": 21,
+    "artifact": "final-metrics-unit.xml"
+  }
+}

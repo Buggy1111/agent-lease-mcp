@@ -16,8 +16,10 @@ hook change or persistent service change is authorized by this document.
    this for production deployment, systemd services and agent configuration.
 4. Before switching runtime, pause through the existing maintenance procedure,
    back up database/config/queue, record hashes and integrity, and stage a new
-   immutable runtime directory. Do not overwrite runtime-9134485 or discard jobs.
-5. Apply the reviewed broker limit drop-in (`MemoryMax=2G`, `CPUQuota=100%`,
+   immutable runtime directory. Copy pinned tool trees into the reviewed runtime
+   location before enabling the policy; the development scratch toolchain is not
+   a production installation. Recalculate and compare tree/executable pins. Do not overwrite runtime-9134485 or discard jobs.
+5. Apply the [reviewed broker limit drop-in](../deploy/quality/broker-limits.conf.example) (`MemoryMax=2G`, `CPUQuota=100%`,
    `TasksMax=256` in `[Service]`). Confirm effective ancestor limits. Without
    these, the runner intentionally returns SETUP REQUIRED. Avoid a second worker
    or increasing permissions. Stage a private owner-only operator policy beside

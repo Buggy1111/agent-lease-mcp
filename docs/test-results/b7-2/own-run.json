@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "kind": "quality_run",
+  "executed": true,
+  "run_id": 3,
+  "execution_id": "009849446d77424dba89feebabaf098d",
+  "repository": "/home/buggy1111/dev/work/agent-lease-b7-mvp",
+  "commit_sha": "66039c0839f8fafc6bfd7437ff0c330dbb60f470",
+  "base_commit": "9134485371fdd6d1c92c16562aa04d188c3f2125",
+  "branch": "nox/b7-mvp-20261107",
+  "agent": "codex",
+  "task_id": null,
+  "sandbox": {
+    "limits": {
+      "cpu_ratio": 1.0,
+      "memory_bytes": 2147483648,
+      "pids": 256
+    },
+    "network": "loopback_only",
+    "policy_sha256": "42770bea2dc6e438ce523256386bb953d4e4be563020ef96fc1c3d014ffe17ad"
+  },
+  "execution_status": "completed",
+  "timestamp": "2026-11-07T21:27:01.537319+00:00",
+  "language": "python",
+  "config_digest": "26697e9dd9f737e1a4c9e00407ca92d5aec8b365fa8acd1a31ed61aad399f8bd",
+  "checks": {
+    "tests": {
+      "command_configured": true,
+      "detail": "Configured command exited successfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.tests",
+      "status": "PASS",
+      "value": null
+    },
+    "lint": {
+      "command_configured": true,
+      "detail": "Configured command exited successfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.lint",
+      "status": "PASS",
+      "value": null
+    },
+    "typecheck": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    },
+    "build": {
+      "command_configured": true,
+      "detail": "Configured command exited successfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.build",
+      "status": "PASS",
+      "value": null
+    },
+    "coverage": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    },
+    "security": {
+      "command_configured": false,
+      "detail": "Independent B6 review is pending or not approved.",
+      "required": true,
+      "source": "agent-lease:B6",
+      "status": "REVIEW",
+      "value": null
+    },
+    "crap": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    }
+  },
+  "observations": [
+    {
+      "check": "build",
+      "duration_ms": 3932,
+      "exit_code": 0,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 243,
+      "output_limited": false,
+      "output_sha256": "cf8c1f9452cd7ce8b7848fcba32d4988831052f7a5c26e81575d8167c13803b7",
+      "timed_out": false
+    },
+    {
+      "check": "lint",
+      "duration_ms": 406,
+      "exit_code": 0,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 19,
+      "output_limited": false,
+      "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "timed_out": false
+    },
+    {
+      "check": "tests",
+      "duration_ms": 134880,
+      "exit_code": 0,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 3213,
+      "output_limited": false,
+      "output_sha256": "e212eb0b58238f9efa5d32444056f125e05757fd62f5b56c4d9fc762924fa6cb",
+      "timed_out": false
+    }
+  ],
+  "overall_status": "REVIEW",
+  "policy_review_required": true,
+  "policy_review_status": "pending",
+  "policy_approval": null,
+  "policy_paths": [
+    ".agent-lease/quality.toml",
+    "src/agent_lease_mcp/_quality_queue.py",
+    "src/agent_lease_mcp/_quality_runs.py",
+    "src/agent_lease_mcp/_reviews.py",
+    "src/agent_lease_mcp/broker.py",
+    "src/agent_lease_mcp/lifecycle.py",
+    "src/agent_lease_mcp/quality.py",
+    "src/agent_lease_mcp/quality_collect.py",
+    "src/agent_lease_mcp/quality_namespace.py",
+    "src/agent_lease_mcp/quality_runner.py",
+    "src/agent_lease_mcp/store.py",
+    "src/agent_lease_mcp/webui.py",
+    "tests/test_broker.py",
+    "tests/test_quality.py",
+    "tests/test_quality_collect.py",
+    "tests/test_quality_queue.py",
+    "tests/test_quality_runner.py",
+    "tests/test_quality_runner_e2e.py",
+    "tests/test_quality_runs.py",
+    "tests/ui/browser_check.cjs",
+    "tests/ui/quality_gate_checks.cjs"
+  ],
+  "reviewer": null,
+  "review_status": "pending",
+  "review_id": null,
+  "logs": [
+    {
+      "check": "build",
+      "url": "/api/quality-log?run_id=3&check=build"
+    },
+    {
+      "check": "lint",
+      "url": "/api/quality-log?run_id=3&check=lint"
+    },
+    {
+      "check": "tests",
+      "url": "/api/quality-log?run_id=3&check=tests"
+    }
+  ],
+  "history": [],
+  "evidence_sha256": "7f2aea9174d6dcb24c19e4c799cc1262e97d3c3850e07a7716a037f4fb785c11"
+}

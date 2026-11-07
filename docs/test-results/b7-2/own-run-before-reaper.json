@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "kind": "quality_run",
+  "executed": true,
+  "run_id": 2,
+  "execution_id": "3965759b371e4cea96447cf6f80051f5",
+  "repository": "/home/buggy1111/dev/work/agent-lease-b7-mvp",
+  "commit_sha": "4cb7ca8365ee25528947ffc8802fcbd6ea403e25",
+  "base_commit": "d92f6c5801768cd589fc05fb44ea3eaa409920b7",
+  "branch": "nox/b7-mvp-20261107",
+  "agent": "codex",
+  "task_id": null,
+  "sandbox": {
+    "limits": {
+      "cpu_ratio": 1.0,
+      "memory_bytes": 2147483648,
+      "pids": 256
+    },
+    "network": "loopback_only",
+    "policy_sha256": "308a67fad5078de89d4695ca652a42e3cab8b3f82a0b9e6a01e3fad34080933e"
+  },
+  "execution_status": "completed",
+  "timestamp": "2026-11-07T21:14:01.281332+00:00",
+  "language": "python",
+  "config_digest": "26697e9dd9f737e1a4c9e00407ca92d5aec8b365fa8acd1a31ed61aad399f8bd",
+  "checks": {
+    "tests": {
+      "command_configured": true,
+      "detail": "Configured command exited unsuccessfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.tests",
+      "status": "FAIL",
+      "value": null
+    },
+    "lint": {
+      "command_configured": true,
+      "detail": "Configured command exited successfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.lint",
+      "status": "PASS",
+      "value": null
+    },
+    "typecheck": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    },
+    "build": {
+      "command_configured": true,
+      "detail": "Configured command exited successfully.",
+      "required": true,
+      "source": ".agent-lease/quality.toml:checks.build",
+      "status": "PASS",
+      "value": null
+    },
+    "coverage": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    },
+    "security": {
+      "command_configured": false,
+      "detail": "Independent B6 review is pending or not approved.",
+      "required": true,
+      "source": "agent-lease:B6",
+      "status": "REVIEW",
+      "value": null
+    },
+    "crap": {
+      "command_configured": false,
+      "detail": "No applicable configured metric; not a passing result.",
+      "required": false,
+      "source": null,
+      "status": "NA",
+      "value": null
+    }
+  },
+  "observations": [
+    {
+      "check": "build",
+      "duration_ms": 3036,
+      "exit_code": 0,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 243,
+      "output_limited": false,
+      "output_sha256": "cf8c1f9452cd7ce8b7848fcba32d4988831052f7a5c26e81575d8167c13803b7",
+      "timed_out": false
+    },
+    {
+      "check": "lint",
+      "duration_ms": 522,
+      "exit_code": 0,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 19,
+      "output_limited": false,
+      "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "timed_out": false
+    },
+    {
+      "check": "tests",
+      "duration_ms": 228729,
+      "exit_code": 1,
+      "interrupted": false,
+      "metrics": null,
+      "output_bytes": 5052,
+      "output_limited": false,
+      "output_sha256": "6c1a58e368cfec1752b98f3d2c69196d3060b9741364de51e62a818906c7bfce",
+      "timed_out": false
+    }
+  ],
+  "overall_status": "FAIL",
+  "policy_review_required": true,
+  "policy_review_status": "pending",
+  "policy_approval": null,
+  "policy_paths": [
+    "src/agent_lease_mcp/_quality_queue.py",
+    "tests/test_broker.py"
+  ],
+  "reviewer": null,
+  "review_status": "pending",
+  "review_id": null,
+  "logs": [
+    {
+      "check": "build",
+      "url": "/api/quality-log?run_id=2&check=build"
+    },
+    {
+      "check": "lint",
+      "url": "/api/quality-log?run_id=2&check=lint"
+    },
+    {
+      "check": "tests",
+      "url": "/api/quality-log?run_id=2&check=tests"
+    }
+  ],
+  "history": [],
+  "evidence_sha256": "d1dfd40f31264018efa1bcf62bbd891ac9b91a7764758dea01b2aebfc4ca3f3b"
+}

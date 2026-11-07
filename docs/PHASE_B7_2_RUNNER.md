@@ -65,6 +65,7 @@ show redacted process metadata only. Do not expect project diagnostics there.
 Coverage commands can emit `coverage.json` (coverage.py) or
 `coverage/coverage-summary.json` (Istanbul). A trusted read-only namespace init
 removes stale reports, runs the command without inheriting the metadata FD,
+reaps adopted orphans while the command is alive,
 then parses at most 4 MiB JSON without following links/FIFOs. It exports only
 validated numeric counts through a private memfd; project processes have no
 capabilities and cannot reopen the nondumpable collector's `/proc/1/fd`.

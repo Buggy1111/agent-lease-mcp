@@ -53,6 +53,21 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
   - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
 
+### Místní kandidát B7 — 7. 11. 2026 (dosud nezveřejněný)
+
+Implementace a návod: [B7.2 runner](docs/PHASE_B7_2_RUNNER.md).
+Izolovaný runner, CLI/fronta, stávající dashboard, ochrana kritických změn,
+číselná coverage a Python CRAP jsou implementované v pracovní větvi Noxe.
+Python/TS E2E pokrývají 30 odlišných scénářů (viz přesný průběh ve validaci);
+30 kontrol prohlížeče a vlastní kompletní pytest/lint/build prošly; jde o
+syntetické role obou klientů, nikoli nezávislé review tohoto kódu nebo ostrou
+aktivaci klientů. Finální důkazy viz [validace](docs/test-results/b7-2/validation.json).
+
+**B7 zůstává otevřené:** nezávislé review, schválená produkční/globální aktivace,
+ostrá klientská akceptace a skutečné required checks/release enforcement.
+Plán a rollback: [aktivace](docs/PHASE_B7_ACTIVATION_PLAN.md). Žádný automatický
+přechod do C, push, merge nebo produkční nasazení.
+
 ### B7.0 – FAST-TRACK AUDIT (první podúkol)
 
 - [ ] **Před implementací B7** podle [roadmapy](docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) inventarizovat existující kontroly a provést read-only průzkum Gitleaks, Semgrep, coverage/CRAP, Gas Town, Gas City a Crewship. Izolovaný pilot jen v platném schváleném scope. **Ada může využít reverzní inženýrství** (existující Ghidra MCP/bezpečnou statickou analýzu) jen u legálně získaných artefaktů s oprávněním k analýze; read-only, nejprve veřejné zdroje a dokumentace; bez obcházení DRM, přístupu či šifrování a bez přenosu neveřejných dat do externích služeb. Ada připraví kandidáty a baseline; Nox prověří licence, bezpečnost a skutečnou úsporu. Výstup POUŽÍT / INSPIROVAT SE / VYNECHAT s testy, náklady a rollbackem; neinstalovat hromadně frameworky a nevytvářet druhý orchestrátor.
