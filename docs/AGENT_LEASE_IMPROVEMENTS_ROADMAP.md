@@ -47,6 +47,29 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | B4 | **Max. 3 opravné cykly**, trvale, pak člověk | Orka (max 2) | 4. pokus se nespustí ani po restartu |
 | B5 | **Progress-aware detekce zaseknutí**: výstup/milník resetuje nečinnost + absolutní strop | Orka | dlouhý ale aktivní úkol ≠ zaseknutý |
 | B6 | Povinný bezpečnostní verdikt nad diffem + secret scan (před autonomními zápisy) | Orka security-review | podvržené tajemství zablokuje |
+| B7 | **Centrální Quality Gate pro všechny podporované projekty**: automatická detekce repo/jazyka, testy, build, lint, coverage, CRAP pilot, bezpečnost a PASS/REVIEW/FAIL v dashboardu; plná specifikace v kořenovém [TODO](../TODO.md) | Michal, 6. 11. 2026 | Ada i Nox samostatně; Python + TS E2E PASS/FAIL/REVIEW; neznámé projekty SETUP REQUIRED; kritické změny vyžadují člověka |
+
+### B7.0 – FAST-TRACK AUDIT před implementací B7 (bezpečné urychlení)
+
+**Rozhodnutí vlastníka, 6. 11. 2026:** začlenit jako první podúkol B7, bez změny pořadí A → B → C → D. Po dokončení B6 provést nejprve **read-only průzkum a malý izolovaný pilot**, teprve potom implementaci vybraných komponent B7. Žádný automatický přechod do C, produkční nasazení ani změny oprávnění.
+
+- [ ] Ada: inventura aktuálního CI, nástrojů, hooků, review, zabezpečení a checkpointů. Vypíše pro každý kandidát existující ekvivalent a riziko duplicity. **Volitelně reverzní inženýrství**: pokud je analýza opravdu potřebná a oprávněná, využít dostupné read-only nástroje včetně Ghidra MCP pro autorizované lokální binárky/protokoly; nejprve zkusit zdrojový kód, testy, dokumentaci a veřejná API. Nevydávat analýzu za právo převzít kód.
+- [ ] B7: porovnat **Gitleaks** (detekce tajemství), **Semgrep** (pravidla SAST), stávající Ruff/pytest/coverage, TypeScript typecheck/build a dostupné nástroje pro cyklomatickou složitost + CRAP. Ověřit konkrétní verze, licence, možnosti offline provozu, čas běhu, false positives a reálný přínos. Nic neinstalovat do globálního prostředí bez schválení.
+- [ ] C: pouze read-only srovnat Git worktree, stavové přechody a opravné smyčky s **Gas Town/Gas City**; nenahrazovat stávající broker, lease ani checkpoint systém.
+- [ ] D: pouze read-only zmapovat **Crewship/Gas Town** z hlediska memory, cost budget, audit trail, research orchestration; nepřipojovat cizí orchestrátor vedle Agent Lease.
+- [ ] Nox: nezávisle ověřit technická tvrzení na konkrétních souborech/commitech, licence a sublicenční povinnosti, dodavatelská rizika, náklady, testy a kompatibilitu. Nezaměňovat screenshot/marketing za implementaci; u reverse engineeringu ověřit původ artefaktu, rozsah oprávnění a že výstupy neobsahují převzaté chráněné části.
+- [ ] Rozhodovací tabulka: **POUŽÍT / INSPIROVAT SE / VYNECHAT** s odkazy, baseline vs pilot (čas, tokeny, testy, rizika), odhadem práce a rollbackem; jakmile přínos není prokazatelný, ponechat existující architekturu.
+- [ ] Výsledek uložit do `docs/research/` s datem, odkazy, hashi analyzovaných artefaktů (pokud relevantní), licenčními podmínkami a rozhodnutím POUŽÍT / INSPIROVAT SE / VYNECHAT; následný implementační úkol B7 má používat jen schválené nástroje. Pilot nesmí porušit fázi B6 nebo human approval. Dodržet [OPEN_SOURCE_COMPLIANCE.md](OPEN_SOURCE_COMPLIANCE.md).
+
+### B6 → B7: návaznost při noční práci bez dozoru (6. 11. 2026)
+
+**Po dokončení a nezávislém ověření B6 automaticky pokračovat úkolem B7 v rámci již existujícího oprávněného pracovního běhu a platných scope/lease.** Neznamená to nový souhlas k rozšíření oprávnění, obejití pause/stop, novému běhu workeru ani spuštění externích služeb. Pokud existující automatika na další úkol navázat neumí, uložit checkpoint, přehled dokončeného a připravený následný úkol; netvrdit, že dokument sám agenty probouzí.
+
+**Rozdělení:** Ada nejprve přečte existující Quality Gate zadání z kořenového TODO, zkontroluje CI/hooky a připraví minimální implementační návrh a kód v izolovaném rozsahu. Nox nezávisle ověřuje testy, rizika, kompatibilitu a neobcházení pravidel. Pokud je jeden agent v limitu, deterministické kontroly a bezpečné pokračování v již schválené práci mohou běžet, ale neprovedené nezávislé review se nesmí vykazovat jako PASS.
+
+**Noční hranice:** povolené jsou pouze změny v již schváleném rozsahu, lokální testy, bezpečné commity na pracovních větvích, dokumentace a reporty. Bez lidského schválení se **nesmí**: merge do chráněné větve, produkční deploy, změnit globální hooks/politiky či oprávnění, přidat externí placenou službu, zapnout autonomní zápisový režim, obejít security check nebo zvýšit limity/opravné cykly. Nejasnosti, kritické chyby a vyžadovaná schválení → `needs_review` a pokračovat pouze na jiných bezpečných úkolech.
+
+**Po B7:** zaznamenat výsledky, testy, logy a otevřená rizika; **nepřecházet do C bez ověřených bran a výslovného rozhodnutí Michala**. Neprohlašovat B7 za hotový jen podle implementace, dokud neproběhnou E2E scénáře z TODO.
 
 ## Fáze C – P1/P2: automatizace (až po A + B)
 
@@ -68,6 +91,44 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 | D6 | **Porovnání algoritmů, architektury a technologií** ještě před programováním; varianty s riziky, náklady a měřitelnými kritérii | doložené rozhodnutí bez automatického zásahu do kódu |
 
 | D7 | **Rozpočet výzkumu**: limity tokenů, počtu subagentů, času a souběhu; malá zadání bez zbytečného výzkumu | limity vynucené a bezpečné zastavení při vyčerpání |
+
+## Inspirace z rozboru Davida Strejce (5. 11. 2026) – návrhy pro fázi D
+
+**Status: pouze inspirace a backlog, nikoliv schválení implementace.** Navazuje na D1–D7; neopakovat již plánované sdílené znalosti (D1), výzkumné agenty (D3), ověřování zdrojů (D5) ani rozpočtové limity (C3/D7). Pořadí **A → B → C → D** zůstává beze změny.
+
+| # | Návrh | Vztah ke stávajícím úkolům | Ověření / akceptační kritéria |
+|---|---|---|---|
+| D8 | **Agent sleep / řízený self-audit harnessu**: po úkolu nebo v plánovaném intervalu zkontrolovat stav memory, MCP, skills, hooks, dostupnosti nástrojů, chyb a zbytečných volání; vytvořit návrhy optimalizací | Rozšíření D1, D2 a C3; nejde o skutečný „spánek“ modelu | V izolovaném testu odhalí záměrně rozbité nastavení, doloží příčinu a vytvoří audit report; bez schválení nemění hooks, oprávnění, systémové instrukce, produkční služby ani bezpečnostní pravidla |
+| D9 | **Memory recall benchmark**: měřit přesnost vyhledání projektových informací (ověřené řešení, původní zdroj, platnost a identita projektu), ne jen množství uloženého textu | Rozšíření D1 a D5 | Sada kontrolních dotazů s očekávanými odpověďmi; precision/recall, chybné vybavení a zastaralé informace; neověřená paměť se nepovyšuje na instrukci ani fakt; porovnání před/po |
+| D10 | **Adaptivní effort / kontext a měření efektivity**: pro různé typy práce porovnat dostupné modely a úrovně úsilí; volbu zdůvodnit podle složitosti, rizika a rozpočtu | Rozšíření C3, D2 a D7 | Na stejných úlohách porovnat úspěšnost testů, opravy, dobu, tokeny a cenu *za správně dokončený úkol*; žádná univerzální hodnota 450k ani automatické tvrzení, že Medium vždy stačí; respektovat aktuální možnosti poskytovatele |
+| D11 | **Codebase health / graf závislostí a AI-slop audit**: odhalovat duplicitní implementace, mrtvý kód, nekonzistentní názvy a rizikové vazby mezi moduly; prozkoumat GitNexus či obdobný nástroj jen jako volitelný pilot | Doplňuje B3/B6 a C2; neinstalovat další systém naslepo | Pilot v izolované kopii nad známými nálezy, vyhodnocení false positives a nákladů; pouze návrhy a diffy, žádné hromadné mazání bez testů, nezávislého review a lidského souhlasu s rizikovými zásahy |
+| D12 | **Karpathy-inspired coding discipline pro Adu (Claude Code) a Noxe (Codex)**: čtyři zásady Think Before Coding, Simplicity First, Surgical Changes a Goal-Driven Execution aplikovat konzistentně, bez ztráty současných instrukcí | Rozšíření D2 a kontrol B3/B6; nejprve porovnat existující `CLAUDE.md`, `AGENTS.md`, skills a hooks, neduplikovat pravidla | Pilot s baseline na shodných úlohách; sledovat nesouvisející změny, počet oprav, úspěšnost testů, čas a tokeny; dokumentovat konflikty a výsledky review druhým agentem |
+
+### D12 – Podrobné zadání: Karpathy-inspired pravidla pro Adu a Noxe
+
+**Zdroj inspirace:** komunitní repozitář [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills), inspirovaný postřehy Andreje Karpathyho. **Není to oficiální Karpathyho plugin** a jeho popularita není důkazem účinnosti. Není třeba automaticky instalovat balíček; podstatné je otestovat konkrétní pracovní zásady.
+
+**Pravidla chování (pro oba agenty):**
+
+1. **Think Before Coding / Nejdřív porozumět:** přečíst relevantní kód, zjistit existující řešení a souvislosti, nepředstírat jistotu; u podstatné nejasnosti formulovat předpoklady, rizika a potřebné ověření. Respektovat již schválený rozsah úkolu; u běžných, jasných změn nezdržovat zbytečnými otázkami.
+2. **Simplicity First / Nejjednodušší dostačující řešení:** bez důvodu nepřidávat nové vrstvy, konfigurace, abstrakce, závislosti či duplikované pomocné funkce. Jednoduchost nesmí obejít bezpečnost, robustnost, testovatelnost ani stávající architektonické smlouvy.
+3. **Surgical Changes / Jen relevantní změny:** před zásahem identifikovat dotčené soubory a funkce; neupravovat nesouvisející části a nedělat plošný refaktoring jen „při příležitosti“. Když je širší změna skutečně nutná, zdůvodnit ji a řešit podle existujících pravidel schvalování a rezervací Agent Lease.
+4. **Goal-Driven Execution / Doložený výsledek:** před úpravou určit pozorovatelná kritéria dokončení; po úpravě spustit přiměřené testy, lint a relevantní regresní scénáře, uvést přesně co prošlo, co nešlo ověřit a proč. Nepopisovat neotestovanou opravu jako potvrzeně funkční. U mobilních/GUI chyb nenahrazovat skutečné testy zařízení jen zeleným unit testem.
+
+**Postup pro Adu a Noxe, až bude fáze D schválena:**
+
+1. **Read-only inventura:** prohlédnout projektové i uživatelské instrukce `CLAUDE.md` a `AGENTS.md` (včetně relevantních nadřazených souborů), aktivní skills, hooky a pravidla Agent Lease. Sepsat co už existuje, co se překrývá, co je v konfliktu a co opravdu chybí. Nezveřejňovat soukromé instrukce nebo tajemství v commitech.
+2. **Jednotný minimální návrh:** připravit krátké, modelově neutrální zásady; navrhnout jejich minimální adaptaci pro Adu a Noxe, bez vytváření další konkurenční autority. Explicitně zachovat lease/claim/edit-gate, lidská schválení, sandbox, karanténu, emergency stop, checkpointy a nezávislý review.
+3. **Pilot v izolované pracovní kopii:** zvolit několik reprezentativních oprav (malá, střední, rizikovější) se stejnými vstupy a kritérii. Porovnat baseline bez změn instrukcí s variantou s pravidly, při stejných dostupných limitech a nástrojích.
+4. **Vyhodnocení:** měřit úspěšnost testů, nesouvisející změněné řádky/soubory, duplicity, počet opravných kol, dodržení bezpečnostních bran, čas a spotřebu tokenů, pokud ji poskytovatel zpřístupní. Nox kontroluje návrh Ady a naopak; autor neschvaluje sám sebe.
+5. **Rozhodnutí:** připravit diff, důkazy, rizika a rollback; teprve po výslovném souhlasu Michala aplikovat změny do správných instrukčních souborů. Žádná automatická globální instalace pluginu ani změna konfigurace klientů.
+
+**Akceptace:** pravidla jsou srozumitelná a neodporují prioritám bezpečnost → stabilita → automatizace → inteligentní spolupráce; alespoň jedna pilotní úloha pro každého agenta doloží testy a review; změna neoslabí žádnou existující bezpečnostní pojistku. Když přínos nebude prokazatelný, jen archivovat výsledky a nic netlačit do produkce.
+
+
+**Bezpečnostní podmínky:** Self-audit není self-approval. Agent smí sbírat důkazy a navrhovat změny, ale nesmí si sám rozšiřovat oprávnění, měnit bezpečnostní brány, mazat auditní historii či automaticky označit fázi jako schválenou. Zachovat existující lease/owner, karanténu, emergency stop, worktree izolaci, testy, rollback a lidské schvalování. Měřit přínos proti baseline a vyřadit funkce, které zvyšují náklady nebo složitost bez doloženého užitku.
+
+**Poznámka k podkladu:** Jde o inspiraci z uživatelsky dodaného přepisu, nikoli o nezávisle ověřené výsledky Davida Strejce. Údaje typu „450 000 tokenů je nejlepší nastavení“, „bez subagentů je to vždy rychlejší“ nebo „10× více práce“ nepovažovat za obecná fakta.
 
 **Rozšíření D3–D6 – reverzní inženýrství (plánované, bez nové fáze):** Pokud úkol vyžaduje porozumět existujícímu softwaru, firmwaru nebo protokolu bez zdrojových kódů, výzkumný tým může využít již dostupné nástroje agenta, např. Ada (Claude Code) → Ghidra přes MCP, pokud propojení projde ověřením dostupnosti a oprávnění. Ada provede nejprve pouze čtecí/statickou analýzu dodaných souborů a dokumentace, zaznamená použitou verzi a hashe artefaktů, funkce, rozhraní, důkazy, nejistoty a možnosti úprav. Nox nezávisle zkontroluje závěry, výstupy se archivují v `docs/research/` a ověřené poznatky navazují na D1. **Fail-closed:** bez oprávnění k analýze či dostupného nástroje se úloha eskaluje, neobcházejí se omezení. Zápis či flash firmwaru, zásah do fyzického zařízení a další rizikové změny vyžadují výslovné schválení uživatele, zálohu a plán obnovy; žádná automatická destruktivní akce. **Akceptační test:** na neškodném testovacím binárním souboru agent rozpozná dostupnost Ghidra MCP, provede čtecí analýzu, doloží závěry, druhý agent je zreviduje; bez schválení je zápis/flash zablokován. Toto rozšíření se řeší až ve fázi D po A → B → C.
 

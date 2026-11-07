@@ -40,6 +40,59 @@ Stav k 21. 10. 2026 ráno (ověřeno ostrými testy proti běžícím službám)
   kolize, limity, restarty, chyby.
 - ⬜ 17. **Třetí agent – koordinátor** — rozděluje práci, hlídá agenty, testy, limity.
 
+
+## Priorita B — Quality Gate pro AI změny (plán)
+
+- ⬜ **B7: Centrální Quality Gate (CRAP score + automatické kontroly)** — navázat na existující body 12 (pytest/ruff/CI), 13 (Ada ↔ Nox review) a 14 (security audit), nebudovat duplicitní systém. Nejde o blokátor dokončení MVP do 2. 12. 2026.
+  - [ ] Nejprve audit stávajícího CI, testů a hooků; vypsat, co už funguje a co skutečně chybí.
+  - [ ] MVP: zobrazit výsledky testů, lint/format, type check (kde relevantní), build, coverage a bezpečnostních kontrol jako jeden report PASS / REVIEW / FAIL; při chybějící metrice zobrazit N/A, nikoli falešné PASS.
+  - [ ] Ověřit podporu CRAP metriky pro konkrétní jazyky a projekty. Výpočet postavit na cyklomatické složitosti a relevantním pokrytí testy; nevydávat ji za samostatnou bezpečnostní metriku. Nejprve report-only, hranice kalibrovat na reálných datech; vyšší skóre označit k review, ne automaticky blokovat.
+  - [ ] Kontrola změn testů, CI konfigurace a bezpečnostních pravidel: upozornit na mazání či oslabování testů a požadovat lidské potvrzení kritických výjimek. Oddělit práva agenta píšícího kód od schvalování gate.
+  - [ ] Teprve po pilotu vynucovat FAIL u rozbitého buildu/testů a potvrzených kritických nálezů; zabránit tomu, aby agent přepsal prahy kontrol jen kvůli průchodu.
+  - [ ] Nox: nezávislé review návrhu i výsledků Ady; minimalizovat tokeny tím, že deterministické testy běží lokálně/CI, nikoli přes LLM.
+  - [ ] Navrhnout rozšiřitelný adaptér pro další repozitáře (Earth Pulse, LILI, Silikon Manager), ale jejich integraci odložit až po stabilním Agent Lease.
+  - [ ] Akceptace: reprodukovatelný report s odkazy na logy; známý chybný commit skončí FAIL/REVIEW, známý dobrý PASS; bez nekontrolovaného zásahu do produkce či automatického merge.
+
+### B7.0 – FAST-TRACK AUDIT (první podúkol)
+
+- [ ] **Před implementací B7** podle [roadmapy](docs/AGENT_LEASE_IMPROVEMENTS_ROADMAP.md) inventarizovat existující kontroly a provést read-only průzkum Gitleaks, Semgrep, coverage/CRAP, Gas Town, Gas City a Crewship. Izolovaný pilot jen v platném schváleném scope. **Ada může využít reverzní inženýrství** (existující Ghidra MCP/bezpečnou statickou analýzu) jen u legálně získaných artefaktů s oprávněním k analýze; read-only, nejprve veřejné zdroje a dokumentace; bez obcházení DRM, přístupu či šifrování a bez přenosu neveřejných dat do externích služeb. Ada připraví kandidáty a baseline; Nox prověří licence, bezpečnost a skutečnou úsporu. Výstup POUŽÍT / INSPIROVAT SE / VYNECHAT s testy, náklady a rollbackem; neinstalovat hromadně frameworky a nevytvářet druhý orchestrátor.
+
+### Licence a compliance – sjednocení MIT (6. 11. 2026)
+
+- [x] Ověřit stav: `pyproject.toml` i README deklarují MIT, ale ve stromu chyběl plný kořenový licenční text.
+- [x] Doplnit standardní `LICENSE` (MIT), sjednotit metadata na SPDX `license = "MIT"` + `license-files = ["LICENSE"]`, odstranit zastaralý MIT classifier. Autorský údaj použít podle aktuálního `pyproject.toml`: **Michal Buggy**.
+- [x] **Jméno dle rozhodnutí vlastníka:** sjednoceno na `Michal Buggy` v `LICENSE` a metadatech balíčku; jde o autorské označení zvolené vlastníkem, ne ověření právní identity.
+- [ ] **Právní původ:** ověřit práva ke všem převzatým částem, externím příspěvkům a případnému AI-generovanému kódu; není-li vlastnictví úplné, upravit notice nebo vyžádat oprávnění. Přidání MIT textu samo o sobě práva k cizímu kódu nezajišťuje.
+- [ ] Audit externích závislostí a případného převzatého/vendorovaného kódu; podle potřeby `THIRD_PARTY_NOTICES` a odpovídající licence, žádné kopírování licencovaného kódu bez kontroly kompatibility. Postup viz [OPEN_SOURCE_COMPLIANCE.md](docs/OPEN_SOURCE_COMPLIANCE.md).
+- [ ] Ověřit build wheel/sdist v izolovaném prostředí, že licence je obsažena v distribuci, PyPI metadata ukazují MIT, a GitHub ji rozpoznává. Nevydávat novou verzi PyPI ani měnit dosavadní publikovaná artefakta bez schválení.
+- [ ] Pokud bude chtít vlastník v budoucnu jiný obchodní model, samostatně posoudit dual-licensing / změnu licence nových verzí. Již udělená oprávnění pro vydané verze nelze jednostranně odvolat.
+
+### Požadované automatické fungování napříč projekty (akceptační specifikace B)
+
+**Cíl:** Michal pošle Adu, Noxe nebo oba do libovolného podporovaného Git repozitáře; Quality Gate běží bez ručního opakování zadání a jeho výsledek je vidět v centrálním Agent Lease dashboardu. Toto je cílové chování, ne současná implementace.
+
+- [ ] **Globální aktivace:** jednorázová konfigurace Agent Lease pro Claude Code a Codex (CLI/hooky nebo worker), bez nutnosti instalovat celý modul do každého repo. Zdokumentovat kompatibilitu a limity hooků obou klientů; nespoléhat pouze na prompt/AGENTS.md. U každého repo povolit lokální konfiguraci a explicitní opt-out; soukromé repozitáře nepřenášet mimo stroj bez souhlasu.
+- [ ] **Detekce projektu:** určit Git root, jazyk, správce balíčků, test/build příkazy, přítomné coverage a CI; pokud nelze spolehlivě zjistit, zobrazit SETUP REQUIRED místo odhadovaných příkazů. Podpora MVP Python, TypeScript/JavaScript; jiné enginy (Godot/GDScript, C++, Rust atd.) až po ověření adaptérů.
+- [ ] **Spouštěcí události:** při dokončení agentovy změny a před předáním/merge spustit dostupné deterministické kontroly; při rozpracovaném kódu jen rychlé kontrolní body a neblokovat každou editaci nákladným testem. Volitelný ruční příkaz `agent-lease quality check` a kontrola v CI. Spouštět na snapshotu známého commitu/diffu, ne na souborech, které druhý agent souběžně mění.
+- [ ] **Společná politika:** oddělit FAIL (skutečně selhávající povinné testy/build, potvrzené kritické nálezy), REVIEW (vysoká složitost/CRAP, změny testů/CI, nezávislé AI review), PASS (všechny povinné kontroly prošly), N/A (nepodporováno, není coverage) a SETUP REQUIRED (nejasné nastavení). Nepoužívat samotné CRAP jako bezpečnostní verdict.
+- [ ] **Nezávislost a tokeny:** lokální/CI testy bez LLM tokenů; druhý agent reviduje jen rizikové změny nebo podle nastavení. Pokud pracuje jen Ada nebo jen Nox, automatické kontroly fungují také a chybějící peer review zůstane viditelně pending/waived podle schválené politiky, ne fingovaný PASS.
+- [ ] **Vynucení:** automatické blokování merge/nasazení vyžaduje skutečně zapojené branch protection/required checks nebo řízený release workflow; lokální dashboard sám o sobě změny na GitHubu nezablokuje. Výjimky a změny prahů jen s lidským schválením, auditní stopou a oddělenou rolí.
+- [ ] **Dashboard:** název repo/větev/commit, agent, čas, PASS/REVIEW/FAIL/N/A, seznam kontrol, odkaz na logy, historie. Bez zveřejňování tajných klíčů ani interního kódu.
+- [ ] **E2E testy:** jeden Python projekt a jeden TS projekt, každý ve scénáři Ada sama, Nox sám a oba; ověřit detekci, PASS, FAIL, review, chybějící coverage, neznámý projekt i nemožnost obejít gate změnou testů. Další reálné projekty zapojovat postupně po dokončení jádra.
+- [ ] **Dokumentace:** návod jednorázové instalace, volby pro jednotlivá repo, podporované jazyky, security model, recovery při výpadku a postup, jak zapojit Earth Pulse, LILI a Silikon Manager. Neodsunout implementaci samotného Agent Lease za termín 2. 12. 2026.
+
+## Po dokončení fází A → B → C → D — desktopová aplikace (budoucí etapa)
+
+- [ ] **Agent Lease Desktop pro Windows 11** — začít **až po dokončení a ověření celé fáze D**. Není součástí současného rozsahu A/B/C/D ani blokátorem termínu 2. 12. 2026.
+  - Využít **stávající dashboard a jeho aktuální vizuální styl**; nepřepisovat rozhraní od nuly. Nejprve posoudit vhodný lehký desktopový obal (např. Tauri) a ověřit kompatibilitu s existující architekturou.
+  - Desktopové okno otevřít přímo z ikony na ploše / nabídky Start **bez nutnosti prohlížeče**; zobrazit plný dashboard, úkoly, Adu, Noxe, projekty a Quality Gate.
+  - **Minimalizace do systémové lišty vedle hodin (system tray)**; kliknutím zobrazit malý přehledový panel (stav Ady a Noxe, běžící úkoly, čekající schválení, chyby), s možností otevřít celý dashboard. Ukázkový design je pouze vizuální koncept, ne potvrzená implementace.
+  - Rozlišit **minimalizovat / zavřít okno / ukončit desktopovou aplikaci / zastavit agenty**. Ukončení UI samo o sobě nesmí ukončit běžící úkoly nebo služby; zastavení agentů vyžaduje samostatnou výslovnou akci s potvrzením.
+  - Připojit UI bezpečně k existujícím službám Agent Lease ve **WSL** (přednostně lokální autentizované spojení), bez druhého backendu, paralelního stavu nebo oslabení security guardů.
+  - Volitelný autostart po přihlášení do Windows, upozornění na důležité události, znovupřipojení po restartu WSL; bez automatického produkčního nasazení.
+  - Ověřit instalaci, aktualizace, minimální spotřebu prostředků, chování po ztrátě spojení, ovládání klávesnicí, tray popup, zavírání a přepínání desktop/UI na Windows 11.
+  - **Brána zahájení:** A, B, C, D dokončené a otestované; nejprve revize architektury a schválení Michalem. Nezasahovat do aktuální práce Ady a Noxe před dokončením D.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
