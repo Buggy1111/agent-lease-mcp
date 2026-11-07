@@ -156,3 +156,36 @@ def test_long_lines_do_not_backtrack_catastrophically():
         started = time.monotonic()
         scan_diff(diff_of([line]))
         assert time.monotonic() - started < 1.0, line[:40]
+
+
+def test_long_values_and_aligned_assignments_are_still_found():
+    """Nox #9: hodnota delší než okno a víc mezer za = nesmí projít bez nálezu."""
+    name = "+API_TO" + "KEN"
+    for reps in (256, 257, 5000):
+        value = "a1" * reps
+        assert scan_diff(diff_of([name + ' = "' + value + '"'])), reps
+        assert scan_diff(diff_of([name + "=" + value])), reps
+    for spaces in (8, 9, 40):
+        assert scan_diff(diff_of([name + " =" + " " * spaces + '"' + "a1B2c3D4e5F6g7H8" + '"'])), spaces
+        assert scan_diff(diff_of([name + " " * spaces + "= " + "a1B2c3D4e5F6g7H8"])), spaces
+    assert scan_diff(diff_of([name + "=" + "a1B2c3D4e5F6g7H8" + "=="]))  # base64 zarovnání
+    assert scan_diff(diff_of(["+" + "x" * 300 + "_api_k" + "ey_" + "y" * 300 + " = " + "a1B2c3D4e5F6g7H8"]))
+    assert scan_diff(diff_of(["+PASS" + "WORD=" + "us3r:pa55=w0rd-xyzABC"]))  # i s `:` a `=` uvnitř
+
+
+def test_shell_command_substitution_is_not_a_secret():
+    name = "GITHUB_TO" + "KEN"
+    line = f"+export {name}=$(grep \"^{name}=\" ~/.hermes/.env | head -1 | cut -d= -f2 | tr -d '\\n')"
+    assert scan_diff(diff_of([line])) == []
+    assert scan_diff(diff_of(['+WEBHOOK_SEC' + 'RET="$(openssl rand -hex 32)"'])) == []
+
+
+def test_repeated_assignments_stay_linear():
+    import time
+    for line in ["+" + "token=" * 30000 + "(", "+" + "token:" * 30000, "+token=" + " " * 100000 + "(",
+                 "+" + 'token="' * 20000,
+                 "+" + "token:a1" * 30000 + "(", "+" + "token " * 30000 + "=" + " " * 50000 + "(",
+                 "+" + "a" * 200000 + "token" * 20000]:
+        started = time.monotonic()
+        scan_diff(diff_of([line]))
+        assert time.monotonic() - started < 1.0, line[:40]
