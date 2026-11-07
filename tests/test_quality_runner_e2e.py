@@ -443,7 +443,8 @@ while time.monotonic()<deadline:
  time.sleep(.02)
 else: raise AssertionError('namespace init left an adopted zombie')
 '''
-    head = commit(root, {"reaper_probe.py":source,".agent-lease/quality.toml":'''version=1
+    head = commit(root, {"pyproject.toml":'[project]\nname="reaper-fixture"\n',
+                        "reaper_probe.py":source,".agent-lease/quality.toml":'''version=1
 language="python"
 [checks.tests]
 command=["python","reaper_probe.py"]
