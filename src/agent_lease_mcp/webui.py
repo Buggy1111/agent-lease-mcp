@@ -494,232 +494,403 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
 PAGE_HTML = """<!doctype html>
 <html lang="cs">
-<title>agent-lease · místnost</title>
+<title>Agent Lease · řídicí přehled</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root {
-    color-scheme: dark light;
-    --bg: #0a0b10; --surface: #12141c; --surface-2: #171a24; --raised: #1d212c;
-    --border: rgba(255,255,255,.08); --border-soft: rgba(255,255,255,.05);
-    --text: #eef0f6; --text-dim: #9aa0b4; --text-faint: #676d82;
-    --accent-1: #8b7bff; --accent-2: #ff6fae;
-    --grad: linear-gradient(135deg, var(--accent-1), var(--accent-2));
-    --ok: #38d996; --warn: #ffb648; --bad: #ff5c7a;
-    --shadow: 0 8px 28px rgba(0,0,0,.35);
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f4f5f9; --surface: #ffffff; --surface-2: #f0f1f7; --raised: #ffffff;
-      --border: rgba(15,17,30,.10); --border-soft: rgba(15,17,30,.06);
-      --text: #14162a; --text-dim: #565c74; --text-faint: #8a8ea3;
-      --ok: #12a86a; --warn: #c27a00; --bad: #e0244a;
-      --shadow: 0 8px 24px rgba(30,20,60,.08);
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    font: 14px/1.5 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    margin: 0; height: 100vh; display: flex; flex-direction: column;
-    background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
-  }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
-  button { font: inherit; }
-
-  /* ── pruh pauzy: vždy nahoře přes celou šířku ── */
-  #pause { flex: none; }
-  .pausebar {
-    display: flex; align-items: center; justify-content: space-between; gap: 14px;
-    flex-wrap: wrap; padding: 12px 22px; border-bottom: 1px solid var(--border);
-  }
-  .pausebar .ptext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .pausebar .big { font-weight: 750; font-size: 16px; }
-  .pausebar .why { font-size: 12.5px; opacity: .9; overflow-wrap: anywhere; }
-  .pausebar.stopped { background: var(--bad); color: #fff; }
-  .pausebar.running { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
-  .pausebar.running .big { color: var(--ok); font-size: 14px; }
-  .pausebar button { border-radius: 10px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-  .pausebar.stopped button {
-    border: none; padding: 12px 24px; font-size: 15.5px; background: #fff; color: #b3123a;
-    box-shadow: 0 4px 14px rgba(0,0,0,.25);
-  }
-  .pausebar.running button {
-    padding: 7px 14px; font-size: 12.5px; background: transparent; color: var(--bad);
-    border: 1px solid var(--bad);
-  }
-
-  #app { flex: 1; display: flex; min-height: 0; }
-
-  /* ── levý sloupec ── */
-  #side {
-    width: 300px; flex: none; padding: 18px 14px; overflow-y: auto;
-    background: var(--surface); border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 20px;
-  }
-  #brand { display: flex; align-items: center; gap: 10px; padding: 0 2px; }
-  #brand .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--grad); flex: none; }
-  #brand .name { font-weight: 650; font-size: 15px; }
-  #brand .sub { font-size: 11.5px; color: var(--text-faint); }
-  h3 {
-    font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
-    color: var(--text-faint); margin: 0 0 8px 2px;
-  }
-  .section { display: flex; flex-direction: column; gap: 8px; }
-  details.section > summary {
-    cursor: pointer; list-style: none; font-size: 12px; color: var(--text-dim); padding: 2px;
-  }
-  details.section > summary::-webkit-details-marker { display: none; }
-  details.section > summary::before { content: "▸ "; }
-  details.section[open] > summary::before { content: "▾ "; }
-
-  .card {
-    padding: 10px 12px; border-radius: 12px; background: var(--surface-2);
-    border: 1px solid var(--border-soft); display: flex; flex-direction: column; gap: 5px;
-  }
-  .card .head { display: flex; align-items: center; gap: 10px; }
-  .avatar {
-    width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
-    color: #fff; font-weight: 700; font-size: 12px; position: relative;
-  }
-  .avatar .dot {
-    position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%;
-    border: 2px solid var(--surface-2); background: var(--text-faint);
-  }
-  .avatar .dot.on { background: var(--ok); }
-  .card .who { min-width: 0; flex: 1; }
-  .card .name { font-weight: 650; font-size: 13px; }
-  .card .id { font-size: 11px; color: var(--text-faint); }
-  .card .line { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
-  .card .tags { display: flex; flex-wrap: wrap; gap: 5px; }
-  .card.offline { opacity: .65; }
-  .card.alert { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
-  .card .btns { display: flex; flex-wrap: wrap; gap: 6px; }
-  #agents, #offline, #claims, #reviews { display: flex; flex-direction: column; gap: 8px; }
-  .empty { font-size: 12.5px; color: var(--text-faint); padding: 4px 2px; }
-  .path { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; overflow-wrap: anywhere; }
-
-  .tag {
-    font-size: 11px; font-weight: 650; padding: 2px 8px; border-radius: 999px;
-    background: var(--border-soft); color: var(--text-dim); white-space: nowrap;
-  }
-  .tag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
-  .tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-  .tag.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
-  .tag.work { background: color-mix(in srgb, var(--accent-1) 18%, transparent); color: var(--accent-1); }
-  .tag.gone { text-decoration: line-through; }
-
-  /* ── hlavní část ── */
-  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #topbar {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-    padding: 12px 22px; border-bottom: 1px solid var(--border);
-  }
-  #topbar .title { font-weight: 700; font-size: 15px; }
-  #topbar .tools { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--text-dim); }
-  #topbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  #status { display: flex; align-items: center; gap: 7px; }
-  #status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
-  #status .dot.live { background: var(--ok); }
-  #status .dot.retry { background: var(--warn); }
-
-  #feed { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 10px; }
-  .bubble {
-    max-width: 760px; padding: 10px 14px; border-radius: 14px; background: var(--surface);
-    border: 1px solid var(--border);
-  }
-  .bubble.mine { align-self: flex-end; background: color-mix(in srgb, var(--accent-1) 10%, var(--surface)); }
-  .bubble.system { opacity: .7; font-size: 12.5px; padding: 6px 12px; }
-  .bubble.hidden { display: none; }
-  .bubble .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 12px; color: var(--text-faint); margin-bottom: 4px; }
-  .bubble .meta .who { color: var(--text); font-weight: 650; }
-  .bubble .meta .num { margin-left: auto; font-variant-numeric: tabular-nums; }
-  .bubble .text { font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
-  .bubble .text.clip { max-height: 9.5em; overflow: hidden; mask-image: linear-gradient(#000 70%, transparent); }
-  .more { margin-top: 4px; border: none; background: none; color: var(--accent-1); cursor: pointer; padding: 0; font-size: 12.5px; font-weight: 600; }
-  .kind { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; }
-  .kind-chat { background: #4d7dff; }
-  .kind-task { background: #ff9d42; color: #2a1600; }
-  .kind-broadcast { background: #7d84a3; }
-  .kind-control { background: #ff5c7a; }
-  .kind-result { background: #2fc79c; color: #00291f; }
-  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .btn {
-    font-size: 12px; font-weight: 650; padding: 5px 11px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--surface-2); color: var(--text); cursor: pointer;
-  }
-  .btn:hover { border-color: var(--accent-1); }
-
-  /* ── psaní zprávy ── */
-  #compose {
-    display: flex; flex-direction: column; gap: 8px; padding: 12px 22px 14px;
-    border-top: 1px solid var(--border); background: var(--surface);
-  }
-  #compose .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  .seg button {
-    border: none; background: transparent; color: var(--text-dim); padding: 7px 14px;
-    font-weight: 650; cursor: pointer; font-size: 13px;
-  }
-  .seg button.on { background: var(--grad); color: #fff; }
-  #compose label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
-  #to, #text {
-    font: inherit; color: var(--text); background: var(--surface-2);
-    border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
-  }
-  #to { min-width: 210px; cursor: pointer; }
-  #text { flex: 1; min-width: 0; resize: vertical; min-height: 42px; max-height: 40vh; }
-  #to:focus, #text:focus { outline: 2px solid var(--accent-1); outline-offset: -1px; }
-  #hint { font-size: 12px; color: var(--text-faint); }
-  #hint.task { color: var(--warn); }
-  #sendBtn {
-    align-self: stretch; padding: 0 22px; border-radius: 10px; border: none; background: var(--grad);
-    color: #fff; font-weight: 700; cursor: pointer;
-  }
-  #sendBtn:disabled { opacity: .5; cursor: default; }
-
-  @media (max-width: 760px) {
-    #app { flex-direction: column; }
-    #side { width: auto; max-height: 38vh; border-right: none; border-bottom: 1px solid var(--border); padding: 12px 16px; }
-    #topbar, #feed, #compose { padding-left: 16px; padding-right: 16px; }
-    .pausebar { padding: 12px 16px; }
-    #to { min-width: 0; flex: 1; }
-  }
+:root {
+  color-scheme:dark;
+  --bg:#070B14; --surface:#0D1423; --surface-2:#131D30;
+  --accent-1:#9146FF; --blue:#38A8FF; --ok:#25DFA0; --warn:#F5B94F; --bad:#FF5978;
+  --text:#F0F4FF; --text-dim:#94A6C2; --ink:#000;
+  --border:rgba(130,160,220,.14);
+  --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
+  --text-faint:var(--text-dim); --raised:var(--surface-2);
+  --accent-text:color-mix(in srgb,var(--accent-1) 45%,var(--text));
+  --bad-text:color-mix(in srgb,var(--bad) 65%,var(--text));
+  --blue-text:color-mix(in srgb,var(--blue) 70%,var(--text));
+  --grad:linear-gradient(120deg,color-mix(in srgb,var(--accent-1) 88%,var(--bg)),color-mix(in srgb,var(--accent-1) 78%,var(--bg)));
+  --panel-grad:linear-gradient(135deg,color-mix(in srgb,var(--surface-2) 30%,var(--surface)),var(--surface));
+  --shadow:0 6px 22px color-mix(in srgb,var(--ink) 20%,transparent),inset 0 1px 0 color-mix(in srgb,var(--text) 2%,transparent);
+  --shadow-hover:0 8px 24px color-mix(in srgb,var(--ink) 28%,transparent),0 0 16px color-mix(in srgb,var(--accent-1) 7%,transparent);
+  --ease:cubic-bezier(.22,1,.36,1); --panel-time:200ms; --control-time:160ms;
+  --avatar-ada:var(--warn); --avatar-nox:var(--accent-1); --avatar-bridge:var(--blue); --avatar-user:var(--ok);
+}
+* { box-sizing:border-box; }
+[hidden] { display:none!important; }
+html { scroll-padding-top:140px; }
+body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+button,input,select,textarea { font:inherit; color:var(--text); }
+button,summary,select { cursor:pointer; }
+button,select { min-height:36px; }
+button { transition:transform var(--control-time) var(--ease),background var(--control-time) var(--ease),border-color var(--control-time) var(--ease),box-shadow var(--control-time) var(--ease); }
+button:hover { border-color:var(--accent-text); }
+button:active { transform:scale(.98); }
+button:disabled { opacity:.6; cursor:wait; }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-thumb { background:color-mix(in srgb,var(--text-dim) 35%,var(--surface)); border-radius:8px; }
+.skip { position:fixed; top:-80px; left:16px; z-index:30; background:var(--surface-2); padding:12px; color:var(--text); }
+.skip:focus { top:8px; }
+#shell { max-width:1920px; margin:auto; padding:0 16px 20px; }
+#masthead { display:flex; align-items:center; gap:20px; min-height:64px; flex-wrap:wrap; position:sticky; top:0; z-index:10; background:color-mix(in srgb,var(--bg) 97%,transparent); border-bottom:1px solid var(--border); }
+#brand { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.mark { width:38px; height:40px; display:grid; place-items:center; }
+.mark svg { width:38px; height:38px; filter:drop-shadow(0 0 5px color-mix(in srgb,var(--accent-1) 30%,transparent)); }
+.mark .logo-blue { stroke:var(--blue); } .mark .logo-purple { stroke:var(--accent-text); } .mark .logo-inner { stroke:var(--accent-1); }
+#brand .name { margin:0; font-size:21px; font-weight:720; letter-spacing:-.6px; line-height:1.25; }
+#brand .sub { color:var(--text-dim); font-size:11px; margin-top:2px; }
+.primary-nav { display:flex; align-items:center; gap:4px; }
+.primary-nav a,.primary-nav button { display:flex; align-items:center; gap:6px; min-height:36px; border:1px solid transparent; background:transparent; text-decoration:none; color:var(--text-dim); padding:6px 9px; border-radius:9px; font-size:12px; white-space:nowrap; }
+.primary-nav .current { background:color-mix(in srgb,var(--accent-1) 18%,var(--surface)); color:var(--accent-text); border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 10%,transparent); }
+#pause { margin-left:auto; min-width:0; }
+.pausebar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ptext { min-width:0; }
+.big { font-size:12px; font-weight:650; color:var(--ok); }
+.why { color:var(--text-dim); font-size:12px; overflow-wrap:anywhere; max-width:420px; }
+.pausebar button { border:1px solid color-mix(in srgb,var(--bad) 40%,var(--surface)); background:color-mix(in srgb,var(--bad) 10%,var(--surface)); color:var(--bad-text); padding:8px 12px; border-radius:10px; font-size:12px; font-weight:650; white-space:nowrap; transition:none; animation:none; }
+.pausebar button:active { transform:none; }
+.pausebar.stopped { background:color-mix(in srgb,var(--bad) 9%,var(--surface)); border:1px solid var(--bad); border-radius:12px; padding:8px 12px; }
+.pausebar.stopped .big { color:var(--bad-text); }
+.pausebar.stopped button { background:var(--text); color:var(--bg); border-color:var(--text); }
+#overview { padding:12px 0 14px; }
+.section-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 12px; margin-bottom:8px; }
+.section-heading h2 { margin:0; font-size:12px; color:var(--text-dim); font-weight:500; }
+#scope { color:var(--text-dim); font-size:11px; }
+#metrics { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }
+.metric { position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; padding:13px; border:1px solid var(--border); border-radius:14px; background:var(--panel-grad); box-shadow:var(--shadow); transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease),transform var(--panel-time) var(--ease); }
+.metric::after { content:""; position:absolute; inset:0; background:radial-gradient(ellipse at top right,color-mix(in srgb,var(--tint,var(--blue)) 7%,transparent),transparent 70%); pointer-events:none; }
+.metric-icon { flex:none; width:38px; height:38px; display:grid; place-items:center; border-radius:50%; color:var(--tint,var(--blue)); background:color-mix(in srgb,var(--tint,var(--blue)) 8%,transparent); border:1px solid color-mix(in srgb,var(--tint,var(--blue)) 18%,transparent); box-shadow:0 0 14px color-mix(in srgb,var(--tint,var(--blue)) 8%,transparent); font-size:20px; }
+.metric > div { min-width:0; }
+.metric-label { color:var(--text-dim); font-size:11px; overflow-wrap:anywhere; }
+.metric-value { display:inline-block; font-size:25px; line-height:1.3; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+.metric-value.small { font-size:14px; letter-spacing:0; margin-top:4px; }
+[data-tone="ok"] { color:var(--ok); } [data-tone="warn"] { color:var(--warn); } [data-tone="bad"] { color:var(--bad-text); } [data-tone="muted"] { color:var(--text-dim); }
+.mobile-nav { display:none; }
+#app { display:grid; grid-template-columns:230px minmax(0,1fr) 310px; align-items:start; gap:14px; }
+#side,#inspector { min-width:0; display:flex; flex-direction:column; gap:14px; }
+.panel { border:1px solid var(--border); border-radius:14px; background:var(--panel-grad); box-shadow:var(--shadow); min-width:0; transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease); }
+.panel-title { padding:12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); }
+.panel-title h2 { font-size:13px; font-weight:650; margin:0; }
+.panel-icon { color:var(--blue); font-size:16px; }
+.count { margin-left:auto; color:var(--text-dim); background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0 6px; font-size:11px; font-variant-numeric:tabular-nums; }
+.panel-body { padding:12px; }
+#agents,#offline,#claims,#reviews,#projects { display:flex; flex-direction:column; gap:8px; }
+.card { padding:10px; border-radius:12px; background:var(--panel-grad); border:1px solid var(--border); min-width:0; transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease); }
+.card .head { display:flex; align-items:center; gap:8px; }
+.avatar { width:32px; height:32px; border-radius:10px; display:grid; place-items:center; flex:none; font-size:13px; font-weight:750; position:relative; color:var(--text); background:color-mix(in srgb,var(--avatar-color,var(--accent-1)) 36%,var(--surface)); border:1px solid color-mix(in srgb,var(--avatar-color,var(--accent-1)) 65%,var(--border)); }
+.avatar .dot { position:absolute; right:-2px; bottom:-2px; width:9px; height:9px; border:2px solid var(--surface); border-radius:50%; background:var(--text-dim); }
+.avatar .dot.on { background:var(--ok); }
+.card.interactive:not(.offline) .dot.on { animation:online-presence 2.4s ease-in-out infinite; }
+@keyframes online-presence { 0%,100% { opacity:1; } 50% { opacity:.65; } }
+.card .who { min-width:0; }
+.card .name { font-size:13px; font-weight:650; overflow-wrap:anywhere; }
+.card .id { font-size:11px; color:var(--text-dim); overflow-wrap:anywhere; }
+.card .line { font-size:12px; color:var(--text-dim); overflow-wrap:anywhere; margin-top:6px; }
+.card .tags { margin-top:7px; display:flex; flex-wrap:wrap; gap:4px; }
+.card .agent-work { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.card .last-active { font-size:11px; color:var(--text-dim); margin-top:5px; }
+.card.offline { background:var(--surface); }
+.card.offline .avatar { --avatar-color:var(--text-dim)!important; }
+.card.bridge { border-style:dashed; }
+.card.alert { border-color:var(--bad); }
+.card.selected-agent { border-color:color-mix(in srgb,var(--accent-1) 70%,var(--border)); background:linear-gradient(130deg,color-mix(in srgb,var(--accent-1) 12%,var(--surface)),var(--surface)); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 10%,transparent); }
+.role { color:var(--text-dim); font-size:10px; margin-left:auto; }
+#offlineBox { margin-top:12px; }
+summary { color:var(--text-dim); font-size:12px; }
+#offline { padding-top:8px; }
+.empty { padding:8px 2px; color:var(--text-dim); font-size:12px; }
+.path { font:11px/1.6 ui-monospace,"SF Mono",monospace; overflow-wrap:anywhere; color:var(--text-dim); }
+.tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:6px; color:var(--text-dim); background:var(--surface-2); max-width:100%; overflow-wrap:anywhere; }
+.tag.ok { background:color-mix(in srgb,var(--ok) 8%,var(--surface)); color:var(--ok); }
+.tag.warn { background:color-mix(in srgb,var(--warn) 8%,var(--surface)); color:var(--warn); }
+.tag.bad { background:color-mix(in srgb,var(--bad) 8%,var(--surface)); color:var(--bad-text); }
+.tag.work { background:color-mix(in srgb,var(--accent-1) 12%,var(--surface)); color:var(--accent-text); }
+.tag.gone { color:var(--text-dim); }
+#main { display:flex; flex-direction:column; min-width:0; height:calc(100dvh - 196px); min-height:550px; max-height:1200px; border-color:color-mix(in srgb,var(--accent-1) 28%,var(--border)); }
+#topbar { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+#topbar .title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:650; min-width:0; flex-wrap:wrap; }
+#topbar .title .panel-icon { color:var(--accent-text); }
+#status { margin-left:auto; font-size:11px; font-weight:400; display:flex; gap:6px; align-items:center; color:var(--text-dim); }
+#status .dot { width:6px; height:6px; background:var(--text-dim); border-radius:50%; flex:none; }
+#status .dot.live { background:var(--ok); } #status .dot.retry { background:var(--warn); }
+.tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.filters { display:flex; flex-wrap:wrap; gap:3px; }
+.filter { padding:5px 9px; min-height:32px; border:1px solid transparent; background:transparent; color:var(--text-dim); font-size:12px; border-radius:8px; }
+.filter.on { background:color-mix(in srgb,var(--accent-1) 16%,var(--surface)); color:var(--accent-text); border-color:color-mix(in srgb,var(--accent-1) 45%,var(--border)); }
+.feed-tools { flex-basis:100%; }
+.feed-tools .note { margin:0; }
+.search { margin-left:auto; min-width:120px; flex:1; max-width:200px; }
+#search { width:100%; min-height:30px; font-size:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); padding:5px 9px; }
+.system-toggle { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim); margin-left:auto; cursor:pointer; }
+#showSystem { accent-color:var(--accent-1); }
+#feed { flex:1; min-height:160px; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; align-items:flex-start; gap:10px; overscroll-behavior:contain; }
+.bubble { position:relative; flex-shrink:0; width:88%; padding:12px 13px; border-radius:12px; background:var(--panel-grad); border:1px solid var(--border); border-left:2px solid var(--blue); }
+.bubble.mine { align-self:flex-end; width:78%; background:linear-gradient(125deg,color-mix(in srgb,var(--accent-1) 9%,var(--surface)),var(--surface)); border-left-color:var(--accent-text); }
+.bubble.task { border-left-color:var(--warn); } .bubble.result { border-left-color:var(--ok); }
+.bubble.system { width:98%; border-left-color:var(--text-dim); background:var(--surface); }
+.bubble.selected { border-color:var(--accent-text); }
+.bubble.hidden { display:none; }
+.bubble .meta { display:flex; align-items:center; flex-wrap:wrap; gap:5px 7px; color:var(--text-dim); font-size:11px; margin-bottom:7px; }
+.bubble .meta .who { color:var(--text); font-size:12px; font-weight:650; }
+.bubble .meta .num { margin-left:auto; font:11px ui-monospace,monospace; }
+.delivery-meta { display:contents; }
+.bubble .text { font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
+.bubble .text.clip { max-height:10em; overflow:hidden; }
+.completion-flash { position:absolute; inset:0; border-radius:inherit; background:var(--ok); opacity:0; pointer-events:none; }
+.more { margin:8px 8px 0 0; border:0; background:transparent; color:var(--accent-text); padding:0; font-size:12px; }
+.kind { display:inline-block; font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; text-transform:uppercase; letter-spacing:.04em; background:var(--surface-2); color:var(--text-dim); }
+.kind-chat { background:color-mix(in srgb,var(--blue) 12%,var(--surface)); color:var(--blue-text); }
+.kind-task { background:color-mix(in srgb,var(--warn) 10%,var(--surface)); color:var(--warn); }
+.kind-result { background:color-mix(in srgb,var(--ok) 10%,var(--surface)); color:var(--ok); }
+.kind-broadcast { background:color-mix(in srgb,var(--accent-1) 12%,var(--surface)); color:var(--accent-text); }
+.kind-control { background:color-mix(in srgb,var(--bad) 10%,var(--surface)); color:var(--bad-text); }
+.actions,.btns { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.btn { font-size:11px; padding:5px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--text-dim); }
+.btn.detail { color:var(--accent-text); }
+#compose { padding:12px 14px; border-top:1px solid var(--border); background:var(--panel-grad); border-radius:0 0 14px 14px; display:flex; flex-direction:column; gap:9px; }
+#compose .row { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.seg { display:inline-flex; padding:3px; border-radius:10px; background:var(--bg); border:1px solid var(--border); }
+.seg button { min-height:30px; border:0; border-radius:7px; background:transparent; color:var(--text-dim); padding:5px 12px; font-size:12px; }
+.seg button.on,#sendBtn { background:var(--grad); color:var(--text); box-shadow:0 0 14px color-mix(in srgb,var(--accent-1) 12%,transparent); }
+#compose label { display:flex; align-items:center; gap:8px; color:var(--text-dim); font-size:12px; }
+#to,#taskPicker { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 9px; font-size:12px; max-width:100%; }
+#to { width:185px; }
+#hint { font-size:11px; line-height:1.6; color:var(--text-dim); }
+#hint.task { color:var(--warn); }
+#text { flex:1; width:100%; min-width:0; resize:vertical; min-height:54px; max-height:30vh; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:9px 11px; font-size:13px; }
+#text:focus,#search:focus,#to:focus { border-color:var(--accent-text); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent-1) 12%,transparent); }
+#sendBtn { align-self:stretch; border:1px solid color-mix(in srgb,var(--accent-1) 60%,var(--text)); border-radius:10px; padding:8px 17px; font-size:13px; font-weight:650; }
+#sendBtn:hover,.seg button.on:hover { background:linear-gradient(120deg,color-mix(in srgb,var(--accent-1) 91%,var(--bg)),color-mix(in srgb,var(--accent-1) 82%,var(--bg))); box-shadow:0 0 16px color-mix(in srgb,var(--accent-1) 22%,transparent); }
+#taskPicker { width:100%; margin-bottom:12px; }
+.detail-section { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.task-description .detail-text { margin-top:8px; max-height:280px; overflow:auto; }
+.detail-section summary,.detail-section h3 { font-size:12px; color:var(--text-dim); }
+.detail-section h3 { margin:0 0 8px; }
+.detail-text { font-size:12px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text-dim); }
+.detail-grid { display:grid; grid-template-columns:76px minmax(0,1fr); gap:8px; font-size:12px; margin:0; }
+.detail-grid dt { color:var(--text-dim); } .detail-grid dd { margin:0; overflow-wrap:anywhere; }
+.note { font-size:11px; line-height:1.7; color:var(--text-dim); margin:8px 0 0; }
+.event-list { list-style:none; margin:0; padding:0 0 0 4px; }
+.event-list li { border-left:1px solid var(--border); padding:0 0 14px 12px; position:relative; font-size:12px; overflow-wrap:anywhere; }
+.event-list li::before { content:""; position:absolute; left:-4px; top:6px; width:7px; height:7px; border-radius:50%; background:var(--text-dim); }
+.event-list li:last-child { padding-bottom:0; }
+.event-list .event-meta { color:var(--text-dim); font-size:11px; margin-bottom:4px; }
+.event-list p { margin:0; white-space:pre-wrap; }
+.timeline-current { position:relative; display:flex; align-items:center; gap:9px; padding:0 0 12px 4px; margin-bottom:12px; border-bottom:1px solid var(--border); font-size:12px; }
+.timeline-marker { position:relative; width:9px; height:9px; border-radius:50%; background:currentColor; flex:none; }
+.timeline-current[data-tone="work"] { color:var(--accent-text); }
+.timeline-current[data-tone="work"] .timeline-marker::after { content:""; position:absolute; inset:-4px; border:1px solid currentColor; border-radius:50%; animation:active-phase 2.4s ease-in-out infinite; }
+@keyframes active-phase { 0%,100% { opacity:.4; transform:scale(.9); } 50% { opacity:.8; transform:scale(1.15); } }
+#taskTimeline .event-list { max-height:180px; overflow-y:auto; }
+#taskTimeline summary { font-size:12px; color:var(--text-dim); }
+#taskTimeline .detail-text { margin-top:8px; }
+.project-name { display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; }
+.project-name span { color:var(--accent-text); }
+#inspector,#main,#side,#projectPanel,#historyPanel,#overview { scroll-margin-top:140px; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; white-space:nowrap; }
+.panel-trigger { display:none; }
+#workspaceDrawer { width:min(560px,calc(100vw - 24px)); max-width:none; height:calc(100dvh - 24px); max-height:none; margin:12px 12px 12px auto; padding:0; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow-hover); }
+#workspaceDrawer[open] { display:flex; flex-direction:column; }
+#workspaceDrawer::backdrop { background:color-mix(in srgb,var(--ink) 65%,transparent); }
+.drawer-header { padding:14px; flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:10px; border-bottom:1px solid var(--border); }
+.drawer-header h2 { margin:0; font-size:16px; }
+#drawerClose { margin-left:auto; min-width:44px; min-height:44px; }
+#drawerPause { width:100%; }
+#drawerPause #pause { width:100%; margin:0; }
+#drawerContent { min-height:0; overflow-y:auto; padding:14px; }
+#workspaceDrawer #side,#workspaceDrawer #inspector { display:flex; width:100%; }
+#workspaceDrawer #taskTimeline .event-list { max-height:240px; }
+body.drawer-open { overflow:hidden; }
+body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animation-play-state:paused!important; }
+@media(hover:hover) and (pointer:fine) {
+  .panel:hover,.card:hover,.metric:hover { border-color:color-mix(in srgb,var(--accent-1) 35%,var(--blue)); box-shadow:var(--shadow-hover); }
+  .metric:hover { transform:translateY(-2px); }
+}
+@media(min-width:1600px) { #app { grid-template-columns:250px minmax(0,1fr) 340px; gap:18px; } }
+@media(max-width:1280px) {
+  #app { grid-template-columns:200px minmax(0,1fr); }
+  #inspector { display:none; }
+  #openDetail { display:inline-flex; align-items:center; }
+  .primary-nav { display:none; }
+  #metrics { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #main { height:calc(100dvh - 260px); min-height:590px; }
+  #topbar { display:block; }
+  .filter-tools,.feed-tools { margin-top:8px; }
+}
+@media(max-width:899px) {
+  #app { display:block; }
+  #side { display:none; }
+  #openAgents { display:inline-flex; align-items:center; }
+  .mobile-nav { display:flex; gap:8px; margin-bottom:12px; }
+  .mobile-nav a,.mobile-nav button { flex:1; display:grid; place-items:center; min-height:44px; padding:8px; text-align:center; color:var(--text-dim); border:1px solid var(--border); border-radius:10px; text-decoration:none; background:var(--surface); font-size:12px; }
+  #masthead { gap:12px; flex-wrap:wrap; padding:10px 0; }
+  #pause { margin-left:auto; }
+  #main { min-height:600px; height:calc(100dvh - 200px); }
+}
+@media(max-width:599px) {
+  #shell { padding:0 12px 16px; }
+  #brand .name { font-size:20px; }
+  #pause { width:100%; margin-left:0; }
+  .pausebar { gap:8px; }
+  .pausebar button { min-height:44px; padding:8px 10px; white-space:normal; text-align:center; }
+  #overview { padding:12px 0; }
+  #metrics { gap:8px; }
+  .metric { padding:10px; min-height:76px; }
+  .metric-icon { display:none; }
+  .metric-label { font-size:11px; }
+  .metric-value { font-size:24px; }
+  #main { height:calc(100svh - 145px); min-height:650px; }
+  .bubble,.bubble.mine { width:100%; }
+  #topbar,#feed,#compose { padding-left:10px; padding-right:10px; }
+  #status { margin-left:0; }
+  #compose label { flex:1; }
+  #to { flex:1; width:auto; min-width:0; }
+  #text { flex-basis:100%; min-height:72px; }
+  #sendBtn { margin-left:auto; }
+  button,select,input[type="search"],summary { min-height:44px; }
+  button,summary { min-width:44px; }
+  summary { padding:10px 0; }
+  .more { padding:8px 4px; }
+  .seg button { min-height:44px; padding:8px 12px; }
+  .filters { gap:4px; }
+  .filter { padding:6px 10px; min-height:44px; }
+  #search { min-height:44px; }
+  .system-toggle { min-height:44px; min-width:44px; padding:6px 0; }
+  #showSystem { width:24px; height:24px; }
+  #workspaceDrawer { width:calc(100vw - 16px); margin:8px; height:calc(100dvh - 16px); }
+  .drawer-header,#drawerContent { padding:12px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
+  .metric:hover,button:active { transform:none; }
+}
+.qg-shield { width:18px; height:18px; flex:none; vertical-align:middle; color:var(--accent-text); }
+/* Quality Gate is presentation-only until the phase B integration is reviewed. */
+.primary-nav { flex-wrap:wrap; }
+.primary-nav [data-view] { transition:background 200ms var(--ease),border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
+.primary-nav [data-view]:hover { border-color:var(--accent-text); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 12%,transparent); }
+.view-page { padding-top:20px; }
+.view-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.view-title { font-size:22px; margin:0 0 6px; overflow-wrap:anywhere; }
+.view-subtitle { color:var(--text-dim); margin:0; font-size:13px; }
+.qg-mode { display:inline-flex; align-items:center; color:var(--accent-text); background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); border:1px solid color-mix(in srgb,var(--accent-1) 35%,var(--border)); border-radius:8px; padding:5px 8px; font-size:12px; }
+.qg-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.qg-overview { order:-1; border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); }
+.qg-overview .panel-title { flex-wrap:wrap; }
+.qg-overview .panel-title button { margin-left:auto; }
+.qg-summary { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.qg-stat { min-width:0; padding:10px 7px; border:1px solid color-mix(in srgb,currentColor 30%,var(--border)); background:var(--panel-grad); border-radius:12px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; transition:border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
+.qg-stat-name { font-size:10px; overflow-wrap:anywhere; }
+.qg-stat strong { font-size:22px; line-height:1.2; font-variant-numeric:tabular-nums; }
+[data-tone="work"] { color:var(--accent-text); }
+.qg-stat:hover { box-shadow:0 0 12px color-mix(in srgb,currentColor 8%,transparent); }
+.qg-scroll { overflow-x:auto; max-width:100%; border:1px solid var(--border); border-radius:12px; }
+.qg-table { width:100%; min-width:720px; border-collapse:collapse; font-size:12px; }
+.qg-table th,.qg-table td { text-align:left; vertical-align:top; padding:10px; border-bottom:1px solid var(--border); }
+.qg-table thead th { font-weight:600; color:var(--text-dim); background:var(--surface); white-space:nowrap; }
+.qg-table tbody tr:last-child th,.qg-table tbody tr:last-child td { border-bottom:0; }
+.qg-table tbody th { min-width:180px; max-width:270px; }
+.qg-repo { padding:0; text-align:left; color:var(--text); background:none; border:0; font-size:12px; font-weight:600; overflow-wrap:anywhere; max-width:100%; }
+.qg-repo:hover { color:var(--accent-text); }
+.qg-branch { display:block; margin-top:3px; font-weight:400; color:var(--text-dim); overflow-wrap:anywhere; }
+.qg-badge { white-space:nowrap; }
+.qg-empty { color:var(--text-dim); height:76px; }
+.qg-demo-note { color:var(--warn); font-size:12px; margin:10px 0; }
+.qg-page-grid { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:16px; align-items:start; }
+.qg-page-grid > .panel { min-width:0; }
+.qg-check-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:16px; }
+.qg-check-grid h3 { font-size:12px; margin:0 0 8px; }
+.qg-check-grid p,#qgProjectDetail p { color:var(--text-dim); font-size:12px; overflow-wrap:anywhere; }
+.qg-page-stats { display:flex; flex-wrap:wrap; align-items:center; gap:18px; margin-bottom:16px; }
+.qg-page-stats p { margin:0; color:var(--text-dim); font-size:12px; }
+.qg-page-stats strong { color:var(--text); }
+.qg-page-stats .qg-summary { flex:1; min-width:min(100%,460px); }
+.task-quality { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.task-quality h3 { font-size:12px; margin:0 0 8px; }
+.placeholder-page { max-width:760px; padding:24px; }
+#qgOverviewPanel .qg-table { min-width:650px; }
+#qgOverviewPanel .qg-mode { font-size:11px; }
+#qgOverviewPanel .qg-stat { padding:8px 5px; }
+#qgOverviewPanel .qg-stat strong { font-size:18px; }
+@media(min-width:1600px) {
+  #app { grid-template-columns:240px minmax(0,1fr) 520px; }
+  #inspector { display:grid; grid-template-columns:1fr 1fr; grid-template-areas:"timeline detail" "quality quality" "history history" "reviews reviews"; }
+  #timelinePanel { grid-area:timeline; } #taskPanel { grid-area:detail; } #qgOverviewPanel { grid-area:quality; } #historyPanel { grid-area:history; } #reviewPanel { grid-area:reviews; }
+  #inspector .panel { min-width:0; }
+  #inspector .detail-grid { grid-template-columns:64px minmax(0,1fr); gap:6px; }
+}
+@media(max-width:1280px) {
+  .primary-nav { display:flex; flex-basis:100%; order:3; max-width:100%; overflow-x:auto; flex-wrap:nowrap; padding-bottom:6px; }
+  .primary-nav a,.primary-nav button { flex:none; }
+  .qg-page-grid { grid-template-columns:1fr; }
+  #workspaceDrawer #inspector { display:flex; }
+}
+@media(max-width:599px) {
+  .primary-nav a,.primary-nav button { min-height:44px; }
+  .qg-summary { gap:6px; }
+  .qg-page-stats .qg-summary { flex-basis:100%; }
+  .qg-stat { padding:8px 5px; }
+  .qg-stat-name { font-size:10px; }
+  .qg-check-grid { grid-template-columns:1fr; }
+  .qg-table .qg-repo { min-height:44px; }
+}
 </style>
-<div id="pause"></div>
-<div id="app">
-<div id="side">
-  <div id="brand"><div class="mark"></div><div><div class="name">agent-lease</div><div class="sub">místnost agentů</div></div></div>
-  <div class="section"><h3>Agenti</h3><div id="agents"></div></div>
-  <div class="section"><h3>Review</h3><div id="reviews"></div></div>
-  <div class="section"><h3>Zamčené cesty</h3><div id="claims"></div></div>
-  <details class="section" id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details>
-</div>
-<div id="main">
-  <div id="topbar">
-    <div class="title">Zprávy</div>
-    <div class="tools">
-      <label><input type="checkbox" id="showSystem"> systémové zprávy</label>
-      <div id="status"><span class="dot"></span><span id="statusText">připojuji…</span></div>
+<a class="skip" href="#main">Přejít do místnosti</a>
+<div id="shell">
+  <header id="masthead">
+    <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="settings">⚙ Nastavení</button></nav>
+    <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
+  </header>
+  <div id="overviewView" data-view-panel="overview">
+  <section id="overview" aria-labelledby="overviewTitle">
+    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
+    <div id="metrics">
+      <div class="metric" style="--tint:var(--blue)"><span class="metric-icon" aria-hidden="true">♧</span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
+      <div class="metric" style="--tint:var(--accent-1)"><span class="metric-icon" aria-hidden="true">▷</span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
+      <div class="metric" style="--tint:var(--warn)"><span class="metric-icon" aria-hidden="true">▱</span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
+      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
+      <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
+      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">⌁</span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
     </div>
-  </div>
-  <div id="feed"></div>
-  <div id="compose">
-    <div class="row">
-      <div class="seg" id="kindSeg">
-        <button type="button" data-kind="chat" class="on">💬 Zpráva</button>
-        <button type="button" data-kind="task">🛠 Úkol</button>
+  </section>
+  <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
+  <div id="app">
+    <aside id="side" aria-label="Účastníci a pracovní prostor">
+      <section class="panel" id="agentPanel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">♧</span><h2>Agenti a mosty</h2><span id="agentCount" class="count">—</span></div><div class="panel-body"><div id="agents"></div><details id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details></div></section>
+      <section id="projectPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">▣</span><h2>Repozitáře v review</h2></div><div class="panel-body" id="projects"><div class="empty">Data zatím nejsou načtená.</div></div></section>
+      <section class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">⌑</span><h2>Zamčené cesty</h2></div><div class="panel-body" id="claims"></div></section>
+    </aside>
+    <main id="main" class="panel" tabindex="-1">
+      <div id="topbar">
+        <div class="title"><span class="panel-icon" aria-hidden="true">✣</span> Místnost agentů <button class="btn panel-trigger" id="openAgents" type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button class="btn panel-trigger" id="openDetail" type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button><div id="status" role="status"><span class="dot"></span><span id="statusText">připojuji…</span></div></div>
+        <div class="tools filter-tools"><div class="filters" role="group" aria-label="Filtrovat zprávy">
+          <button class="filter on" data-filter="all" aria-pressed="true">Vše</button><button class="filter" data-filter="task" aria-pressed="false">Úkoly</button><button class="filter" data-filter="result" aria-pressed="false">Výsledky</button><button class="filter" data-filter="system" aria-pressed="false">Systém</button>
+        </div></div>
+        <div class="tools feed-tools"><span id="messageCount" class="note">Načítám zprávy…</span><label class="search"><span class="sr-only">Hledat ve zprávách</span><input id="search" type="search" placeholder="Hledat text, agenta, #ID…"></label><label class="system-toggle"><input type="checkbox" id="showSystem"> systémové příjemky</label></div>
       </div>
-      <label>Komu <select id="to"></select></label>
-    </div>
-    <div id="hint"></div>
-    <div class="row">
-      <textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea>
-      <button id="sendBtn" type="button">Poslat</button>
-    </div>
+      <div id="feed" aria-label="Zprávy místnosti"></div>
+      <div id="compose">
+        <div class="row"><div class="seg" id="kindSeg"><button type="button" data-kind="chat" class="on" aria-pressed="true">Zpráva</button><button type="button" data-kind="task" aria-pressed="false">Úkol</button></div><label>Komu <select id="to"></select></label></div>
+        <div id="hint"></div>
+        <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat ↗</button></div>
+      </div>
+    </main>
+    <aside id="inspector" aria-label="Detail a zaznamenané události">
+      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Přehled repozitářů ↗</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Frontendový návrh. Skutečné kontroly nejsou napojené.</p></div></section>
+      <section id="timelinePanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="timelineTitle">Záznamy úkolu</h2></div><div class="panel-body" id="taskTimeline"><div class="empty">Vyber úkol z místnosti.</div></div></section>
+      <section id="taskPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="detailTitle" tabindex="-1">Detail úkolu</h2></div><div class="panel-body"><label class="sr-only" for="taskPicker">Vybrat úkol z načtené historie</label><select id="taskPicker"><option value="">Vyber úkol z místnosti</option></select><div id="taskDetail"><div class="empty">Vyber úkol. Zobrazí se jeho skutečný stav a navázané zprávy.</div></div></div></section>
+      <section id="reviewPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
+      <section id="historyPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◷</span><h2>Poslední události</h2></div><div class="panel-body" id="recentEvents"><div class="empty">Čekám na zaznamenané zprávy.</div></div></section>
+    </aside>
   </div>
 </div>
+  <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři · frontendový návrh</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Bez backendu se žádné kontroly nespouštějí. Demo je oddělené od skutečné místnosti a úkolů.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
+  <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
+  <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
 </div>
+<dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
 const feed = document.getElementById("feed");
 const statusDot = document.querySelector("#status .dot");
@@ -731,10 +902,215 @@ const showSystemEl = document.getElementById("showSystem");
 let me = "";
 let kind = "chat";
 let knownAgents = ["claude-code", "codex"];
+// Pouze prezentace existujících dat; žádné nové endpointy nebo odvozování fází.
+const messageCache = new Map();
+const expandedMessages = new Set();
+let activeFilter = "all";
+let selectedTask = null;
+let renderingRoom = false;
+let latestPeers = [];
+let latestBoard = null; // null = autoritativní přehled není dostupný
+let lastPaused; // undefined = stav dosud neznáme, null = provoz povolen
+let connectionMode = "loading";
+
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let highestMessageId = 0;
+let historyReady = false;
+function motion(el, frames, duration) {
+  if (!el || reducedMotion.matches || document.hidden || !el.getClientRects().length) return;
+  el.animate(frames, {duration, easing:"cubic-bezier(0.22,1,0.36,1)"});
+}
+function setMetric(id, value) {
+  const el = document.getElementById(id), next = String(value);
+  if (el.textContent === next) return;
+  const known = !["—", "Načítání…", "Připojování…"].includes(el.textContent);
+  el.textContent = next;
+  if (known) motion(el, [{opacity:.65,transform:"translateY(2px)"},{opacity:1,transform:"translateY(0)"}],240);
+}
+function setHTMLIfChanged(el, html) {
+  if (el._renderHTML !== html) { el.innerHTML = html; el._renderHTML = html; }
+}
+function stateTone(state) {
+  return state === "succeeded" ? "ok" : ["started","leased"].includes(state) ? "work"
+    : ["failed","dead_letter"].includes(state) ? "bad" : state === "needs_review" ? "warn" : "muted";
+}
+
+// One native modal reuses the original panels and emergency control; no duplicate actions.
+const drawer = document.getElementById("workspaceDrawer");
+const panelPlacements = {};
+for (const id of ["side","inspector","pause"]) {
+  const node = document.getElementById(id), marker = document.createComment(id + " home");
+  node.before(marker); panelPlacements[id] = {node, marker};
+}
+let drawerOpener = null;
+function restorePanels() {
+  for (const {node,marker} of Object.values(panelPlacements)) marker.after(node);
+  document.body.classList.remove("drawer-open");
+  document.querySelectorAll("[data-panel]").forEach(b => b.setAttribute("aria-expanded","false"));
+  if (drawerOpener?.isConnected) drawerOpener.focus({preventScroll:true});
+}
+function openPanel(id, trigger = document.activeElement) {
+  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : matchMedia("(max-width:1280px)").matches;
+  if (!narrow) { document.getElementById(id).scrollIntoView({block:"start"}); return; }
+  if (drawer.open) { drawer.close(); restorePanels(); }
+  drawerOpener = trigger;
+  document.getElementById("drawerContent").appendChild(panelPlacements[id].node);
+  document.getElementById("drawerPause").appendChild(panelPlacements.pause.node);
+  document.getElementById("drawerTitle").textContent = id === "side" ? "Agenti a pracovní prostor" : "Detail a záznamy úkolu";
+  document.body.classList.add("drawer-open");
+  drawer.showModal();
+  document.querySelectorAll(`[data-panel="${id}"]`).forEach(b => b.setAttribute("aria-expanded","true"));
+  motion(document.getElementById("drawerContent"),[{opacity:0},{opacity:1}],180);
+}
+drawer.addEventListener("close", () => { if (!drawer.open) restorePanels(); });
+drawer.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const focusable = [...drawer.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex]')].filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (!first) { e.preventDefault(); return; }
+  if (e.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+});
+document.getElementById("drawerClose").onclick = () => drawer.close();
+document.querySelectorAll("[data-panel]").forEach(b => b.onclick = () => openPanel(b.dataset.panel,b));
+for (const query of ["(max-width:899px)","(max-width:1280px)"]) matchMedia(query).addEventListener("change",()=>{ if(drawer.open) drawer.close(); });
+document.addEventListener("visibilitychange",()=>document.body.classList.toggle("page-hidden",document.hidden));
+reducedMotion.addEventListener("change",()=>{ if(reducedMotion.matches) document.getAnimations().forEach(a=>a.cancel()); });
+
+function renderAgentList(id, peers, board) {
+  const el = document.getElementById(id);
+  const old = new Map([...el.children].filter(c=>c.dataset.agent).map(c=>[c.dataset.agent,c]));
+  el.querySelectorAll(":scope > .empty").forEach(n=>n.remove());
+  peers.forEach((p,i)=>{
+    const html = agentCard(p,board[p.agent]);
+    let card = old.get(p.agent);
+    if (!card || card._renderHTML !== html) {
+      const template = document.createElement("template"); template.innerHTML = html;
+      const next = template.content.firstElementChild;
+      next._renderHTML = html; next.dataset.agent = p.agent;
+      const work = next.querySelector(".agent-work"); if (work) work.title = work.textContent;
+      if (card) card.replaceWith(next);
+      card = next;
+    }
+    if (el.children[i] !== card) el.insertBefore(card,el.children[i] || null);
+    old.delete(p.agent);
+  });
+  old.forEach(card=>card.remove());
+  if (!peers.length && id === "agents") el.innerHTML = "<div class='empty'>nikdo není online</div>";
+}
+
+function historyMessages() { return [...messageCache.values()].sort((a, b) => a.id - b.id); }
+function taskState(m) { const s = STATE[m.state] || [m.state || "stav není dostupný", ""]; return `<span class="tag task-state ${s[1]}">${esc(s[0])}</span>`; }
+function roleOf(agent) { return agent === me ? "operátor" : agent === "broker" ? "systém" : String(agent).endsWith("-bridge") ? "most" : "agent"; }
+function applyFilters() {
+  const query = document.getElementById("search").value.trim().toLocaleLowerCase("cs-CZ");
+  let visible = 0;
+  for (const m of messageCache.values()) {
+    const div = document.getElementById("msg-" + m.id);
+    if (!div) continue;
+    const system = isSystem(m);
+    const matchesKind = activeFilter === "all" ? (!system || showSystemEl.checked)
+      : activeFilter === "system" ? system : !system && m.kind === activeFilter;
+    const haystack = ["#" + m.id, m.text, m.agent, m.recipient, nameOf(m.agent), nameOf(m.recipient)].join(" ").toLocaleLowerCase("cs-CZ");
+    const show = matchesKind && (!query || haystack.includes(query));
+    div.classList.toggle("hidden", !show);
+    if (show) visible++;
+  }
+  document.getElementById("messageCount").textContent = `${visible} z ${messageCache.size} načtených zpráv`;
+  let empty = document.getElementById("filterEmpty");
+  if (!empty) { empty = document.createElement("div"); empty.id = "filterEmpty"; empty.className = "empty"; feed.appendChild(empty); }
+  empty.textContent = messageCache.size ? "Tomuto filtru neodpovídají žádné zprávy." : "Místnost zatím nemá žádné zprávy.";
+  empty.hidden = visible > 0;
+}
+function refreshDashboard() {
+  const all = historyMessages();
+  const tasks = all.filter(m => m.kind === "task");
+  setMetric("metricAgents", latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length);
+  // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
+  // API poskytuje nejvýše jeden aktivní úkol na agenta (leased nebo started).
+  setMetric("metricRunning", latestBoard === null ? "—" : latestBoard.filter(b => b.active).length);
+  setMetric("metricQueued", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.queued, 0));
+  setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
+  setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
+  renderSystemMetric();
+  const picker = document.getElementById("taskPicker");
+  const optionsKey = JSON.stringify(tasks.map(m => [m.id, m.state, m.text.slice(0, 65)]));
+  if (picker.dataset.optionsKey !== optionsKey) {
+    picker.dataset.optionsKey = optionsKey;
+    picker.replaceChildren(new Option("Vyber úkol z místnosti", ""));
+    [...tasks].reverse().forEach(m => picker.add(new Option(`#${m.id} · ${(STATE[m.state] || [m.state || "?"])[0]} · ${m.text.slice(0, 65)}`, String(m.id))));
+  }
+  picker.value = selectedTask === null ? "" : String(selectedTask);
+  renderTaskDetail();
+  const events = all.filter(m => m.kind === "result" || m.kind === "control").slice(-5).reverse();
+  setHTMLIfChanged(document.getElementById("recentEvents"), events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>");
+  applyFilters();
+}
+function renderSystemMetric() {
+  const el = document.getElementById("metricSystem");
+  setMetric("metricSystem", connectionMode !== "live" ? (connectionMode === "retry" ? "Spojení přerušeno" : "Připojování…")
+    : lastPaused === undefined ? "Stav není dostupný" : lastPaused ? "Pozastaveno" : "Provoz povolen");
+  el.dataset.tone = connectionMode !== "live" ? "warn" : lastPaused === undefined ? "muted" : lastPaused ? "bad" : "ok";
+}
+function selectTask(id, focus = false) {
+  selectedTask = id === "" || id === null ? null : Number(id);
+  document.querySelectorAll(".bubble.selected").forEach(el => el.classList.remove("selected"));
+  if (selectedTask !== null) document.getElementById("msg-" + selectedTask)?.classList.add("selected");
+  document.getElementById("taskPicker").value = selectedTask === null ? "" : String(selectedTask);
+  renderTaskDetail();
+  highlightAgent();
+  if (focus) { openPanel("inspector"); document.getElementById("detailTitle").focus({preventScroll:true}); }
+}
+function highlightAgent() {
+  const recipient = messageCache.get(selectedTask)?.recipient;
+  document.querySelectorAll("[data-agent]").forEach(card => card.classList.toggle("selected-agent", card.dataset.agent === recipient));
+}
+function renderTaskDetail() {
+  const el = document.getElementById("taskDetail");
+  const m = messageCache.get(selectedTask);
+  document.getElementById("detailTitle").textContent = m ? `Detail úkolu #${m.id}` : "Detail úkolu";
+  document.getElementById("timelineTitle").textContent = m ? `Záznamy úkolu #${m.id}` : "Záznamy úkolu";
+  const timeline = document.getElementById("taskTimeline");
+  if (!m || m.kind !== "task") {
+    timeline.innerHTML = `<div class="empty">Vyber úkol z načtené historie.</div>`;
+    el.dataset.detailKey = "";
+    el.innerHTML = `<div class="empty">${selectedTask === null ? "Vyber úkol. Zobrazí se jeho skutečný stav a navázané zprávy." : "Vybraný úkol už není v načtené historii."}</div>`;
+    return;
+  }
+  const related = historyMessages().filter(r => r.reply_to === m.id);
+  const detailKey = JSON.stringify([m.id, m.text, m.agent, m.recipient, m.state, m.attempts, m.accept_note, m.last_error, related.map(r => [r.id, r.kind, r.text])]);
+  if (el.dataset.detailKey === detailKey) {
+    [...el.querySelectorAll("[data-relative-id]"), ...timeline.querySelectorAll("[data-relative-id]")].forEach(span => {
+      const record = messageCache.get(Number(span.dataset.relativeId));
+      if (record) span.textContent = ago(record.seconds_ago);
+    });
+    return; // Otevřené zadání/výsledky a fokus přežijí pravidelnou SSE aktualizaci.
+  }
+  const openSections = el.dataset.taskId === String(m.id) ? [...el.querySelectorAll("details[open][data-section]"), ...timeline.querySelectorAll("details[open][data-section]")].map(d => d.dataset.section) : [];
+  const switched = el.dataset.taskId !== String(m.id);
+  el.dataset.taskId = String(m.id);
+  el.dataset.detailKey = detailKey;
+  const fields = [["ID", esc("#" + m.id)], ["Zadavatel", esc(nameOf(m.agent))], ["Přiřazeno", esc(nameOf(m.recipient))], ["Stav", taskState(m)], ["Pokusy", esc(m.attempts ?? "není dostupné")], ["Zadáno", `<span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span>`]];
+  el.innerHTML = `<dl class="detail-grid">${fields.map(([key,value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("")}</dl>`
+    + `<details class="detail-section task-description" data-section="assignment"><summary>Zadání úkolu v plném znění</summary><div class="detail-text">${esc(m.text)}</div></details>`
+    + (m.accept_note ? `<div class="detail-section"><h3>Potvrzení převzetí</h3><div class="detail-text">${esc(m.accept_note)}</div></div>` : "")
+    + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "")
+    + `<section class="task-quality"><h3><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h3><span class="tag">NOT RUN</span><p class="note">Kontrola zatím není dostupná. Budoucí výsledek se sváže s konkrétním commitem nebo diffem tohoto úkolu.</p></section>`;
+  timeline.innerHTML = `<div class="timeline-current" data-tone="${stateTone(m.state)}"><span class="timeline-marker" aria-hidden="true"></span><span>Aktuální stav: ${esc((STATE[m.state] || [m.state || "nedostupný"])[0])}</span></div><ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
+    + related.map(r => `<li><details data-section="reply-${r.id}"><summary><span class="event-meta">#${r.id} · ${esc(KIND[r.kind] || r.kind)} · <span data-relative-id="${r.id}">${ago(r.seconds_ago)}</span></span><br>${esc(r.text.slice(0,80))}${r.text.length > 80 ? "…" : ""}</summary><div class="detail-text">${esc(r.text)}</div></details></li>`).join("")
+    + `</ol><p class="note">${related.length ? "Přímo navázané zprávy z načtené historie." : "Žádné navázané zprávy v načtené historii."} Strukturované kroky ani úplná historie přechodů nejsou v API dostupné.</p>`;
+  if (switched) { motion(el,[{opacity:.3},{opacity:1}],180); motion(timeline,[{opacity:.3},{opacity:1}],180); }
+  [...el.querySelectorAll("details[data-section]"), ...timeline.querySelectorAll("details[data-section]")].forEach(d => { d.open = openSections.includes(d.dataset.section); });
+}
+function renderProjects(reviews) {
+  const repos = [...new Set(reviews.map(r => r.repo).filter(Boolean))].sort();
+  setHTMLIfChanged(document.getElementById("projects"), repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`);
+}
+
 
 const NAMES = {
   "claude-code": "Ada · Claude Code", "codex": "Nox · Codex",
-  "claude-code-bridge": "Most Ady (práce na pozadí)", "codex-bridge": "Most Noxe (práce na pozadí)",
+  "claude-code-bridge": "Most Ady", "codex-bridge": "Most Noxe",
   "broker": "systém",
 };
 const KIND = { chat: "zpráva", task: "úkol", broadcast: "všem", control: "řízení", result: "výsledek" };
@@ -750,8 +1126,9 @@ function esc(s) { const d = document.createElement("div"); d.textContent = s ?? 
 function nameOf(a) { return a === me ? "Ty" : (NAMES[a] || a); }
 function hueOf(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 function avatarStyle(name) {
-  const h = hueOf(name);
-  return `background: linear-gradient(135deg, hsl(${h} 70% 52%), hsl(${(h + 45) % 360} 70% 52%))`;
+  const known = {"claude-code":"--avatar-ada", "codex":"--avatar-nox", "claude-code-bridge":"--avatar-bridge", "codex-bridge":"--avatar-bridge"};
+  const palette = ["--accent-1","--blue","--ok","--warn"];
+  return `--avatar-color:var(${name === me ? "--avatar-user" : known[name] || palette[hueOf(name) % palette.length]})`;
 }
 function initial(name) { return String(nameOf(name) || "?").trim().slice(0, 1).toUpperCase(); }
 function ago(seconds) {
@@ -769,6 +1146,8 @@ function clock(t) { return new Date(t * 1000).toLocaleTimeString("cs-CZ", {hour:
 function tag(text, cls) { return `<span class="tag ${cls || ""}">${esc(text)}</span>`; }
 
 function updateStatus(mode) {
+  connectionMode = mode;
+  renderSystemMetric();
   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
   statusText.textContent = mode === "live" ? "živě" : mode === "retry" ? "spojení přerušeno, zkouším znovu…" : "připojuji…";
 }
@@ -778,39 +1157,72 @@ function isSystem(m) {
   return m.agent === "broker" || (m.kind === "result" && /^✔ taking #/.test(m.text || ""));
 }
 
-function renderMessage(m) {
+function renderMessage(m, {live = false} = {}) {
+  const previous = messageCache.get(m.id);
+  const newLive = live && historyReady && !previous && m.id > highestMessageId;
+  highestMessageId = Math.max(highestMessageId,m.id);
+  messageCache.set(m.id,m);
+  if (messageCache.size > 200) {
+    const oldest = Math.min(...messageCache.keys());
+    messageCache.delete(oldest); expandedMessages.delete(oldest);
+    document.getElementById("msg-" + oldest)?.remove();
+    if (oldest === m.id) return;
+  }
   let div = document.getElementById("msg-" + m.id);
   const fresh = !div;
-  if (fresh) div = document.createElement("div");
-  div.id = "msg-" + m.id;
-  const system = isSystem(m);
-  div.className = "bubble" + (m.agent === me ? " mine" : "") + (system ? " system" : "")
-    + (system && !showSystemEl.checked ? " hidden" : "");
+  if (fresh) { div = document.createElement("div"); div.className = "bubble"; div.id = "msg-" + m.id; div.dataset.messageId = String(m.id); }
   const k = m.kind || "chat";
-  const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
-  // Stav doručení má smysl jen u úkolu; u zprávy stačí, jestli ji příjemce viděl.
-  const st = k !== "task" ? "" : m.state && STATE[m.state] ? tag(STATE[m.state][0], STATE[m.state][1]) : (m.state ? tag(m.state) : "");
-  const rcpt = (m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker")
-    ? (m.accepted ? tag("✔ převzal" + (m.accept_note ? ": " + m.accept_note : ""), "ok")
-       : m.seen ? tag("👁 viděl, zatím nepřevzal", "work")
-       : tag("⏳ ještě nedoručeno")) : "";
-  const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
-  div.innerHTML =
-    `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span>` +
-    `<span class="who">${esc(nameOf(m.agent))}</span> ${to}<span>· ${ago(m.seconds_ago)}</span>` +
-    st + rcpt + `<span class="num">#${m.id}</span></div>` +
-    `<div class="text${long ? " clip" : ""}">${esc(m.text)}</div>`;
-  if (long) {
-    const more = document.createElement("button");
-    more.className = "more"; more.textContent = "Zobrazit celé";
-    more.onclick = () => {
-      const t = div.querySelector(".text");
-      t.classList.toggle("clip");
-      more.textContent = t.classList.contains("clip") ? "Zobrazit celé" : "Sbalit";
-    };
-    div.appendChild(more);
+  const structuralKey = JSON.stringify([m.text,m.kind,m.agent,m.recipient]);
+  if (div.dataset.renderKey !== structuralKey) {
+    div.dataset.renderKey = structuralKey;
+    const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
+    const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
+    div.innerHTML = `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span><span class="who">${esc(nameOf(m.agent))}</span> ${to}<span class="message-time" title="Stáří podle poslední aktualizace"></span><span class="delivery-meta"></span><span class="num">#${m.id}</span></div><div class="text${long && !expandedMessages.has(m.id) ? " clip" : ""}">${esc(m.text)}</div><span class="completion-flash" aria-hidden="true"></span>`;
+    if (long) {
+      const more = document.createElement("button"); more.className = "more";
+      more.textContent = expandedMessages.has(m.id) ? "Sbalit" : "Zobrazit celé";
+      more.onclick = () => {
+        const clipped = div.querySelector(".text").classList.toggle("clip");
+        if (clipped) expandedMessages.delete(m.id); else expandedMessages.add(m.id);
+        more.textContent = clipped ? "Zobrazit celé" : "Sbalit";
+      };
+      div.appendChild(more);
+    }
+    if (k === "task") {
+      const detail = document.createElement("button"); detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
+      detail.setAttribute("aria-label",`Detail úkolu #${m.id}`); detail.onclick = () => selectTask(m.id,true); div.appendChild(detail);
+    }
+    div._actionsKey = null;
   }
-  if (k === "task" && m.recipient && m.state) {
+  div.classList.toggle("mine",m.agent === me);
+  div.classList.toggle("system",isSystem(m));
+  div.classList.toggle("task",k === "task");
+  div.classList.toggle("result",k === "result");
+  div.classList.toggle("selected",selectedTask === m.id);
+  div.querySelector(".message-time").textContent = "· " + ago(m.seconds_ago);
+  const state = k === "task" && m.state ? taskState(m) : "";
+  const receipt = m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker"
+    ? m.accepted ? tag("✓ převzal" + (m.accept_note ? ": " + m.accept_note : ""),"ok") : m.seen ? tag("viděl, zatím nepřevzal","work") : tag("ještě nedoručeno") : "";
+  setHTMLIfChanged(div.querySelector(".delivery-meta"),state + receipt);
+  const actionsKey = JSON.stringify([m.state,m.recipient,m.last_error]);
+  if (div._actionsKey !== actionsKey) { div.querySelector(".actions")?.remove(); renderTaskActions(m,div); div._actionsKey = actionsKey; }
+  if (fresh) {
+    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+    const next = [...feed.querySelectorAll(".bubble")].find(el=>Number(el.dataset.messageId)>m.id);
+    feed.insertBefore(div,next || document.getElementById("filterEmpty"));
+    if (stick) feed.scrollTop = feed.scrollHeight;
+    if (newLive) motion(div,[{opacity:0,transform:"translateY(6px)"},{opacity:1,transform:"translateY(0)"}],210);
+  } else if (previous?.state !== m.state) {
+    if (m.state === "succeeded") motion(div.querySelector(".completion-flash"),[{opacity:.12},{opacity:0}],450);
+    else if (stateTone(m.state) !== "bad") motion(div.querySelector(".task-state"),[{opacity:.65},{opacity:1}],180);
+  } else if (previous?.accepted !== m.accepted) {
+    motion(div.querySelector(".delivery-meta .tag:last-child"),[{opacity:.65},{opacity:1}],180);
+  }
+  if (!renderingRoom) refreshDashboard();
+}
+
+function renderTaskActions(m,div) {
+  if (m.kind === "task" && m.recipient && m.state) {
     const actions = document.createElement("div");
     actions.className = "actions";
     const add = (label, fn) => { const b = document.createElement("button"); b.className = "btn"; b.textContent = label; b.onclick = fn; actions.appendChild(b); };
@@ -834,16 +1246,16 @@ function renderMessage(m) {
     }
     if (actions.childElementCount) div.appendChild(actions);
   }
-  if (fresh) {
-    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
-    feed.appendChild(div);
-    if (stick) feed.scrollTop = feed.scrollHeight;
-  }
 }
 
 function renderPause(p) {
   if (p === undefined) return;  // zpráva bez stavu pauzy nesmí přepsat tlačítko
+  lastPaused = p;
+  renderSystemMetric();
   const el = document.getElementById("pause");
+  const pauseKey = JSON.stringify(p);
+  if (el._pauseKey === pauseKey) return;
+  el._pauseKey = pauseKey;
   el.innerHTML = "";
   const bar = document.createElement("div");
   const b = document.createElement("button");
@@ -855,8 +1267,8 @@ function renderPause(p) {
     b.onclick = () => { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); };
   } else {
     bar.className = "pausebar running";
-    bar.innerHTML = `<div class="ptext"><div class="big">▶ Agenti běží</div></div>`;
-    b.textContent = "🛑 Zastavit všechny agenty";
+    bar.innerHTML = `<div class="ptext"><div class="big">● Provoz povolen</div></div>`;
+    b.textContent = "Zastavit všechny agenty";
     b.onclick = () => { const r = prompt("Opravdu zastavit všechny agenty? Napiš důvod (zaznamená se):", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); };
   }
   bar.appendChild(b);
@@ -885,12 +1297,12 @@ function agentCard(p, b) {
   else if (p.status) line = esc(p.status);
   else if (!p.active) line = "naposledy " + ago(p.seen_seconds_ago);
   if (b && b.blocked_reason) line += `<br>čeká: ${esc(b.blocked_reason)}`;
-  if (b && b.blocked_task) line += `<br>🔒 #${b.blocked_task.id} ${esc(b.blocked_task.path)} drží ${esc(nameOf(b.blocked_task.held_by))}`;
-  return `<div class="card ${p.active ? "" : "offline"}">
+  if (b && b.blocked_task) line += `<br>⌑ #${b.blocked_task.id} ${esc(b.blocked_task.path)} drží ${esc(nameOf(b.blocked_task.held_by))}`;
+  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : roleOf(p.agent) === "agent" ? "interactive" : ""}">
     <div class="head"><div class="avatar" style="${avatarStyle(p.agent)}">${esc(initial(p.agent))}<span class="dot ${p.active ? "on" : ""}"></span></div>
-      <div class="who"><div class="name">${esc(nameOf(p.agent))}</div>${NAMES[p.agent] || p.agent === me ? `<div class="id">${esc(p.agent)}</div>` : ""}</div></div>
-    ${line ? `<div class="line">${line}</div>` : ""}
-    <div class="tags">${tags.join("")}</div></div>`;
+      <div class="who"><div class="name">${esc(nameOf(p.agent))}</div>${NAMES[p.agent] || p.agent === me ? `<div class="id">${esc(p.agent)}</div>` : ""}</div><span class="role">${roleOf(p.agent)}</span></div>
+    ${line ? `<div class="line agent-work">${line}</div>` : ""}
+    <div class="tags">${tags.join("")}</div>${p.seen_seconds_ago == null ? "" : `<div class="last-active">Aktivita ${ago(p.seen_seconds_ago)}</div>`}</div>`;
 }
 
 const REVIEW = {
@@ -908,7 +1320,12 @@ function scanTag(v) {
 }
 function renderReviews(list) {
   if (list === undefined) return;
+  renderProjects(list);
+  document.getElementById("reviewCount").textContent = list.length;
   const el = document.getElementById("reviews");
+  const reviewKey = JSON.stringify(list);
+  if (el._reviewKey === reviewKey) return;
+  el._reviewKey = reviewKey;
   el.innerHTML = "";
   if (!list.length) { el.innerHTML = "<div class='empty'>žádné otevřené review</div>"; return; }
   // Co čeká na člověka, nahoru.
@@ -920,7 +1337,7 @@ function renderReviews(list) {
     const sha = v.head_commit ? ` · ${esc(v.head_commit.slice(0, 10))}` : "";
     const why = v.verdict_note && v.state !== "approved" ? `<div class="line">„${esc(v.verdict_note.slice(0, 240))}"</div>` : "";
     card.innerHTML = `<div class="name">#${v.id} ${esc(v.topic)}</div>`
-      + `<div class="line">${who}${sha}</div>${why}`
+      + `<div class="line">${who}${sha}</div><div class="path">${esc(v.repo || "")}</div>${why}`
       + `<div class="tags">${tag(st[0], st[1])}${tag(`kolo oprav ${v.fix_cycles}/${v.max_fix_cycles}`, v.cycles_left ? "" : "bad")}${scanTag(v)}</div>`;
     if (v.state === "escalated") {
       const btns = document.createElement("div");
@@ -946,34 +1363,43 @@ function renderReviews(list) {
 
 function renderRoom(r) {
   if (r.me) me = r.me;
+  latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
-  (r.messages || []).forEach(renderMessage);
+  renderingRoom = true;
+  (r.messages || []).forEach(m => renderMessage(m));
+  renderingRoom = false;
   renderPause(r.paused);
   const board = {};
   (r.board || []).forEach(b => { board[b.agent] = b; });
   const peers = (r.peers || []).filter(p => !String(p.agent).startsWith("untrusted-"));
   (r.board || []).forEach(b => { if (!peers.some(p => p.agent === b.agent)) peers.push({agent: b.agent, active: false, status: b.status}); });
-  const online = peers.filter(p => p.active), offline = peers.filter(p => !p.active);
-  document.getElementById("agents").innerHTML = online.map(p => agentCard(p, board[p.agent])).join("") || "<div class='empty'>nikdo není online</div>";
-  document.getElementById("offline").innerHTML = offline.map(p => agentCard(p, board[p.agent])).join("");
+  latestPeers = peers;
+  const coreAgent = p => ["claude-code", "codex"].includes(p.agent);
+  const online = peers.filter(p => p.active || coreAgent(p)), offline = peers.filter(p => !p.active && !coreAgent(p));
+  document.getElementById("agentCount").textContent = peers.length;
+  renderAgentList("agents",online,board);
+  renderAgentList("offline",offline,board);
+  highlightAgent();
   document.getElementById("offlineSummary").textContent = `Offline (${offline.length})`;
   document.getElementById("offlineBox").style.display = offline.length ? "" : "none";
-  document.getElementById("claims").innerHTML = (r.claims || []).map(c => `
-    <div class="card"><div class="path">🔒 ${esc(c.path)}</div>
+  setHTMLIfChanged(document.getElementById("claims"), (r.claims || []).map(c => `
+    <div class="card"><div class="path">⌑ ${esc(c.path)}</div>
       <div class="line">${esc(nameOf(c.held_by))}${c.purpose ? " · " + esc(c.purpose) : ""} · ještě ${ttl(c.expires_in_seconds)}</div></div>`).join("")
-    || "<div class='empty'>nic není zamčené</div>";
+    || "<div class='empty'>nic není zamčené</div>");
   // Komu: skuteční agenti, bez mostů, systému a sebe.
   const names = new Set(["claude-code", "codex"]);
   peers.forEach(p => { const a = String(p.agent); if (a !== me && a !== "broker" && !a.endsWith("-bridge")) names.add(a); });
   const list = [...names].sort((a, b) => (NAMES[a] ? 0 : 1) - (NAMES[b] ? 0 : 1) || a.localeCompare(b));
   if (list.join() !== knownAgents.join()) { knownAgents = list; fillRecipients(); }
+  refreshDashboard();
+  historyReady = true;
 }
 
 function fillRecipients() {
   const prev = toEl.value;
   toEl.innerHTML = "";
   knownAgents.forEach(a => toEl.add(new Option(nameOf(a), a)));
-  const all = new Option("📢 Všem v místnosti", "*");
+  const all = new Option("Všem v místnosti", "*");
   all.disabled = kind === "task";
   toEl.add(all);
   if ([...toEl.options].some(o => o.value === prev && !o.disabled)) toEl.value = prev;
@@ -981,24 +1407,24 @@ function fillRecipients() {
 }
 function setKind(k) {
   kind = k;
-  document.querySelectorAll("#kindSeg button").forEach(b => b.classList.toggle("on", b.dataset.kind === k));
+  document.querySelectorAll("#kindSeg button").forEach(b => { b.classList.toggle("on", b.dataset.kind === k); b.setAttribute("aria-pressed", b.dataset.kind === k); });
   fillRecipients();
 }
 function syncHint() {
   const to = toEl.value === "*" ? "všem v místnosti" : nameOf(toEl.value);
   if (kind === "task") {
     hintEl.className = "task";
-    hintEl.textContent = `🛠 Úkol: ${to} ho převezme a udělá sám, klidně i na pozadí bez tebe. Posílej jen to, co má opravdu udělat.`;
+    hintEl.textContent = `Úkol: ${to} ho převezme a udělá sám, klidně i na pozadí bez tebe. Posílej jen to, co má opravdu udělat.`;
   } else {
     hintEl.className = "";
-    hintEl.textContent = `💬 Zpráva pro: ${to}. Jen informace — přečte si ji, až se podívá do místnosti. Nic se samo nespustí.`;
+    hintEl.textContent = `Zpráva pro: ${to}. Jen informace — přečte si ji, až se podívá do místnosti. Nic se samo nespustí.`;
   }
   textEl.placeholder = kind === "task" ? "Popiš, co má udělat…" : "Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)";
 }
 
 function connect(since) {
   const es = new EventSource("/api/events?since=" + since);
-  es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
+  es.addEventListener("message", e => renderMessage(JSON.parse(e.data), {live:true}));
   es.addEventListener("room", e => renderRoom(JSON.parse(e.data)));
   es.onopen = () => updateStatus("live");
   es.onerror = () => updateStatus("retry");
@@ -1023,7 +1449,6 @@ establishSession()
   .then(r => { if (!r.ok) throw new Error("auth"); return r.json(); })
   .then(s => {
     if (s.me) me = s.me;
-    s.messages.forEach(renderMessage);
     renderRoom(s);
     feed.scrollTop = feed.scrollHeight;
     connect(s.messages.length ? s.messages[s.messages.length - 1].id : 0);
@@ -1032,7 +1457,8 @@ establishSession()
 
 function post(url, body) {
   return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-    .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; });
+    .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; })
+    .catch(() => { alert("Spojení se nezdařilo. Zkontroluj stav v místnosti před opakováním akce."); return false; });
 }
 function send() {
   const text = textEl.value;
@@ -1050,12 +1476,98 @@ function control(action, id, to) { post("/api/" + action, { id, to }); }
 
 document.querySelectorAll("#kindSeg button").forEach(b => b.onclick = () => setKind(b.dataset.kind));
 toEl.addEventListener("change", syncHint);
-showSystemEl.addEventListener("change", () => {
-  document.querySelectorAll(".bubble.system").forEach(d => d.classList.toggle("hidden", !showSystemEl.checked));
+showSystemEl.addEventListener("change", applyFilters);
+document.getElementById("search").addEventListener("input", applyFilters);
+document.getElementById("taskPicker").addEventListener("change", e => selectTask(e.target.value));
+document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
+  activeFilter = b.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach(el => { el.classList.toggle("on", el === b); el.setAttribute("aria-pressed", el === b); });
+  applyFilters();
 });
+document.getElementById("navTasks").onclick = () => {
+  showView("overview",{focus:false});
+  document.querySelector('[data-filter="task"]').click();
+  document.getElementById("main").scrollIntoView({block:"start"});
+};
 document.getElementById("sendBtn").onclick = send;
 textEl.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 fillRecipients();
+// Planned presentation contract only. No fetching, scanning, storage or gate decisions.
+const QG_STATUS = {
+  PASS:{label:"PASS",tone:"ok",icon:"✓",meaning:"Všechny povinné kontroly prošly."},
+  REVIEW:{label:"REVIEW",tone:"warn",icon:"◇",meaning:"Vyžaduje kontrolu."},
+  FAIL:{label:"FAIL",tone:"bad",icon:"✕",meaning:"Povinná kontrola selhala."},
+  NA:{label:"N/A",tone:"muted",icon:"—",meaning:"Kontrola není použitelná nebo chybí metriky."},
+  SETUP_REQUIRED:{label:"SETUP REQUIRED",tone:"work",icon:"⚙",meaning:"Projekt nemá nastavené povinné kontroly."},
+  NOT_RUN:{label:"NOT RUN",tone:"muted",icon:"○",meaning:"Kontrola dosud neproběhla."},
+};
+const QG_CHECKS = [["tests","Testy"],["lint","Lint"],["build","Build"],["coverage","Coverage"],["security","Security"],["crap","CRAP score"]];
+const QG_SUMMARY = ["PASS","REVIEW","FAIL","NA","SETUP_REQUIRED"];
+const demoChecks = (status,detail) => Object.fromEntries([...QG_CHECKS,["typecheck","Type check"]].map(([key])=>[key,{status,detail}]));
+const QG_DEMO = [
+  {repository:"demo/agent-lease",branch:"demo/ui",commit_sha:"a".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T12:00:00Z",overall_status:"PASS",checks:demoChecks("PASS","Ukázka: kontrola prošla. Žádný nástroj se nespustil."),logs:[],reviewer:"Ada (ukázka)",review_status:"Schváleno — ukázka",history:[{timestamp:"2026-11-05T12:00:00Z",status:"REVIEW",note:"Demonstrační starší záznam."}]},
+  {repository:"demo/frontend-s-velmi-dlouhym-nazvem-repozitare-pro-overeni-responzivni-tabulky",branch:"demo/coverage",commit_sha:"b".repeat(40),agent:"Ada (ukázka)",timestamp:"2026-11-06T11:00:00Z",overall_status:"REVIEW",checks:{...demoChecks("PASS","Ukázkový výsledek."),coverage:{status:"REVIEW",value:"72 % (demo)",detail:"Ukázka: coverage vyžaduje kontrolu; nejde o skutečnou metriku."}},logs:[],reviewer:"Nox (ukázka)",review_status:"Čeká na nezávislé review — ukázka"},
+  {repository:"demo/build-failure",branch:"demo/build",commit_sha:"c".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T10:00:00Z",overall_status:"FAIL",checks:{...demoChecks("PASS","Ukázkový výsledek."),build:{status:"FAIL",detail:"Ukázka: build selhal."},security:{status:"FAIL",detail:"Ukázka bezpečnostního nálezu; neobsahuje skutečná tajemství."}},logs:[],reviewer:null,review_status:null},
+  {repository:"demo/no-applicable-metrics",branch:null,commit_sha:null,agent:null,timestamp:null,overall_status:"NA",checks:demoChecks("NA","Ukázka: tato kontrola není použitelná."),logs:[]},
+  {repository:"demo/setup-required",branch:"demo/setup",commit_sha:null,agent:null,timestamp:null,overall_status:"SETUP_REQUIRED",checks:demoChecks("NOT_RUN","Ukázka: nejprve je třeba nastavit kontroly."),logs:[]},
+  {repository:"demo/not-run",branch:"demo/pending",commit_sha:null,agent:null,timestamp:null,overall_status:"NOT_RUN",checks:demoChecks("NOT_RUN","Ukázka: kontrola ještě neproběhla."),logs:[]},
+];
+let qgDemo = false;
+let qgSelected = null;
+let currentView = "overview";
+function qgBadge(status) {
+  const s = QG_STATUS[status] || QG_STATUS.NOT_RUN;
+  return `<span class="tag qg-badge ${s.tone}"><span aria-hidden="true">${s.icon}</span> ${s.label}</span>`;
+}
+function qgSummary(records) {
+  return QG_SUMMARY.map(status=>{const s=QG_STATUS[status];return `<div class="qg-stat" data-qg-state="${status}" data-tone="${s.tone}"><span aria-hidden="true">${s.icon}</span><span class="qg-stat-name">${s.label}</span><strong>${qgDemo ? records.filter(r=>r.overall_status===status).length : "—"}</strong></div>`;}).join("");
+}
+function qgDate(value) { return value ? new Date(value).toLocaleString("cs-CZ") : "Není známá"; }
+function qgTable(records,{compact=false}={}) {
+  const headers = compact ? ["Repozitář",...QG_CHECKS.map(c=>c[1]),"Stav"] : ["Repozitář / větev","Commit","Agent","Kontrola",...QG_CHECKS.map(c=>c[1]),"Stav"];
+  return `<div class="qg-scroll" tabindex="0" role="region" aria-label="Výsledky kontrol repozitářů; tabulku lze posouvat vodorovně"><table class="qg-table"><caption class="sr-only">${qgDemo ? "DEMO — ukázkové výsledky, ne skutečné kontroly" : "Quality Gate dosud nemá výsledky"}</caption><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join("")}</tr></thead><tbody>`
+    + (records.length ? records.map((r,i)=>`<tr><th scope="row"><button type="button" class="qg-repo" data-qg-project="${i}">${esc(r.repository)}</button>${compact ? "" : `<span class="qg-branch">${esc(r.branch || "Větev není uvedená")}</span>`}</th>${compact ? "" : `<td class="path">${esc(r.commit_sha ? r.commit_sha.slice(0,10) : "Neuveden")}</td><td>${esc(r.agent || "Neuveden")}</td><td>${esc(qgDate(r.timestamp))}</td>`}${QG_CHECKS.map(([key])=>`<td>${qgBadge(r.checks?.[key]?.status || "NOT_RUN")}</td>`).join("")}<td>${qgBadge(r.overall_status)}</td></tr>`).join("") : `<tr><td colspan="${headers.length}" class="qg-empty">Dosud bez výsledků. Repozitáře ani kontroly zatím nejsou napojené.</td></tr>`)
+    + `</tbody></table></div>`;
+}
+function renderQualityGate() {
+  const records = qgDemo ? QG_DEMO : [];
+  document.querySelectorAll("[data-qg-mode]").forEach(el=>{el.textContent=qgDemo ? "DEMO · pouze ukázková data" : "Připravuje se · dosud bez výsledků";});
+  document.querySelectorAll("[data-qg-demo]").forEach(b=>{b.textContent=qgDemo ? "Vypnout demo" : "Zobrazit demo";b.setAttribute("aria-pressed",String(qgDemo));});
+  document.getElementById("qgCompactSummary").innerHTML=qgSummary(records);
+  document.getElementById("qgPageSummary").innerHTML=qgSummary(records);
+  document.querySelectorAll("[data-qg-state]").forEach(el=>{el.title=QG_STATUS[el.dataset.qgState].meaning;});
+  document.getElementById("qgRepoCount").textContent=qgDemo ? records.length : "—";
+  document.getElementById("qgLastCheck").textContent=qgDemo ? "Ukázka: " + qgDate(records[0].timestamp) : "Není známá";
+  document.getElementById("qgCompactTable").innerHTML=qgTable(records,{compact:true});
+  document.getElementById("qgProjectTable").innerHTML=qgTable(records);
+  document.querySelectorAll("[data-qg-project]").forEach(b=>b.onclick=()=>{qgSelected=Number(b.dataset.qgProject);showView("quality");renderQualityProject();document.getElementById("qgProjectTitle").focus({preventScroll:true});});
+  renderQualityProject();
+}
+function renderQualityProject() {
+  const r=qgDemo && qgSelected !== null ? QG_DEMO[qgSelected] : null;
+  const el=document.getElementById("qgProjectDetail");
+  document.getElementById("qgProjectTitle").textContent=r ? r.repository : "Detail repozitáře";
+  if(!r){el.innerHTML=`<div class="empty">${qgDemo ? "Vyber ukázkový repozitář z tabulky." : "Kontrola zatím není dostupná. Napojení na konkrétní commit nebo diff se připravuje ve fázi B."}</div>`;return;}
+  const checks=[...QG_CHECKS,["typecheck","Type check"]];
+  el.innerHTML=`<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p><dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
+    + checks.map(([key,label])=>{const c=r.checks?.[key];return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`;}).join("")
+    + `</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.</p></div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
+  motion(el,[{opacity:.4},{opacity:1}],180);
+}
+function showView(view,{focus=true}={}) {
+  if(drawer.open){drawer.close();restorePanels();}
+  currentView=view;
+  document.querySelectorAll("[data-view-panel]").forEach(el=>{el.hidden=el.dataset.viewPanel!==view;});
+  document.querySelectorAll(".primary-nav [data-view]").forEach(b=>{const on=b.dataset.view===view;b.classList.toggle("current",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
+  if(focus)document.querySelector(`[data-view-panel="${view}"] .view-title`)?.focus({preventScroll:true});
+  motion(document.querySelector(`[data-view-panel="${view}"]`),[{opacity:.5},{opacity:1}],180);
+}
+document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
+document.querySelectorAll("[data-qg-demo]").forEach(b=>b.onclick=()=>{qgDemo=!qgDemo;qgSelected=null;renderQualityGate();});
+renderQualityGate();
+
+document.getElementById("navAgents").onclick=()=>{showView("overview",{focus:false});openPanel("side");};
+for(const [id,target,panel] of [["navProjects","projectPanel","side"],["navHistory","historyPanel","inspector"]])document.getElementById(id).onclick=e=>{e.preventDefault();showView("overview",{focus:false});openPanel(panel);document.getElementById(target).scrollIntoView({block:"start"});};
 </script>
 """
 

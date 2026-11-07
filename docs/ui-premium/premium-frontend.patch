@@ -1,0 +1,967 @@
+diff --git a/src/agent_lease_mcp/webui.py b/src/agent_lease_mcp/webui.py
+index f08ade1..634e195 100644
+--- a/src/agent_lease_mcp/webui.py
++++ b/src/agent_lease_mcp/webui.py
+@@ -502,6 +502,16 @@ PAGE_HTML = """<!doctype html>
+-  color-scheme: dark;
+-  --bg:#080c15; --surface:#101622; --surface-2:#131c2b; --raised:#192337;
+-  --border:#273248; --border-soft:#1d293c; --text:#e9eef8; --text-dim:#a8b4c9; --text-faint:#8695ae;
+-  --accent-1:#ac8bff; --accent-2:#647eff; --blue:#58b5ff; --ok:#40dba4; --warn:#f3bf65; --bad:#ff7e96;
+-  --grad:linear-gradient(120deg,#824de3,#6468ed);
+-  --shadow:0 6px 24px #0003, inset 0 1px 0 #ffffff04;
++  color-scheme:dark;
++  --bg:#070B14; --surface:#0D1423; --surface-2:#131D30;
++  --accent-1:#9146FF; --blue:#38A8FF; --ok:#25DFA0; --warn:#F5B94F; --bad:#FF5978;
++  --text:#F0F4FF; --text-dim:#94A6C2; --ink:#000;
++  --border:rgba(130,160,220,.14);
++  --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
++  --text-faint:var(--text-dim); --raised:var(--surface-2);
++  --accent-text:color-mix(in srgb,var(--accent-1) 45%,var(--text));
++  --bad-text:color-mix(in srgb,var(--bad) 65%,var(--text));
++  --blue-text:color-mix(in srgb,var(--blue) 70%,var(--text));
++  --grad:linear-gradient(120deg,color-mix(in srgb,var(--accent-1) 88%,var(--bg)),color-mix(in srgb,var(--accent-1) 78%,var(--bg)));
++  --panel-grad:linear-gradient(135deg,color-mix(in srgb,var(--surface-2) 30%,var(--surface)),var(--surface));
++  --shadow:0 6px 22px color-mix(in srgb,var(--ink) 20%,transparent),inset 0 1px 0 color-mix(in srgb,var(--text) 2%,transparent);
++  --shadow-hover:0 8px 24px color-mix(in srgb,var(--ink) 28%,transparent),0 0 16px color-mix(in srgb,var(--accent-1) 7%,transparent);
++  --ease:cubic-bezier(.22,1,.36,1); --panel-time:200ms; --control-time:160ms;
++  --avatar-ada:var(--warn); --avatar-nox:var(--accent-1); --avatar-bridge:var(--blue); --avatar-user:var(--ok);
+@@ -510,9 +520,11 @@ PAGE_HTML = """<!doctype html>
+-body { margin:0; background:radial-gradient(ellipse at 50% 0,#17163066,transparent 60%),var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+-button,input,select,textarea { font:inherit; }
+-button { cursor:pointer; }
+-button,input,select,textarea { color:var(--text); }
+-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible { outline:2px solid var(--accent-1); outline-offset:3px; }
+-button { transition:background .15s,border-color .15s; }
+-button:disabled { opacity:.55; cursor:wait; }
+-button:hover { border-color:var(--accent-1); }
+-button,select { min-height:34px; }
++[hidden] { display:none!important; }
++html { scroll-padding-top:140px; }
++body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
++button,input,select,textarea { font:inherit; color:var(--text); }
++button,summary,select { cursor:pointer; }
++button,select { min-height:36px; }
++button { transition:transform var(--control-time) var(--ease),background var(--control-time) var(--ease),border-color var(--control-time) var(--ease),box-shadow var(--control-time) var(--ease); }
++button:hover { border-color:var(--accent-text); }
++button:active { transform:scale(.98); }
++button:disabled { opacity:.6; cursor:wait; }
++button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,a:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }
+@@ -520,2 +532,2 @@ button,select { min-height:34px; }
+-::-webkit-scrollbar-thumb { background:#35425a; border-radius:8px; }
+-.skip { position:fixed; top:-80px; left:16px; z-index:20; background:var(--raised); padding:12px; color:var(--text); }
++::-webkit-scrollbar-thumb { background:color-mix(in srgb,var(--text-dim) 35%,var(--surface)); border-radius:8px; }
++.skip { position:fixed; top:-80px; left:16px; z-index:30; background:var(--surface-2); padding:12px; color:var(--text); }
+@@ -523,8 +535,11 @@ button,select { min-height:34px; }
+-#shell { max-width:1920px; margin:auto; padding:0 24px 20px; }
+-#masthead { display:flex; align-items:center; gap:20px; min-height:84px; border-bottom:1px solid var(--border-soft); }
+-#brand { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+-.mark { width:40px; height:42px; display:grid; place-items:center; color:#cbb5ff; font-size:28px; background:linear-gradient(135deg,#282a63,#19172e); border:1px solid #705baf; border-radius:12px; box-shadow:0 0 25px #8663e31a; }
+-#brand .name { margin:0; font-size:22px; font-weight:740; letter-spacing:-.7px; line-height:1.2; }
+-#brand .sub { color:var(--text-faint); font-size:11px; margin-top:3px; }
+-.workspace-name { border-left:1px solid var(--border); padding-left:20px; color:var(--text-dim); font-size:13px; }
+-.workspace-name span { color:var(--accent-1); margin-right:6px; }
++#shell { max-width:1920px; margin:auto; padding:0 16px 20px; }
++#masthead { display:flex; align-items:center; gap:20px; min-height:64px; flex-wrap:wrap; position:sticky; top:0; z-index:10; background:color-mix(in srgb,var(--bg) 97%,transparent); border-bottom:1px solid var(--border); }
++#brand { display:flex; align-items:center; gap:10px; flex-shrink:0; }
++.mark { width:38px; height:40px; display:grid; place-items:center; }
++.mark svg { width:38px; height:38px; filter:drop-shadow(0 0 5px color-mix(in srgb,var(--accent-1) 30%,transparent)); }
++.mark .logo-blue { stroke:var(--blue); } .mark .logo-purple { stroke:var(--accent-text); } .mark .logo-inner { stroke:var(--accent-1); }
++#brand .name { margin:0; font-size:21px; font-weight:720; letter-spacing:-.6px; line-height:1.25; }
++#brand .sub { color:var(--text-dim); font-size:11px; margin-top:2px; }
++.primary-nav { display:flex; align-items:center; gap:4px; }
++.primary-nav a,.primary-nav button { display:flex; align-items:center; gap:6px; min-height:36px; border:1px solid transparent; background:transparent; text-decoration:none; color:var(--text-dim); padding:6px 9px; border-radius:9px; font-size:12px; white-space:nowrap; }
++.primary-nav .current { background:color-mix(in srgb,var(--accent-1) 18%,var(--surface)); color:var(--accent-text); border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 10%,transparent); }
+@@ -532 +547 @@ button,select { min-height:34px; }
+-.pausebar { display:flex; align-items:center; justify-content:space-between; gap:14px; }
++.pausebar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+@@ -536,9 +551,9 @@ button,select { min-height:34px; }
+-.pausebar button { border:1px solid #773746; background:#2b1521; color:#ff9db0; padding:8px 14px; border-radius:9px; font-size:12px; font-weight:650; white-space:nowrap; }
+-.pausebar.stopped { background:#351924; border:1px solid #a0465b; border-radius:10px; padding:10px 14px; }
+-.pausebar.stopped .big { color:#ffb4c4; }
+-.pausebar.stopped button { background:#f9d9e1; color:#70243a; border-color:#f9d9e1; }
+-#overview { padding:22px 0 20px; }
+-.section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+-.section-heading h2 { margin:0; font-size:16px; font-weight:650; letter-spacing:-.2px; }
+-.eyebrow { text-transform:uppercase; letter-spacing:.11em; font-size:10px; font-weight:650; color:var(--text-faint); }
+-#scope { color:var(--text-faint); font-size:11px; }
++.pausebar button { border:1px solid color-mix(in srgb,var(--bad) 40%,var(--surface)); background:color-mix(in srgb,var(--bad) 10%,var(--surface)); color:var(--bad-text); padding:8px 12px; border-radius:10px; font-size:12px; font-weight:650; white-space:nowrap; transition:none; animation:none; }
++.pausebar button:active { transform:none; }
++.pausebar.stopped { background:color-mix(in srgb,var(--bad) 9%,var(--surface)); border:1px solid var(--bad); border-radius:12px; padding:8px 12px; }
++.pausebar.stopped .big { color:var(--bad-text); }
++.pausebar.stopped button { background:var(--text); color:var(--bg); border-color:var(--text); }
++#overview { padding:12px 0 14px; }
++.section-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 12px; margin-bottom:8px; }
++.section-heading h2 { margin:0; font-size:12px; color:var(--text-dim); font-weight:500; }
++#scope { color:var(--text-dim); font-size:11px; }
+@@ -546,5 +561,6 @@ button,select { min-height:34px; }
+-.metric { position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; padding:17px 14px; border:1px solid var(--border); border-radius:12px; background:linear-gradient(135deg,#131c2b,#0e1420); box-shadow:var(--shadow); }
+-.metric::after { content:""; position:absolute; width:70px; height:70px; right:-28px; top:-30px; background:var(--tint,var(--blue)); opacity:.06; filter:blur(12px); border-radius:50%; pointer-events:none; }
+-.metric-icon { flex:none; width:34px; height:34px; display:grid; place-items:center; color:var(--tint,var(--blue)); background:color-mix(in srgb,var(--tint,var(--blue)) 10%,transparent); border:1px solid color-mix(in srgb,var(--tint,var(--blue)) 18%,transparent); border-radius:10px; font-size:18px; }
+-.metric-label { color:var(--text-dim); font-size:11px; white-space:nowrap; }
+-.metric-value { font-size:25px; line-height:1.3; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.8px; }
++.metric { position:relative; overflow:hidden; display:flex; align-items:center; gap:12px; padding:13px; border:1px solid var(--border); border-radius:14px; background:var(--panel-grad); box-shadow:var(--shadow); transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease),transform var(--panel-time) var(--ease); }
++.metric::after { content:""; position:absolute; inset:0; background:radial-gradient(ellipse at top right,color-mix(in srgb,var(--tint,var(--blue)) 7%,transparent),transparent 70%); pointer-events:none; }
++.metric-icon { flex:none; width:38px; height:38px; display:grid; place-items:center; border-radius:50%; color:var(--tint,var(--blue)); background:color-mix(in srgb,var(--tint,var(--blue)) 8%,transparent); border:1px solid color-mix(in srgb,var(--tint,var(--blue)) 18%,transparent); box-shadow:0 0 14px color-mix(in srgb,var(--tint,var(--blue)) 8%,transparent); font-size:20px; }
++.metric > div { min-width:0; }
++.metric-label { color:var(--text-dim); font-size:11px; overflow-wrap:anywhere; }
++.metric-value { display:inline-block; font-size:25px; line-height:1.3; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.5px; }
+@@ -551,0 +568 @@ button,select { min-height:34px; }
++[data-tone="ok"] { color:var(--ok); } [data-tone="warn"] { color:var(--warn); } [data-tone="bad"] { color:var(--bad-text); } [data-tone="muted"] { color:var(--text-dim); }
+@@ -553,4 +570,4 @@ button,select { min-height:34px; }
+-#app { display:grid; grid-template-columns:240px minmax(0,1fr) 310px; align-items:start; gap:16px; }
+-#side,#inspector { min-width:0; display:flex; flex-direction:column; gap:16px; }
+-.panel { border:1px solid var(--border); border-radius:13px; background:linear-gradient(145deg,#111a28,#0d1420); box-shadow:var(--shadow); min-width:0; }
+-.panel-title { padding:14px 16px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border-soft); }
++#app { display:grid; grid-template-columns:230px minmax(0,1fr) 310px; align-items:start; gap:14px; }
++#side,#inspector { min-width:0; display:flex; flex-direction:column; gap:14px; }
++.panel { border:1px solid var(--border); border-radius:14px; background:var(--panel-grad); box-shadow:var(--shadow); min-width:0; transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease); }
++.panel-title { padding:12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border); }
+@@ -559 +576 @@ button,select { min-height:34px; }
+-.count { margin-left:auto; color:var(--text-dim); background:var(--raised); border:1px solid var(--border); border-radius:6px; padding:0 6px; font-size:10px; font-variant-numeric:tabular-nums; }
++.count { margin-left:auto; color:var(--text-dim); background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0 6px; font-size:11px; font-variant-numeric:tabular-nums; }
+@@ -562,4 +579,4 @@ button,select { min-height:34px; }
+-.card { padding:11px; border-radius:9px; background:#111a28; border:1px solid var(--border-soft); min-width:0; }
+-.card .head { display:flex; align-items:center; gap:9px; }
+-.avatar { width:32px; height:32px; border-radius:10px; display:grid; place-items:center; flex:none; font-size:13px; font-weight:750; position:relative; color:white; }
+-.avatar .dot { position:absolute; right:-2px; bottom:-2px; width:9px; height:9px; border:2px solid var(--surface); border-radius:50%; background:var(--text-faint); }
++.card { padding:10px; border-radius:12px; background:var(--panel-grad); border:1px solid var(--border); min-width:0; transition:border-color var(--panel-time) var(--ease),box-shadow var(--panel-time) var(--ease); }
++.card .head { display:flex; align-items:center; gap:8px; }
++.avatar { width:32px; height:32px; border-radius:10px; display:grid; place-items:center; flex:none; font-size:13px; font-weight:750; position:relative; color:var(--text); background:color-mix(in srgb,var(--avatar-color,var(--accent-1)) 36%,var(--surface)); border:1px solid color-mix(in srgb,var(--avatar-color,var(--accent-1)) 65%,var(--border)); }
++.avatar .dot { position:absolute; right:-2px; bottom:-2px; width:9px; height:9px; border:2px solid var(--surface); border-radius:50%; background:var(--text-dim); }
+@@ -566,0 +584,2 @@ button,select { min-height:34px; }
++.card.interactive:not(.offline) .dot.on { animation:online-presence 2.4s ease-in-out infinite; }
++@keyframes online-presence { 0%,100% { opacity:1; } 50% { opacity:.65; } }
+@@ -569,4 +588,7 @@ button,select { min-height:34px; }
+-.card .id { font-size:10px; color:var(--text-faint); overflow-wrap:anywhere; }
+-.card .line { font-size:12px; color:var(--text-dim); overflow-wrap:anywhere; margin-top:7px; }
+-.card .tags { margin-top:8px; display:flex; flex-wrap:wrap; gap:4px; }
+-.card.offline { background:#0d1420; }
++.card .id { font-size:11px; color:var(--text-dim); overflow-wrap:anywhere; }
++.card .line { font-size:12px; color:var(--text-dim); overflow-wrap:anywhere; margin-top:6px; }
++.card .tags { margin-top:7px; display:flex; flex-wrap:wrap; gap:4px; }
++.card .agent-work { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
++.card .last-active { font-size:11px; color:var(--text-dim); margin-top:5px; }
++.card.offline { background:var(--surface); }
++.card.offline .avatar { --avatar-color:var(--text-dim)!important; }
+@@ -575 +597,2 @@ button,select { min-height:34px; }
+-.role { color:var(--text-faint); font-size:9px; text-transform:uppercase; letter-spacing:.07em; margin-left:auto; }
++.card.selected-agent { border-color:color-mix(in srgb,var(--accent-1) 70%,var(--border)); background:linear-gradient(130deg,color-mix(in srgb,var(--accent-1) 12%,var(--surface)),var(--surface)); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 10%,transparent); }
++.role { color:var(--text-dim); font-size:10px; margin-left:auto; }
+@@ -577 +600 @@ button,select { min-height:34px; }
+-summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
++summary { color:var(--text-dim); font-size:12px; }
+@@ -579,17 +602,16 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.empty { padding:8px 2px; color:var(--text-faint); font-size:12px; }
+-.path { font:11px/1.5 ui-monospace,"SF Mono",monospace; overflow-wrap:anywhere; color:var(--text-dim); }
+-.tag { display:inline-block; font-size:10px; padding:2px 7px; border-radius:5px; color:var(--text-dim); background:#25314980; max-width:100%; overflow-wrap:anywhere; }
+-.tag.ok { background:#173f354f; color:var(--ok); }
+-.tag.warn { background:#5541205c; color:var(--warn); }
+-.tag.bad { background:#5a27354f; color:var(--bad); }
+-.tag.work { background:#4332675c; color:#c1a5ff; }
+-.tag.gone { color:var(--text-faint); }
+-#main { display:flex; flex-direction:column; min-width:0; height:calc(100dvh - 256px); min-height:540px; max-height:1000px; border-color:#3b3359; }
+-#topbar { padding:14px 16px 12px; border-bottom:1px solid var(--border-soft); }
+-#topbar .title { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:650; }
+-#topbar .title .panel-icon { color:var(--accent-1); }
+-#topbar .title #status { margin-left:auto; font-size:11px; font-weight:400; display:flex; gap:6px; align-items:center; color:var(--text-faint); }
+-#status .dot { width:6px; height:6px; background:var(--text-faint); border-radius:50%; flex:none; }
+-#status .dot.live { background:var(--ok); }
+-#status .dot.retry { background:var(--warn); }
+-.tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; }
++.empty { padding:8px 2px; color:var(--text-dim); font-size:12px; }
++.path { font:11px/1.6 ui-monospace,"SF Mono",monospace; overflow-wrap:anywhere; color:var(--text-dim); }
++.tag { display:inline-block; font-size:11px; padding:2px 7px; border-radius:6px; color:var(--text-dim); background:var(--surface-2); max-width:100%; overflow-wrap:anywhere; }
++.tag.ok { background:color-mix(in srgb,var(--ok) 8%,var(--surface)); color:var(--ok); }
++.tag.warn { background:color-mix(in srgb,var(--warn) 8%,var(--surface)); color:var(--warn); }
++.tag.bad { background:color-mix(in srgb,var(--bad) 8%,var(--surface)); color:var(--bad-text); }
++.tag.work { background:color-mix(in srgb,var(--accent-1) 12%,var(--surface)); color:var(--accent-text); }
++.tag.gone { color:var(--text-dim); }
++#main { display:flex; flex-direction:column; min-width:0; height:calc(100dvh - 196px); min-height:550px; max-height:1200px; border-color:color-mix(in srgb,var(--accent-1) 28%,var(--border)); }
++#topbar { display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 10px; padding:10px 14px; border-bottom:1px solid var(--border); }
++#topbar .title { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:650; min-width:0; flex-wrap:wrap; }
++#topbar .title .panel-icon { color:var(--accent-text); }
++#status { margin-left:auto; font-size:11px; font-weight:400; display:flex; gap:6px; align-items:center; color:var(--text-dim); }
++#status .dot { width:6px; height:6px; background:var(--text-dim); border-radius:50%; flex:none; }
++#status .dot.live { background:var(--ok); } #status .dot.retry { background:var(--warn); }
++.tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+@@ -597,12 +619,14 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.filter { padding:5px 9px; min-height:30px; border:1px solid transparent; background:transparent; color:var(--text-dim); font-size:11px; border-radius:7px; }
+-.filter.on { background:#342453; color:#d9c7ff; border-color:#60458c; }
+-.search { margin-left:auto; min-width:120px; flex:1; max-width:220px; }
+-#search { width:100%; min-height:32px; font-size:11px; border:1px solid var(--border); border-radius:7px; background:#0b121e; padding:6px 9px; }
+-.system-toggle { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-faint); margin-left:auto; cursor:pointer; }
+-#feed { flex:1; min-height:200px; overflow-y:auto; padding:16px; display:flex; flex-direction:column; align-items:flex-start; gap:12px; overscroll-behavior:contain; }
+-.bubble { width:94%; padding:12px 13px; border-radius:10px; background:#141e2c; border:1px solid #2a384e; border-left:2px solid #497ab3; }
+-.bubble.mine { align-self:flex-end; background:linear-gradient(120deg,#241e3b,#192035); border-color:#45365f; border-left-color:#a47de9; }
+-.bubble.task { border-left-color:var(--warn); }
+-.bubble.result { border-left-color:var(--ok); }
+-.bubble.system { border-left-color:#7b86a2; background:#101824; }
+-.bubble.selected { border-color:var(--accent-1); box-shadow:0 0 0 1px #ac8bff26; }
++.filter { padding:5px 9px; min-height:32px; border:1px solid transparent; background:transparent; color:var(--text-dim); font-size:12px; border-radius:8px; }
++.filter.on { background:color-mix(in srgb,var(--accent-1) 16%,var(--surface)); color:var(--accent-text); border-color:color-mix(in srgb,var(--accent-1) 45%,var(--border)); }
++.feed-tools { flex-basis:100%; }
++.feed-tools .note { margin:0; }
++.search { margin-left:auto; min-width:120px; flex:1; max-width:200px; }
++#search { width:100%; min-height:30px; font-size:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); padding:5px 9px; }
++.system-toggle { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim); margin-left:auto; cursor:pointer; }
++#showSystem { accent-color:var(--accent-1); }
++#feed { flex:1; min-height:160px; overflow-y:auto; padding:12px 14px; display:flex; flex-direction:column; align-items:flex-start; gap:10px; overscroll-behavior:contain; }
++.bubble { position:relative; flex-shrink:0; width:88%; padding:12px 13px; border-radius:12px; background:var(--panel-grad); border:1px solid var(--border); border-left:2px solid var(--blue); }
++.bubble.mine { align-self:flex-end; width:78%; background:linear-gradient(125deg,color-mix(in srgb,var(--accent-1) 9%,var(--surface)),var(--surface)); border-left-color:var(--accent-text); }
++.bubble.task { border-left-color:var(--warn); } .bubble.result { border-left-color:var(--ok); }
++.bubble.system { width:98%; border-left-color:var(--text-dim); background:var(--surface); }
++.bubble.selected { border-color:var(--accent-text); }
+@@ -610,12 +634,14 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.bubble .meta { display:flex; align-items:center; flex-wrap:wrap; gap:5px 7px; color:var(--text-faint); font-size:10px; margin-bottom:7px; }
+-.bubble .meta .who { color:var(--text); font-size:11px; font-weight:650; }
+-.bubble .meta .num { margin-left:auto; font:10px ui-monospace,monospace; }
+-.bubble .text { font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; }
+-.bubble .text.clip { max-height:10em; overflow:hidden; mask-image:linear-gradient(#000 65%,transparent); }
+-.more { margin-top:8px; border:0; background:transparent; color:var(--accent-1); padding:0; font-size:11px; }
+-.kind { display:inline-block; font-size:9px; font-weight:700; padding:2px 6px; border-radius:4px; text-transform:uppercase; letter-spacing:.04em; }
+-.kind-chat { background:#23466c; color:#a1d5ff; }
+-.kind-task { background:#60451e; color:#ffcf7f; }
+-.kind-result { background:#1c4b3f; color:#78edbf; }
+-.kind-broadcast { background:#413659; color:#ceb2fc; }
+-.kind-control { background:#562c3e; color:#ffadc3; }
++.bubble .meta { display:flex; align-items:center; flex-wrap:wrap; gap:5px 7px; color:var(--text-dim); font-size:11px; margin-bottom:7px; }
++.bubble .meta .who { color:var(--text); font-size:12px; font-weight:650; }
++.bubble .meta .num { margin-left:auto; font:11px ui-monospace,monospace; }
++.delivery-meta { display:contents; }
++.bubble .text { font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
++.bubble .text.clip { max-height:10em; overflow:hidden; }
++.completion-flash { position:absolute; inset:0; border-radius:inherit; background:var(--ok); opacity:0; pointer-events:none; }
++.more { margin:8px 8px 0 0; border:0; background:transparent; color:var(--accent-text); padding:0; font-size:12px; }
++.kind { display:inline-block; font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; text-transform:uppercase; letter-spacing:.04em; background:var(--surface-2); color:var(--text-dim); }
++.kind-chat { background:color-mix(in srgb,var(--blue) 12%,var(--surface)); color:var(--blue-text); }
++.kind-task { background:color-mix(in srgb,var(--warn) 10%,var(--surface)); color:var(--warn); }
++.kind-result { background:color-mix(in srgb,var(--ok) 10%,var(--surface)); color:var(--ok); }
++.kind-broadcast { background:color-mix(in srgb,var(--accent-1) 12%,var(--surface)); color:var(--accent-text); }
++.kind-control { background:color-mix(in srgb,var(--bad) 10%,var(--surface)); color:var(--bad-text); }
+@@ -623,3 +649,3 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.btn { font-size:10px; padding:5px 9px; border:1px solid #34425a; border-radius:6px; background:#1b2639; color:var(--text-dim); }
+-.btn.detail { color:#d1b8ff; }
+-#compose { padding:14px 16px; border-top:1px solid #3b3359; background:linear-gradient(120deg,#181829,#111925); border-radius:0 0 13px 13px; display:flex; flex-direction:column; gap:9px; box-shadow:0 -6px 24px #6a42b90a; }
++.btn { font-size:11px; padding:5px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface-2); color:var(--text-dim); }
++.btn.detail { color:var(--accent-text); }
++#compose { padding:12px 14px; border-top:1px solid var(--border); background:var(--panel-grad); border-radius:0 0 14px 14px; display:flex; flex-direction:column; gap:9px; }
+@@ -627,5 +653,5 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.seg { display:inline-flex; padding:3px; border-radius:8px; background:#0d1421; border:1px solid var(--border); }
+-.seg button { min-height:29px; border:0; border-radius:5px; background:transparent; color:var(--text-dim); padding:4px 12px; font-size:11px; }
+-.seg button.on { background:var(--grad); color:white; box-shadow:0 2px 8px #824de326; }
+-#compose label { display:flex; align-items:center; gap:8px; color:var(--text-faint); font-size:11px; }
+-#to,#taskPicker { background:#0b121e; border:1px solid var(--border); border-radius:7px; padding:6px 9px; font-size:11px; max-width:100%; }
++.seg { display:inline-flex; padding:3px; border-radius:10px; background:var(--bg); border:1px solid var(--border); }
++.seg button { min-height:30px; border:0; border-radius:7px; background:transparent; color:var(--text-dim); padding:5px 12px; font-size:12px; }
++.seg button.on,#sendBtn { background:var(--grad); color:var(--text); box-shadow:0 0 14px color-mix(in srgb,var(--accent-1) 12%,transparent); }
++#compose label { display:flex; align-items:center; gap:8px; color:var(--text-dim); font-size:12px; }
++#to,#taskPicker { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 9px; font-size:12px; max-width:100%; }
+@@ -633 +659 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-#hint { font-size:10px; line-height:1.6; color:var(--text-faint); }
++#hint { font-size:11px; line-height:1.6; color:var(--text-dim); }
+@@ -635,2 +661,4 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-#text { flex:1; width:100%; min-width:0; resize:vertical; min-height:54px; max-height:30vh; background:#0c1420; border:1px solid var(--border); border-radius:8px; padding:9px 11px; font-size:12px; }
+-#sendBtn { align-self:stretch; border:1px solid #9271e0; border-radius:8px; background:var(--grad); color:#fff; padding:8px 17px; font-size:12px; font-weight:650; }
++#text { flex:1; width:100%; min-width:0; resize:vertical; min-height:54px; max-height:30vh; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:9px 11px; font-size:13px; }
++#text:focus,#search:focus,#to:focus { border-color:var(--accent-text); box-shadow:0 0 0 2px color-mix(in srgb,var(--accent-1) 12%,transparent); }
++#sendBtn { align-self:stretch; border:1px solid color-mix(in srgb,var(--accent-1) 60%,var(--text)); border-radius:10px; padding:8px 17px; font-size:13px; font-weight:650; }
++#sendBtn:hover,.seg button.on:hover { background:linear-gradient(120deg,color-mix(in srgb,var(--accent-1) 91%,var(--bg)),color-mix(in srgb,var(--accent-1) 82%,var(--bg))); box-shadow:0 0 16px color-mix(in srgb,var(--accent-1) 22%,transparent); }
+@@ -638,2 +666 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.detail-title { font-size:12px; margin:0 0 8px; font-weight:650; }
+-.detail-section { margin-top:16px; padding-top:12px; border-top:1px solid var(--border-soft); }
++.detail-section { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+@@ -641,3 +668,3 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.detail-section summary { font-size:11px; }
+-.detail-section h3 { font-size:11px; margin:0 0 8px; color:var(--text-dim); }
+-.detail-text { font-size:11px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text-dim); }
++.detail-section summary,.detail-section h3 { font-size:12px; color:var(--text-dim); }
++.detail-section h3 { margin:0 0 8px; }
++.detail-text { font-size:12px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text-dim); }
+@@ -645,6 +672,5 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.detail-grid dt { color:var(--text-faint); }
+-.detail-grid dd { margin:0; overflow-wrap:anywhere; }
+-.note { font-size:10px; line-height:1.7; color:var(--text-faint); margin:8px 0 0; }
+-.event-list { list-style:none; margin:0; padding:0; }
+-.event-list li { border-left:1px solid #3d3658; padding:0 0 14px 12px; position:relative; font-size:11px; overflow-wrap:anywhere; }
+-.event-list li::before { content:""; position:absolute; left:-3px; top:6px; width:5px; height:5px; border-radius:50%; background:var(--accent-1); }
++.detail-grid dt { color:var(--text-dim); } .detail-grid dd { margin:0; overflow-wrap:anywhere; }
++.note { font-size:11px; line-height:1.7; color:var(--text-dim); margin:8px 0 0; }
++.event-list { list-style:none; margin:0; padding:0 0 0 4px; }
++.event-list li { border-left:1px solid var(--border); padding:0 0 14px 12px; position:relative; font-size:12px; overflow-wrap:anywhere; }
++.event-list li::before { content:""; position:absolute; left:-4px; top:6px; width:7px; height:7px; border-radius:50%; background:var(--text-dim); }
+@@ -652 +678 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.event-list .event-meta { color:var(--text-faint); font-size:10px; margin-bottom:4px; }
++.event-list .event-meta { color:var(--text-dim); font-size:11px; margin-bottom:4px; }
+@@ -653,0 +680,8 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
++.timeline-current { position:relative; display:flex; align-items:center; gap:9px; padding:0 0 12px 4px; margin-bottom:12px; border-bottom:1px solid var(--border); font-size:12px; }
++.timeline-marker { position:relative; width:9px; height:9px; border-radius:50%; background:currentColor; flex:none; }
++.timeline-current[data-tone="work"] { color:var(--accent-text); }
++.timeline-current[data-tone="work"] .timeline-marker::after { content:""; position:absolute; inset:-4px; border:1px solid currentColor; border-radius:50%; animation:active-phase 2.4s ease-in-out infinite; }
++@keyframes active-phase { 0%,100% { opacity:.4; transform:scale(.9); } 50% { opacity:.8; transform:scale(1.15); } }
++#taskTimeline .event-list { max-height:180px; overflow-y:auto; }
++#taskTimeline summary { font-size:12px; color:var(--text-dim); }
++#taskTimeline .detail-text { margin-top:8px; }
+@@ -655,2 +689,2 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-.project-name span { color:var(--accent-1); }
+-#inspector,#main,#side,#projectPanel,#historyPanel,#overview { scroll-margin-top:150px; }
++.project-name span { color:var(--accent-text); }
++#inspector,#main,#side,#projectPanel,#historyPanel,#overview { scroll-margin-top:140px; }
+@@ -658,3 +692,24 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-@media (min-width:1500px) { #app { grid-template-columns:260px minmax(0,1fr) 340px; gap:20px; } .bubble .text { font-size:13px; } }
+-@media (max-width:1199px) {
+-  #shell { padding:0 18px 20px; }
++.panel-trigger { display:none; }
++#workspaceDrawer { width:min(560px,calc(100vw - 24px)); max-width:none; height:calc(100dvh - 24px); max-height:none; margin:12px 12px 12px auto; padding:0; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow-hover); }
++#workspaceDrawer[open] { display:flex; flex-direction:column; }
++#workspaceDrawer::backdrop { background:color-mix(in srgb,var(--ink) 65%,transparent); }
++.drawer-header { padding:14px; flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:10px; border-bottom:1px solid var(--border); }
++.drawer-header h2 { margin:0; font-size:16px; }
++#drawerClose { margin-left:auto; min-width:44px; min-height:44px; }
++#drawerPause { width:100%; }
++#drawerPause #pause { width:100%; margin:0; }
++#drawerContent { min-height:0; overflow-y:auto; padding:14px; }
++#workspaceDrawer #side,#workspaceDrawer #inspector { display:flex; width:100%; }
++#workspaceDrawer #taskTimeline .event-list { max-height:240px; }
++body.drawer-open { overflow:hidden; }
++body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animation-play-state:paused!important; }
++@media(hover:hover) and (pointer:fine) {
++  .panel:hover,.card:hover,.metric:hover { border-color:color-mix(in srgb,var(--accent-1) 35%,var(--blue)); box-shadow:var(--shadow-hover); }
++  .metric:hover { transform:translateY(-2px); }
++}
++@media(min-width:1600px) { #app { grid-template-columns:250px minmax(0,1fr) 340px; gap:18px; } }
++@media(max-width:1280px) {
++  #app { grid-template-columns:200px minmax(0,1fr); }
++  #inspector { display:none; }
++  #openDetail { display:inline-flex; align-items:center; }
++  .primary-nav { display:none; }
+@@ -662,6 +717,3 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  #app { grid-template-columns:220px minmax(0,1fr); }
+-  #side { grid-row:1 / span 2; }
+-  #inspector { grid-column:2; display:grid; grid-template-columns:1fr 1fr; align-items:start; }
+-  #taskPanel { grid-column:1 / -1; }
+-  #main { height:660px; min-height:540px; }
+-  .workspace-name { display:none; }
++  #main { height:calc(100dvh - 260px); min-height:590px; }
++  #topbar { display:block; }
++  .filter-tools,.feed-tools { margin-top:8px; }
+@@ -669 +721,11 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-@media (max-width:760px) {
++@media(max-width:899px) {
++  #app { display:block; }
++  #side { display:none; }
++  #openAgents { display:inline-flex; align-items:center; }
++  .mobile-nav { display:flex; gap:8px; margin-bottom:12px; }
++  .mobile-nav a,.mobile-nav button { flex:1; display:grid; place-items:center; min-height:44px; padding:8px; text-align:center; color:var(--text-dim); border:1px solid var(--border); border-radius:10px; text-decoration:none; background:var(--surface); font-size:12px; }
++  #masthead { gap:12px; flex-wrap:wrap; padding:10px 0; }
++  #pause { margin-left:auto; }
++  #main { min-height:600px; height:calc(100dvh - 200px); }
++}
++@media(max-width:599px) {
+@@ -671 +732,0 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  #masthead { flex-wrap:wrap; gap:12px; padding:16px 0; }
+@@ -673,5 +734,4 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  #pause { margin-left:0; width:100%; }
+-  .pausebar { gap:10px; }
+-  .pausebar button { white-space:normal; text-align:center; }
+-  #overview { padding:18px 0; }
+-  .section-heading { flex-wrap:wrap; gap:4px; }
++  #pause { width:100%; margin-left:0; }
++  .pausebar { gap:8px; }
++  .pausebar button { min-height:44px; padding:8px 10px; white-space:normal; text-align:center; }
++  #overview { padding:12px 0; }
+@@ -679 +739 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  .metric { padding:12px 10px; gap:8px; }
++  .metric { padding:10px; min-height:76px; }
+@@ -681,17 +741,6 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  .metric-label { font-size:10px; white-space:normal; }
+-  .metric-value { font-size:23px; }
+-  .mobile-nav { display:flex; gap:8px; margin:0 0 14px; }
+-  .mobile-nav a { flex:1; padding:8px; text-align:center; color:var(--text-dim); border:1px solid var(--border); border-radius:8px; text-decoration:none; background:var(--surface); font-size:12px; }
+-  #main { order:0; }
+-  #inspector { order:1; }
+-  #side { order:2; }
+-  #app { display:flex; flex-direction:column; gap:14px; }
+-  #side,#main,#inspector { width:100%; }
+-  #side { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+-  #agentPanel { grid-column:1 / -1; }
+-  #agents { display:grid; grid-template-columns:1fr 1fr; }
+-  #main { height:740px; min-height:550px; max-height:none; }
+-  #inspector { display:flex; }
+-  #topbar,#feed,#compose { padding-left:12px; padding-right:12px; }
+-  .bubble { width:98%; }
+-  #statusText { max-width:120px; }
++  .metric-label { font-size:11px; }
++  .metric-value { font-size:24px; }
++  #main { height:calc(100svh - 145px); min-height:650px; }
++  .bubble,.bubble.mine { width:100%; }
++  #topbar,#feed,#compose { padding-left:10px; padding-right:10px; }
++  #status { margin-left:0; }
+@@ -700,2 +749,14 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  #text { flex-basis:100%; }
+-  #sendBtn { margin-left:auto; min-height:40px; }
++  #text { flex-basis:100%; min-height:72px; }
++  #sendBtn { margin-left:auto; }
++  button,select,input[type="search"],summary { min-height:44px; }
++  button,summary { min-width:44px; }
++  summary { padding:10px 0; }
++  .more { padding:8px 4px; }
++  .seg button { min-height:44px; padding:8px 12px; }
++  .filters { gap:4px; }
++  .filter { padding:6px 10px; min-height:44px; }
++  #search { min-height:44px; }
++  .system-toggle { min-height:44px; min-width:44px; padding:6px 0; }
++  #showSystem { width:24px; height:24px; }
++  #workspaceDrawer { width:calc(100vw - 16px); margin:8px; height:calc(100dvh - 16px); }
++  .drawer-header,#drawerContent { padding:12px; }
+@@ -703,63 +764,3 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-@media (max-width:400px) { #agents { grid-template-columns:1fr; } #side { display:flex; } .filters { gap:0; } .filter { padding:5px 7px; } }
+-@media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none!important; animation:none!important; scroll-behavior:auto!important; } }
+-/* Rozvržení a světlo podle Michalovy předlohy; navigace vede jen na existující části. */
+-#shell { padding:0 14px 16px; }
+-#masthead { min-height:62px; gap:24px; position:sticky; top:0; z-index:10; background:#080c15f5; }
+-#brand { gap:9px; }
+-#brand .name { font-size:21px; }
+-.mark { border:0; border-radius:0; background:none; box-shadow:none; width:40px; }
+-.mark svg { width:40px; height:40px; filter:drop-shadow(0 0 6px #8670ff66); }
+-.workspace-name { display:none; }
+-.primary-nav { display:flex; align-items:center; gap:4px; }
+-.primary-nav a,.primary-nav button { display:flex; align-items:center; gap:6px; border:1px solid transparent; background:transparent; text-decoration:none; color:var(--text-dim); padding:7px 11px; border-radius:9px; font-size:12px; white-space:nowrap; }
+-.primary-nav .current { background:linear-gradient(140deg,#4a2b70,#251c40); color:#e5d6ff; border-color:#62418e; box-shadow:0 0 16px #9448f329,inset 0 1px 8px #ae69ff24; }
+-.primary-nav span { color:#b6c5e0; }
+-#overview { padding:12px 0 14px; }
+-.section-heading { margin-bottom:7px; }
+-.section-heading h2 { font-size:12px; color:var(--text-dim); font-weight:500; }
+-#scope { font-size:10px; }
+-#metrics { gap:12px; }
+-.metric { padding:12px; border-radius:11px; border-color:color-mix(in srgb,var(--tint,var(--blue)) 23%,#1c263a); box-shadow:0 0 16px color-mix(in srgb,var(--tint,var(--blue)) 6%,transparent),inset 0 0 15px color-mix(in srgb,var(--tint,var(--blue)) 4%,transparent); }
+-.metric-icon { border-radius:50%; width:38px; height:38px; font-size:21px; box-shadow:0 0 16px color-mix(in srgb,var(--tint,var(--blue)) 12%,transparent); }
+-#app { grid-template-columns:230px minmax(0,1fr) 300px; gap:14px; }
+-.panel { border-color:#26374d; box-shadow:0 0 14px #366ab509,inset 0 0 12px #487cc908; background:linear-gradient(130deg,#111b2a,#0a111c 75%); }
+-#main { border-color:#46366d; box-shadow:0 0 20px #8b4af31c,inset 0 0 12px #7d4bcc0b; height:calc(100dvh - 196px); min-height:540px; }
+-#topbar { display:grid; grid-template-columns:1fr auto; gap:6px 10px; padding:10px 14px; }
+-#topbar .title { font-size:13px; min-width:0; }
+-#topbar .title #status { margin-left:10px; font-size:10px; }
+-.filter-tools { margin:0; }
+-.feed-tools { grid-column:1 / -1; margin:0; gap:10px; }
+-.feed-tools .note { margin:0; }
+-.feed-tools .search { max-width:180px; }
+-#search { min-height:27px; padding:4px 8px; }
+-#feed { padding:12px 14px; gap:10px; }
+-.bubble { width:88%; background:linear-gradient(145deg,#172130,#101825); border-color:#30415a; box-shadow:inset 0 1px 6px #6287b90a; }
+-.bubble.mine { width:78%; background:linear-gradient(140deg,#292244,#151e30); border-color:#504171; box-shadow:inset 0 2px 12px #9b61f514; }
+-.bubble.system { width:98%; }
+-.bubble .text { font-size:13px; }
+-.bubble .meta { font-size:11px; }
+-#compose { box-shadow:0 -2px 18px #9d4bfa1c,inset 0 0 12px #8843d90b; padding:10px 14px; }
+-#sendBtn { box-shadow:0 0 16px #9b5cff2b,inset 0 1px 6px #e4b5ff44; }
+-.panel-title { padding:12px; }
+-.panel-title h2 { font-size:13px; }
+-.panel-body { padding:10px; }
+-.card { background:linear-gradient(140deg,#142030,#101723); }
+-.card .agent-work { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+-.card.selected-agent { border-color:#8754cc; background:linear-gradient(130deg,#33254e,#151d2e); box-shadow:0 0 12px #9853f325,inset 0 0 12px #aa6df610; }
+-#timelineTitle { color:var(--text); }
+-#taskTimeline .event-list li::before { width:7px; height:7px; left:-4px; background:var(--accent-1); box-shadow:0 0 8px #a16af53b; }
+-#taskTimeline summary { font-size:11px; color:var(--text-dim); }
+-#taskTimeline .detail-text { margin-top:7px; }
+-#taskTimeline .event-list { max-height:170px; overflow-y:auto; padding-left:4px; }
+-#inspector { align-items:stretch; }
+-@media(min-width:1500px) { #app { grid-template-columns:250px minmax(0,1fr) 330px; gap:16px; } }
+-@media(max-width:1250px) { #masthead { gap:12px; } .primary-nav a,.primary-nav button { padding:7px; font-size:11px; } }
+-@media(max-width:1199px) {
+-  #app { grid-template-columns:220px minmax(0,1fr); }
+-  #inspector { grid-column:2; align-items:stretch; }
+-  #timelinePanel,#taskPanel { grid-column:1 / -1; }
+-  #main { height:700px; }
+-  .primary-nav { display:none; }
+-  #topbar { display:block; }
+-  .filter-tools { margin-top:8px; }
+-  .feed-tools { margin-top:8px; }
++@media(prefers-reduced-motion:reduce) {
++  *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; }
++  .metric:hover,button:active { transform:none; }
+@@ -767,11 +768,69 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-@media(max-width:760px) {
+-  #shell { padding:0 12px 16px; }
+-  #masthead { padding:12px 0; }
+-  #overview { padding:14px 0; }
+-  .metric { padding:10px; }
+-  .metric-icon { display:none; }
+-  #app { display:flex; }
+-  #main { height:740px; }
+-  .bubble,.bubble.mine { width:98%; }
+-  #inspector { display:flex; align-items:stretch; }
+-  #topbar,#feed,#compose { padding-left:12px; padding-right:12px; }
++.qg-shield { width:18px; height:18px; flex:none; vertical-align:middle; color:var(--accent-text); }
++/* Quality Gate is presentation-only until the phase B integration is reviewed. */
++.primary-nav { flex-wrap:wrap; }
++.primary-nav [data-view] { transition:background 200ms var(--ease),border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
++.primary-nav [data-view]:hover { border-color:var(--accent-text); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 12%,transparent); }
++.view-page { padding-top:20px; }
++.view-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
++.view-title { font-size:22px; margin:0 0 6px; overflow-wrap:anywhere; }
++.view-subtitle { color:var(--text-dim); margin:0; font-size:13px; }
++.qg-mode { display:inline-flex; align-items:center; color:var(--accent-text); background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); border:1px solid color-mix(in srgb,var(--accent-1) 35%,var(--border)); border-radius:8px; padding:5px 8px; font-size:12px; }
++.qg-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
++.qg-overview { order:-1; border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); }
++.qg-overview .panel-title { flex-wrap:wrap; }
++.qg-overview .panel-title button { margin-left:auto; }
++.qg-summary { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:12px 0; }
++.qg-stat { min-width:0; padding:10px 7px; border:1px solid color-mix(in srgb,currentColor 30%,var(--border)); background:var(--panel-grad); border-radius:12px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; transition:border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
++.qg-stat-name { font-size:10px; overflow-wrap:anywhere; }
++.qg-stat strong { font-size:22px; line-height:1.2; font-variant-numeric:tabular-nums; }
++[data-tone="work"] { color:var(--accent-text); }
++.qg-stat:hover { box-shadow:0 0 12px color-mix(in srgb,currentColor 8%,transparent); }
++.qg-scroll { overflow-x:auto; max-width:100%; border:1px solid var(--border); border-radius:12px; }
++.qg-table { width:100%; min-width:720px; border-collapse:collapse; font-size:12px; }
++.qg-table th,.qg-table td { text-align:left; vertical-align:top; padding:10px; border-bottom:1px solid var(--border); }
++.qg-table thead th { font-weight:600; color:var(--text-dim); background:var(--surface); white-space:nowrap; }
++.qg-table tbody tr:last-child th,.qg-table tbody tr:last-child td { border-bottom:0; }
++.qg-table tbody th { min-width:180px; max-width:270px; }
++.qg-repo { padding:0; text-align:left; color:var(--text); background:none; border:0; font-size:12px; font-weight:600; overflow-wrap:anywhere; max-width:100%; }
++.qg-repo:hover { color:var(--accent-text); }
++.qg-branch { display:block; margin-top:3px; font-weight:400; color:var(--text-dim); overflow-wrap:anywhere; }
++.qg-badge { white-space:nowrap; }
++.qg-empty { color:var(--text-dim); height:76px; }
++.qg-demo-note { color:var(--warn); font-size:12px; margin:10px 0; }
++.qg-page-grid { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:16px; align-items:start; }
++.qg-page-grid > .panel { min-width:0; }
++.qg-check-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:16px; }
++.qg-check-grid h3 { font-size:12px; margin:0 0 8px; }
++.qg-check-grid p,#qgProjectDetail p { color:var(--text-dim); font-size:12px; overflow-wrap:anywhere; }
++.qg-page-stats { display:flex; flex-wrap:wrap; align-items:center; gap:18px; margin-bottom:16px; }
++.qg-page-stats p { margin:0; color:var(--text-dim); font-size:12px; }
++.qg-page-stats strong { color:var(--text); }
++.qg-page-stats .qg-summary { flex:1; min-width:min(100%,460px); }
++.task-quality { margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
++.task-quality h3 { font-size:12px; margin:0 0 8px; }
++.placeholder-page { max-width:760px; padding:24px; }
++#qgOverviewPanel .qg-table { min-width:650px; }
++#qgOverviewPanel .qg-mode { font-size:11px; }
++#qgOverviewPanel .qg-stat { padding:8px 5px; }
++#qgOverviewPanel .qg-stat strong { font-size:18px; }
++@media(min-width:1600px) {
++  #app { grid-template-columns:240px minmax(0,1fr) 520px; }
++  #inspector { display:grid; grid-template-columns:1fr 1fr; grid-template-areas:"timeline detail" "quality quality" "history history" "reviews reviews"; }
++  #timelinePanel { grid-area:timeline; } #taskPanel { grid-area:detail; } #qgOverviewPanel { grid-area:quality; } #historyPanel { grid-area:history; } #reviewPanel { grid-area:reviews; }
++  #inspector .panel { min-width:0; }
++  #inspector .detail-grid { grid-template-columns:64px minmax(0,1fr); gap:6px; }
++}
++@media(max-width:1280px) {
++  .primary-nav { display:flex; flex-basis:100%; order:3; max-width:100%; overflow-x:auto; flex-wrap:nowrap; padding-bottom:6px; }
++  .primary-nav a,.primary-nav button { flex:none; }
++  .qg-page-grid { grid-template-columns:1fr; }
++  #workspaceDrawer #inspector { display:flex; }
++}
++@media(max-width:599px) {
++  .primary-nav a,.primary-nav button { min-height:44px; }
++  .qg-summary { gap:6px; }
++  .qg-page-stats .qg-summary { flex-basis:100%; }
++  .qg-stat { padding:8px 5px; }
++  .qg-stat-name { font-size:10px; }
++  .qg-check-grid { grid-template-columns:1fr; }
++  .qg-table .qg-repo { min-height:44px; }
+@@ -783,2 +842,2 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-    <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" stroke="#77bfff" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" stroke="#bb8cff" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" stroke="#938aff" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
+-    <nav class="primary-nav" aria-label="Hlavní navigace"><a class="current" href="#overview"><span aria-hidden="true">✣</span>Přehled</a><button id="navTasks" type="button"><span aria-hidden="true">▣</span>Úkoly</button><a href="#side"><span aria-hidden="true">♧</span>Agenti</a><a href="#projectPanel"><span aria-hidden="true">▱</span>Repozitáře</a><a href="#historyPanel"><span aria-hidden="true">◷</span>Historie</a></nav>
++    <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
++    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="settings">⚙ Nastavení</button></nav>
+@@ -786,0 +846 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
++  <div id="overviewView" data-view-panel="overview">
+@@ -788 +848 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-    <div class="section-heading"><h2 id="overviewTitle">Přehled místnosti</h2><span id="scope">Úkoly v načtené historii · nejvýše 200 posledních zpráv</span></div>
++    <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
+@@ -793 +853 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label">Dokončené úkoly</div><div class="metric-value" id="metricDone">—</div></div></div>
++      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
+@@ -798 +858 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-  <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><a href="#side">Agenti</a><a href="#inspector">Detail</a></nav>
++  <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
+@@ -807 +867 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-        <div class="title"><span class="panel-icon" aria-hidden="true">✣</span> Místnost agentů <div id="status" role="status"><span class="dot"></span><span id="statusText">připojuji…</span></div></div>
++        <div class="title"><span class="panel-icon" aria-hidden="true">✣</span> Místnost agentů <button class="btn panel-trigger" id="openAgents" type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button class="btn panel-trigger" id="openDetail" type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button><div id="status" role="status"><span class="dot"></span><span id="statusText">připojuji…</span></div></div>
+@@ -820,0 +881 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
++      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Přehled repozitářů ↗</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Frontendový návrh. Skutečné kontroly nejsou napojené.</p></div></section>
+@@ -823 +884 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
+-      <section class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
++      <section id="reviewPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
+@@ -827,0 +889,5 @@ summary { cursor:pointer; color:var(--text-dim); font-size:12px; }
++  <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři · frontendový návrh</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Bez backendu se žádné kontroly nespouštějí. Demo je oddělené od skutečné místnosti a úkolů.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
++  <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
++  <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
++</div>
++<dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
+@@ -845,0 +912 @@ let latestPeers = [];
++let latestBoard = null; // null = autoritativní přehled není dostupný
+@@ -848,0 +916,86 @@ let connectionMode = "loading";
++const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
++let highestMessageId = 0;
++let historyReady = false;
++function motion(el, frames, duration) {
++  if (!el || reducedMotion.matches || document.hidden || !el.getClientRects().length) return;
++  el.animate(frames, {duration, easing:"cubic-bezier(0.22,1,0.36,1)"});
++}
++function setMetric(id, value) {
++  const el = document.getElementById(id), next = String(value);
++  if (el.textContent === next) return;
++  const known = !["—", "Načítání…", "Připojování…"].includes(el.textContent);
++  el.textContent = next;
++  if (known) motion(el, [{opacity:.65,transform:"translateY(2px)"},{opacity:1,transform:"translateY(0)"}],240);
++}
++function setHTMLIfChanged(el, html) {
++  if (el._renderHTML !== html) { el.innerHTML = html; el._renderHTML = html; }
++}
++function stateTone(state) {
++  return state === "succeeded" ? "ok" : ["started","leased"].includes(state) ? "work"
++    : ["failed","dead_letter"].includes(state) ? "bad" : state === "needs_review" ? "warn" : "muted";
++}
++
++// One native modal reuses the original panels and emergency control; no duplicate actions.
++const drawer = document.getElementById("workspaceDrawer");
++const panelPlacements = {};
++for (const id of ["side","inspector","pause"]) {
++  const node = document.getElementById(id), marker = document.createComment(id + " home");
++  node.before(marker); panelPlacements[id] = {node, marker};
++}
++let drawerOpener = null;
++function restorePanels() {
++  for (const {node,marker} of Object.values(panelPlacements)) marker.after(node);
++  document.body.classList.remove("drawer-open");
++  document.querySelectorAll("[data-panel]").forEach(b => b.setAttribute("aria-expanded","false"));
++  if (drawerOpener?.isConnected) drawerOpener.focus({preventScroll:true});
++}
++function openPanel(id, trigger = document.activeElement) {
++  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : matchMedia("(max-width:1280px)").matches;
++  if (!narrow) { document.getElementById(id).scrollIntoView({block:"start"}); return; }
++  if (drawer.open) { drawer.close(); restorePanels(); }
++  drawerOpener = trigger;
++  document.getElementById("drawerContent").appendChild(panelPlacements[id].node);
++  document.getElementById("drawerPause").appendChild(panelPlacements.pause.node);
++  document.getElementById("drawerTitle").textContent = id === "side" ? "Agenti a pracovní prostor" : "Detail a záznamy úkolu";
++  document.body.classList.add("drawer-open");
++  drawer.showModal();
++  document.querySelectorAll(`[data-panel="${id}"]`).forEach(b => b.setAttribute("aria-expanded","true"));
++  motion(document.getElementById("drawerContent"),[{opacity:0},{opacity:1}],180);
++}
++drawer.addEventListener("close", () => { if (!drawer.open) restorePanels(); });
++drawer.addEventListener("keydown", e => {
++  if (e.key !== "Tab") return;
++  const focusable = [...drawer.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex]')].filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
++  const first = focusable[0], last = focusable[focusable.length - 1];
++  if (!first) { e.preventDefault(); return; }
++  if (e.shiftKey && (document.activeElement === first || !drawer.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
++  else if (!e.shiftKey && (document.activeElement === last || !drawer.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
++});
++document.getElementById("drawerClose").onclick = () => drawer.close();
++document.querySelectorAll("[data-panel]").forEach(b => b.onclick = () => openPanel(b.dataset.panel,b));
++for (const query of ["(max-width:899px)","(max-width:1280px)"]) matchMedia(query).addEventListener("change",()=>{ if(drawer.open) drawer.close(); });
++document.addEventListener("visibilitychange",()=>document.body.classList.toggle("page-hidden",document.hidden));
++reducedMotion.addEventListener("change",()=>{ if(reducedMotion.matches) document.getAnimations().forEach(a=>a.cancel()); });
++
++function renderAgentList(id, peers, board) {
++  const el = document.getElementById(id);
++  const old = new Map([...el.children].filter(c=>c.dataset.agent).map(c=>[c.dataset.agent,c]));
++  el.querySelectorAll(":scope > .empty").forEach(n=>n.remove());
++  peers.forEach((p,i)=>{
++    const html = agentCard(p,board[p.agent]);
++    let card = old.get(p.agent);
++    if (!card || card._renderHTML !== html) {
++      const template = document.createElement("template"); template.innerHTML = html;
++      const next = template.content.firstElementChild;
++      next._renderHTML = html; next.dataset.agent = p.agent;
++      const work = next.querySelector(".agent-work"); if (work) work.title = work.textContent;
++      if (card) card.replaceWith(next);
++      card = next;
++    }
++    if (el.children[i] !== card) el.insertBefore(card,el.children[i] || null);
++    old.delete(p.agent);
++  });
++  old.forEach(card=>card.remove());
++  if (!peers.length && id === "agents") el.innerHTML = "<div class='empty'>nikdo není online</div>";
++}
++
+@@ -850 +1003 @@ function historyMessages() { return [...messageCache.values()].sort((a, b) => a.
+-function taskState(m) { const s = STATE[m.state] || [m.state || "stav není dostupný", ""]; return tag(s[0], s[1]); }
++function taskState(m) { const s = STATE[m.state] || [m.state || "stav není dostupný", ""]; return `<span class="tag task-state ${s[1]}">${esc(s[0])}</span>`; }
+@@ -875,5 +1028,7 @@ function refreshDashboard() {
+-  document.getElementById("metricAgents").textContent = latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length;
+-  document.getElementById("metricRunning").textContent = tasks.filter(m => m.state === "started").length;
+-  document.getElementById("metricQueued").textContent = tasks.filter(m => m.state === "pending").length;
+-  document.getElementById("metricDone").textContent = tasks.filter(m => m.state === "succeeded").length;
+-  document.getElementById("metricReview").textContent = tasks.filter(m => m.state === "needs_review").length;
++  setMetric("metricAgents", latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length);
++  // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
++  // API poskytuje nejvýše jeden aktivní úkol na agenta (leased nebo started).
++  setMetric("metricRunning", latestBoard === null ? "—" : latestBoard.filter(b => b.active).length);
++  setMetric("metricQueued", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.queued, 0));
++  setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
++  setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
+@@ -891 +1046 @@ function refreshDashboard() {
+-  document.getElementById("recentEvents").innerHTML = events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>";
++  setHTMLIfChanged(document.getElementById("recentEvents"), events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>");
+@@ -896,3 +1051,3 @@ function renderSystemMetric() {
+-  el.textContent = connectionMode !== "live" ? (connectionMode === "retry" ? "Spojení přerušeno" : "Připojování…")
+-    : lastPaused === undefined ? "Stav není dostupný" : lastPaused ? "Pozastaveno" : "Provoz povolen";
+-  el.style.color = connectionMode !== "live" ? "var(--warn)" : lastPaused === undefined ? "var(--text-dim)" : lastPaused ? "var(--bad)" : "var(--ok)";
++  setMetric("metricSystem", connectionMode !== "live" ? (connectionMode === "retry" ? "Spojení přerušeno" : "Připojování…")
++    : lastPaused === undefined ? "Stav není dostupný" : lastPaused ? "Pozastaveno" : "Provoz povolen");
++  el.dataset.tone = connectionMode !== "live" ? "warn" : lastPaused === undefined ? "muted" : lastPaused ? "bad" : "ok";
+@@ -907 +1062 @@ function selectTask(id, focus = false) {
+-  if (focus) { document.getElementById("detailTitle").focus({preventScroll:true}); if (matchMedia("(max-width:1199px)").matches) document.getElementById("inspector").scrollIntoView({block:"start"}); }
++  if (focus) { openPanel("inspector"); document.getElementById("detailTitle").focus({preventScroll:true}); }
+@@ -934,0 +1090 @@ function renderTaskDetail() {
++  const switched = el.dataset.taskId !== String(m.id);
+@@ -941,2 +1097,3 @@ function renderTaskDetail() {
+-    + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "");
+-  timeline.innerHTML = `<ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
++    + (m.last_error ? `<div class="detail-section"><h3>Poslední hlášená chyba</h3><div class="detail-text">${esc(m.last_error)}</div></div>` : "")
++    + `<section class="task-quality"><h3><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h3><span class="tag">NOT RUN</span><p class="note">Kontrola zatím není dostupná. Budoucí výsledek se sváže s konkrétním commitem nebo diffem tohoto úkolu.</p></section>`;
++  timeline.innerHTML = `<div class="timeline-current" data-tone="${stateTone(m.state)}"><span class="timeline-marker" aria-hidden="true"></span><span>Aktuální stav: ${esc((STATE[m.state] || [m.state || "nedostupný"])[0])}</span></div><ol class="event-list"><li><div class="event-meta">#${m.id} · zadání úkolu · <span data-relative-id="${m.id}">${ago(m.seconds_ago)}</span></div></li>`
+@@ -944,0 +1102 @@ function renderTaskDetail() {
++  if (switched) { motion(el,[{opacity:.3},{opacity:1}],180); motion(timeline,[{opacity:.3},{opacity:1}],180); }
+@@ -949 +1107 @@ function renderProjects(reviews) {
+-  document.getElementById("projects").innerHTML = repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`;
++  setHTMLIfChanged(document.getElementById("projects"), repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`);
+@@ -971,2 +1129,3 @@ function avatarStyle(name) {
+-  const h = hueOf(name);
+-  return `background: linear-gradient(135deg, hsl(${h} 70% 52%), hsl(${(h + 45) % 360} 70% 52%))`;
++  const known = {"claude-code":"--avatar-ada", "codex":"--avatar-nox", "claude-code-bridge":"--avatar-bridge", "codex-bridge":"--avatar-bridge"};
++  const palette = ["--accent-1","--blue","--ok","--warn"];
++  return `--avatar-color:var(${name === me ? "--avatar-user" : known[name] || palette[hueOf(name) % palette.length]})`;
+@@ -1001,3 +1160,5 @@ function isSystem(m) {
+-function renderMessage(incoming) {
+-  const m = incoming;
+-  messageCache.set(m.id, m);
++function renderMessage(m, {live = false} = {}) {
++  const previous = messageCache.get(m.id);
++  const newLive = live && historyReady && !previous && m.id > highestMessageId;
++  highestMessageId = Math.max(highestMessageId,m.id);
++  messageCache.set(m.id,m);
+@@ -1006,2 +1167 @@ function renderMessage(incoming) {
+-    messageCache.delete(oldest);
+-    expandedMessages.delete(oldest);
++    messageCache.delete(oldest); expandedMessages.delete(oldest);
+@@ -1013,14 +1173 @@ function renderMessage(incoming) {
+-  const renderKey = JSON.stringify([m.text, m.kind, m.state, m.agent, m.recipient, m.accepted, m.seen, m.accept_note, m.last_error, m.attempts]);
+-  if (!fresh && div.dataset.renderKey === renderKey) {
+-    const time = div.querySelector(".message-time");
+-    if (time) { time.textContent = "· " + ago(m.seconds_ago); time.title = "Stáří podle poslední aktualizace"; }
+-    if (!renderingRoom) refreshDashboard();
+-    return;
+-  }
+-  if (fresh) div = document.createElement("div");
+-  div.dataset.renderKey = renderKey;
+-  div.dataset.messageId = String(m.id);
+-  div.id = "msg-" + m.id;
+-  const system = isSystem(m);
+-  div.className = "bubble" + (m.agent === me ? " mine" : "") + (system ? " system" : "")
+-    + (system && !showSystemEl.checked ? " hidden" : "");
++  if (fresh) { div = document.createElement("div"); div.className = "bubble"; div.id = "msg-" + m.id; div.dataset.messageId = String(m.id); }
+@@ -1028,26 +1175,21 @@ function renderMessage(incoming) {
+-  div.classList.toggle("task", k === "task");
+-  div.classList.toggle("result", k === "result");
+-  div.classList.toggle("selected", selectedTask === m.id);
+-  const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
+-  // Stav doručení má smysl jen u úkolu; u zprávy stačí, jestli ji příjemce viděl.
+-  const st = k !== "task" ? "" : m.state && STATE[m.state] ? tag(STATE[m.state][0], STATE[m.state][1]) : (m.state ? tag(m.state) : "");
+-  const rcpt = (m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker")
+-    ? (m.accepted ? tag("✓ převzal" + (m.accept_note ? ": " + m.accept_note : ""), "ok")
+-       : m.seen ? tag("viděl, zatím nepřevzal", "work")
+-       : tag("ještě nedoručeno")) : "";
+-  const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
+-  div.innerHTML =
+-    `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span>` +
+-    `<span class="who">${esc(nameOf(m.agent))}</span> ${to}<span class="message-time" title="Stáří podle poslední aktualizace">· ${ago(m.seconds_ago)}</span>` +
+-    st + rcpt + `<span class="num">#${m.id}</span></div>` +
+-    `<div class="text${long && !expandedMessages.has(m.id) ? " clip" : ""}">${esc(m.text)}</div>`;
+-  if (long) {
+-    const more = document.createElement("button");
+-    more.className = "more"; more.textContent = expandedMessages.has(m.id) ? "Sbalit" : "Zobrazit celé";
+-    more.onclick = () => {
+-      const t = div.querySelector(".text");
+-      t.classList.toggle("clip");
+-      if (t.classList.contains("clip")) expandedMessages.delete(m.id); else expandedMessages.add(m.id);
+-      more.textContent = t.classList.contains("clip") ? "Zobrazit celé" : "Sbalit";
+-    };
+-    div.appendChild(more);
++  const structuralKey = JSON.stringify([m.text,m.kind,m.agent,m.recipient]);
++  if (div.dataset.renderKey !== structuralKey) {
++    div.dataset.renderKey = structuralKey;
++    const to = m.recipient && m.recipient !== "*" ? `→ <span class="who">${esc(nameOf(m.recipient))}</span>` : "";
++    const long = (m.text || "").length > 600 || (m.text || "").split(String.fromCharCode(10)).length > 8;
++    div.innerHTML = `<div class="meta"><span class="kind kind-${esc(k)}">${esc(KIND[k] || k)}</span><span class="who">${esc(nameOf(m.agent))}</span> ${to}<span class="message-time" title="Stáří podle poslední aktualizace"></span><span class="delivery-meta"></span><span class="num">#${m.id}</span></div><div class="text${long && !expandedMessages.has(m.id) ? " clip" : ""}">${esc(m.text)}</div><span class="completion-flash" aria-hidden="true"></span>`;
++    if (long) {
++      const more = document.createElement("button"); more.className = "more";
++      more.textContent = expandedMessages.has(m.id) ? "Sbalit" : "Zobrazit celé";
++      more.onclick = () => {
++        const clipped = div.querySelector(".text").classList.toggle("clip");
++        if (clipped) expandedMessages.delete(m.id); else expandedMessages.add(m.id);
++        more.textContent = clipped ? "Zobrazit celé" : "Sbalit";
++      };
++      div.appendChild(more);
++    }
++    if (k === "task") {
++      const detail = document.createElement("button"); detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
++      detail.setAttribute("aria-label",`Detail úkolu #${m.id}`); detail.onclick = () => selectTask(m.id,true); div.appendChild(detail);
++    }
++    div._actionsKey = null;
+@@ -1055,6 +1197,23 @@ function renderMessage(incoming) {
+-  if (k === "task") {
+-    const detail = document.createElement("button");
+-    detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
+-    detail.setAttribute("aria-label", `Detail úkolu #${m.id}`);
+-    detail.onclick = () => selectTask(m.id, true);
+-    div.appendChild(detail);
++  div.classList.toggle("mine",m.agent === me);
++  div.classList.toggle("system",isSystem(m));
++  div.classList.toggle("task",k === "task");
++  div.classList.toggle("result",k === "result");
++  div.classList.toggle("selected",selectedTask === m.id);
++  div.querySelector(".message-time").textContent = "· " + ago(m.seconds_ago);
++  const state = k === "task" && m.state ? taskState(m) : "";
++  const receipt = m.recipient && m.recipient !== "*" && k !== "result" && m.agent !== "broker"
++    ? m.accepted ? tag("✓ převzal" + (m.accept_note ? ": " + m.accept_note : ""),"ok") : m.seen ? tag("viděl, zatím nepřevzal","work") : tag("ještě nedoručeno") : "";
++  setHTMLIfChanged(div.querySelector(".delivery-meta"),state + receipt);
++  const actionsKey = JSON.stringify([m.state,m.recipient,m.last_error]);
++  if (div._actionsKey !== actionsKey) { div.querySelector(".actions")?.remove(); renderTaskActions(m,div); div._actionsKey = actionsKey; }
++  if (fresh) {
++    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
++    const next = [...feed.querySelectorAll(".bubble")].find(el=>Number(el.dataset.messageId)>m.id);
++    feed.insertBefore(div,next || document.getElementById("filterEmpty"));
++    if (stick) feed.scrollTop = feed.scrollHeight;
++    if (newLive) motion(div,[{opacity:0,transform:"translateY(6px)"},{opacity:1,transform:"translateY(0)"}],210);
++  } else if (previous?.state !== m.state) {
++    if (m.state === "succeeded") motion(div.querySelector(".completion-flash"),[{opacity:.12},{opacity:0}],450);
++    else if (stateTone(m.state) !== "bad") motion(div.querySelector(".task-state"),[{opacity:.65},{opacity:1}],180);
++  } else if (previous?.accepted !== m.accepted) {
++    motion(div.querySelector(".delivery-meta .tag:last-child"),[{opacity:.65},{opacity:1}],180);
+@@ -1062 +1221,5 @@ function renderMessage(incoming) {
+-  if (k === "task" && m.recipient && m.state) {
++  if (!renderingRoom) refreshDashboard();
++}
++
++function renderTaskActions(m,div) {
++  if (m.kind === "task" && m.recipient && m.state) {
+@@ -1086,7 +1248,0 @@ function renderMessage(incoming) {
+-  if (fresh) {
+-    const stick = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+-    const next = [...feed.querySelectorAll(".bubble")].find(el => Number(el.dataset.messageId) > m.id);
+-    feed.insertBefore(div, next || document.getElementById("filterEmpty"));
+-    if (stick) feed.scrollTop = feed.scrollHeight;
+-  }
+-  if (!renderingRoom) refreshDashboard();
+@@ -1099,0 +1256,3 @@ function renderPause(p) {
++  const pauseKey = JSON.stringify(p);
++  if (el._pauseKey === pauseKey) return;
++  el._pauseKey = pauseKey;
+@@ -1142 +1301 @@ function agentCard(p, b) {
+-  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : ""}">
++  return `<div class="card ${p.active ? "" : "offline"} ${roleOf(p.agent) === "most" ? "bridge" : roleOf(p.agent) === "agent" ? "interactive" : ""}">
+@@ -1146 +1305 @@ function agentCard(p, b) {
+-    <div class="tags">${tags.join("")}</div></div>`;
++    <div class="tags">${tags.join("")}</div>${p.seen_seconds_ago == null ? "" : `<div class="last-active">Aktivita ${ago(p.seen_seconds_ago)}</div>`}</div>`;
+@@ -1158,0 +1318,3 @@ function renderReviews(list) {
++  const reviewKey = JSON.stringify(list);
++  if (el._reviewKey === reviewKey) return;
++  el._reviewKey = reviewKey;
+@@ -1195,0 +1358 @@ function renderRoom(r) {
++  latestBoard = Array.isArray(r.board) ? r.board : null;
+@@ -1198 +1361 @@ function renderRoom(r) {
+-  (r.messages || []).forEach(renderMessage);
++  (r.messages || []).forEach(m => renderMessage(m));
+@@ -1209,3 +1372,2 @@ function renderRoom(r) {
+-  document.getElementById("agents").innerHTML = online.map(p => agentCard(p, board[p.agent])).join("") || "<div class='empty'>nikdo není online</div>";
+-  document.getElementById("offline").innerHTML = offline.map(p => agentCard(p, board[p.agent])).join("");
+-  [...document.querySelectorAll("#agents > .card"), ...document.querySelectorAll("#offline > .card")].forEach((card,i) => { card.dataset.agent = [...online,...offline][i].agent; const work = card.querySelector(".agent-work"); if (work) work.title = work.textContent; });
++  renderAgentList("agents",online,board);
++  renderAgentList("offline",offline,board);
+@@ -1215 +1377 @@ function renderRoom(r) {
+-  document.getElementById("claims").innerHTML = (r.claims || []).map(c => `
++  setHTMLIfChanged(document.getElementById("claims"), (r.claims || []).map(c => `
+@@ -1218 +1380 @@ function renderRoom(r) {
+-    || "<div class='empty'>nic není zamčené</div>";
++    || "<div class='empty'>nic není zamčené</div>");
+@@ -1224,0 +1387 @@ function renderRoom(r) {
++  historyReady = true;
+@@ -1256 +1419 @@ function connect(since) {
+-  es.addEventListener("message", e => renderMessage(JSON.parse(e.data)));
++  es.addEventListener("message", e => renderMessage(JSON.parse(e.data), {live:true}));
+@@ -1316,0 +1480 @@ document.getElementById("navTasks").onclick = () => {
++  showView("overview",{focus:false});
+@@ -1322,0 +1487,76 @@ fillRecipients();
++// Planned presentation contract only. No fetching, scanning, storage or gate decisions.
++const QG_STATUS = {
++  PASS:{label:"PASS",tone:"ok",icon:"✓",meaning:"Všechny povinné kontroly prošly."},
++  REVIEW:{label:"REVIEW",tone:"warn",icon:"◇",meaning:"Vyžaduje kontrolu."},
++  FAIL:{label:"FAIL",tone:"bad",icon:"✕",meaning:"Povinná kontrola selhala."},
++  NA:{label:"N/A",tone:"muted",icon:"—",meaning:"Kontrola není použitelná nebo chybí metriky."},
++  SETUP_REQUIRED:{label:"SETUP REQUIRED",tone:"work",icon:"⚙",meaning:"Projekt nemá nastavené povinné kontroly."},
++  NOT_RUN:{label:"NOT RUN",tone:"muted",icon:"○",meaning:"Kontrola dosud neproběhla."},
++};
++const QG_CHECKS = [["tests","Testy"],["lint","Lint"],["build","Build"],["coverage","Coverage"],["security","Security"],["crap","CRAP score"]];
++const QG_SUMMARY = ["PASS","REVIEW","FAIL","NA","SETUP_REQUIRED"];
++const demoChecks = (status,detail) => Object.fromEntries([...QG_CHECKS,["typecheck","Type check"]].map(([key])=>[key,{status,detail}]));
++const QG_DEMO = [
++  {repository:"demo/agent-lease",branch:"demo/ui",commit_sha:"a".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T12:00:00Z",overall_status:"PASS",checks:demoChecks("PASS","Ukázka: kontrola prošla. Žádný nástroj se nespustil."),logs:[],reviewer:"Ada (ukázka)",review_status:"Schváleno — ukázka",history:[{timestamp:"2026-11-05T12:00:00Z",status:"REVIEW",note:"Demonstrační starší záznam."}]},
++  {repository:"demo/frontend-s-velmi-dlouhym-nazvem-repozitare-pro-overeni-responzivni-tabulky",branch:"demo/coverage",commit_sha:"b".repeat(40),agent:"Ada (ukázka)",timestamp:"2026-11-06T11:00:00Z",overall_status:"REVIEW",checks:{...demoChecks("PASS","Ukázkový výsledek."),coverage:{status:"REVIEW",value:"72 % (demo)",detail:"Ukázka: coverage vyžaduje kontrolu; nejde o skutečnou metriku."}},logs:[],reviewer:"Nox (ukázka)",review_status:"Čeká na nezávislé review — ukázka"},
++  {repository:"demo/build-failure",branch:"demo/build",commit_sha:"c".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T10:00:00Z",overall_status:"FAIL",checks:{...demoChecks("PASS","Ukázkový výsledek."),build:{status:"FAIL",detail:"Ukázka: build selhal."},security:{status:"FAIL",detail:"Ukázka bezpečnostního nálezu; neobsahuje skutečná tajemství."}},logs:[],reviewer:null,review_status:null},
++  {repository:"demo/no-applicable-metrics",branch:null,commit_sha:null,agent:null,timestamp:null,overall_status:"NA",checks:demoChecks("NA","Ukázka: tato kontrola není použitelná."),logs:[]},
++  {repository:"demo/setup-required",branch:"demo/setup",commit_sha:null,agent:null,timestamp:null,overall_status:"SETUP_REQUIRED",checks:demoChecks("NOT_RUN","Ukázka: nejprve je třeba nastavit kontroly."),logs:[]},
++  {repository:"demo/not-run",branch:"demo/pending",commit_sha:null,agent:null,timestamp:null,overall_status:"NOT_RUN",checks:demoChecks("NOT_RUN","Ukázka: kontrola ještě neproběhla."),logs:[]},
++];
++let qgDemo = false;
++let qgSelected = null;
++let currentView = "overview";
++function qgBadge(status) {
++  const s = QG_STATUS[status] || QG_STATUS.NOT_RUN;
++  return `<span class="tag qg-badge ${s.tone}"><span aria-hidden="true">${s.icon}</span> ${s.label}</span>`;
++}
++function qgSummary(records) {
++  return QG_SUMMARY.map(status=>{const s=QG_STATUS[status];return `<div class="qg-stat" data-qg-state="${status}" data-tone="${s.tone}"><span aria-hidden="true">${s.icon}</span><span class="qg-stat-name">${s.label}</span><strong>${qgDemo ? records.filter(r=>r.overall_status===status).length : "—"}</strong></div>`;}).join("");
++}
++function qgDate(value) { return value ? new Date(value).toLocaleString("cs-CZ") : "Není známá"; }
++function qgTable(records,{compact=false}={}) {
++  const headers = compact ? ["Repozitář",...QG_CHECKS.map(c=>c[1]),"Stav"] : ["Repozitář / větev","Commit","Agent","Kontrola",...QG_CHECKS.map(c=>c[1]),"Stav"];
++  return `<div class="qg-scroll" tabindex="0" role="region" aria-label="Výsledky kontrol repozitářů; tabulku lze posouvat vodorovně"><table class="qg-table"><caption class="sr-only">${qgDemo ? "DEMO — ukázkové výsledky, ne skutečné kontroly" : "Quality Gate dosud nemá výsledky"}</caption><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join("")}</tr></thead><tbody>`
++    + (records.length ? records.map((r,i)=>`<tr><th scope="row"><button type="button" class="qg-repo" data-qg-project="${i}">${esc(r.repository)}</button>${compact ? "" : `<span class="qg-branch">${esc(r.branch || "Větev není uvedená")}</span>`}</th>${compact ? "" : `<td class="path">${esc(r.commit_sha ? r.commit_sha.slice(0,10) : "Neuveden")}</td><td>${esc(r.agent || "Neuveden")}</td><td>${esc(qgDate(r.timestamp))}</td>`}${QG_CHECKS.map(([key])=>`<td>${qgBadge(r.checks?.[key]?.status || "NOT_RUN")}</td>`).join("")}<td>${qgBadge(r.overall_status)}</td></tr>`).join("") : `<tr><td colspan="${headers.length}" class="qg-empty">Dosud bez výsledků. Repozitáře ani kontroly zatím nejsou napojené.</td></tr>`)
++    + `</tbody></table></div>`;
++}
++function renderQualityGate() {
++  const records = qgDemo ? QG_DEMO : [];
++  document.querySelectorAll("[data-qg-mode]").forEach(el=>{el.textContent=qgDemo ? "DEMO · pouze ukázková data" : "Připravuje se · dosud bez výsledků";});
++  document.querySelectorAll("[data-qg-demo]").forEach(b=>{b.textContent=qgDemo ? "Vypnout demo" : "Zobrazit demo";b.setAttribute("aria-pressed",String(qgDemo));});
++  document.getElementById("qgCompactSummary").innerHTML=qgSummary(records);
++  document.getElementById("qgPageSummary").innerHTML=qgSummary(records);
++  document.querySelectorAll("[data-qg-state]").forEach(el=>{el.title=QG_STATUS[el.dataset.qgState].meaning;});
++  document.getElementById("qgRepoCount").textContent=qgDemo ? records.length : "—";
++  document.getElementById("qgLastCheck").textContent=qgDemo ? "Ukázka: " + qgDate(records[0].timestamp) : "Není známá";
++  document.getElementById("qgCompactTable").innerHTML=qgTable(records,{compact:true});
++  document.getElementById("qgProjectTable").innerHTML=qgTable(records);
++  document.querySelectorAll("[data-qg-project]").forEach(b=>b.onclick=()=>{qgSelected=Number(b.dataset.qgProject);showView("quality");renderQualityProject();document.getElementById("qgProjectTitle").focus({preventScroll:true});});
++  renderQualityProject();
++}
++function renderQualityProject() {
++  const r=qgDemo && qgSelected !== null ? QG_DEMO[qgSelected] : null;
++  const el=document.getElementById("qgProjectDetail");
++  document.getElementById("qgProjectTitle").textContent=r ? r.repository : "Detail repozitáře";
++  if(!r){el.innerHTML=`<div class="empty">${qgDemo ? "Vyber ukázkový repozitář z tabulky." : "Kontrola zatím není dostupná. Napojení na konkrétní commit nebo diff se připravuje ve fázi B."}</div>`;return;}
++  const checks=[...QG_CHECKS,["typecheck","Type check"]];
++  el.innerHTML=`<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p><dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
++    + checks.map(([key,label])=>{const c=r.checks?.[key];return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`;}).join("")
++    + `</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.</p></div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
++  motion(el,[{opacity:.4},{opacity:1}],180);
++}
++function showView(view,{focus=true}={}) {
++  if(drawer.open){drawer.close();restorePanels();}
++  currentView=view;
++  document.querySelectorAll("[data-view-panel]").forEach(el=>{el.hidden=el.dataset.viewPanel!==view;});
++  document.querySelectorAll(".primary-nav [data-view]").forEach(b=>{const on=b.dataset.view===view;b.classList.toggle("current",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
++  if(focus)document.querySelector(`[data-view-panel="${view}"] .view-title`)?.focus({preventScroll:true});
++  motion(document.querySelector(`[data-view-panel="${view}"]`),[{opacity:.5},{opacity:1}],180);
++}
++document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
++document.querySelectorAll("[data-qg-demo]").forEach(b=>b.onclick=()=>{qgDemo=!qgDemo;qgSelected=null;renderQualityGate();});
++renderQualityGate();
++
++document.getElementById("navAgents").onclick=()=>{showView("overview",{focus:false});openPanel("side");};
++for(const [id,target,panel] of [["navProjects","projectPanel","side"],["navHistory","historyPanel","inspector"]])document.getElementById(id).onclick=e=>{e.preventDefault();showView("overview",{focus:false});openPanel(panel);document.getElementById(target).scrollIntoView({block:"start"});};
