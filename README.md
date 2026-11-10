@@ -12,6 +12,8 @@ the edit happens.
 
 [Česky / Czech version](README.cs.md)
 
+**Dočasná koordinace do 16. 11. 2026:** [instrukce pro Fable 5.2](docs/FABLE_5_2_TEMP_COORDINATOR.md) (dokumentace, nikoli automatické spuštění).
+
 The B7 candidate on `main` adds an opt-in offline Quality Gate for committed Python
 and TypeScript/JavaScript projects. See the [runner guide](docs/PHASE_B7_2_RUNNER.md)
 and [activation plan](docs/PHASE_B7_ACTIVATION_PLAN.md). Production activation and
