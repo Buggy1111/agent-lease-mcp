@@ -115,6 +115,17 @@ vyžaduje vlastní výslovný souhlas; publikace na `main` ji neprovádí.
   - Ověřit instalaci, aktualizace, minimální spotřebu prostředků, chování po ztrátě spojení, ovládání klávesnicí, tray popup, zavírání a přepínání desktop/UI na Windows 11.
   - **Brána zahájení:** A, B, C, D dokončené a otestované; nejprve revize architektury a schválení Michalem. Nezasahovat do aktuální práce Ady a Noxe před dokončením D.
 
+### Po fázi B – rešerše Dark Factory a izolace agentů
+
+> **Pouze budoucí read-only průzkum; žádná okamžitá implementace.** Nezačínat před nezávislým schválením fáze B Adou i Noxem. Zachovat pořadí schválené roadmapy A → B → C → D a termín MVP; případnou implementaci zařadit až po samostatném rozhodnutí Michala. Nezavádět druhý orchestrátor.
+
+- [ ] **Ověřit původní Dark Factory Jirky Herníka:** dohledat veřejnou architekturu, demonstraci či repozitář a potvrdit autorství. Nespojovat automaticky s jinými projekty stejného názvu. Bez placeného obsahu nebo neveřejných materiálů bez oprávnění.
+- [ ] **Nezávislé studium veřejných referencí:** [peter-stratton/dark-factory](https://github.com/peter-stratton/dark-factory) (role implementace/QA/akceptace, sandbox), [0-sayed/dark-factory](https://github.com/0-sayed/dark-factory) (paralelní práce a izolované worktrees) a [jleechanorg/dark-factory](https://github.com/jleechanorg/dark-factory) (nezávislé/skryté akceptační testy). Nejprve ověřit licence, aktuálnost a skutečné fungování; pouze read-only analýza.
+- [ ] **Porovnat s existujícím Agent Lease:** nájmy a PreToolUse hooky, message receipts, workery, failover, Quality Gate B7, CI a audit. Vypsat konkrétní mezery, nikoli duplikovat hotové funkce.
+- [ ] **Posoudit izolaci a bezpečnost:** oddělení rolí, minimální oprávnění, sandbox/kontejnery ve Windows 11 + WSL, ochrana produkce a tajných klíčů, hranice důvěry mezi procesy stejného uživatele. Zhodnotit režii, kompatibilitu, selhání a návrat zpět.
+- [ ] **Posoudit nezávislé akceptační testy:** oddělení implementujícího a kontrolního agenta, ochrana testů před úpravou, auditní stopa a lidské schválení merge/deploy; sladit s B7 bez obcházení Quality Gate.
+- [ ] **Ada a Nox: dva nezávislé posudky** s tabulkou UŽ MÁME / PŘIDAT / NEPŘIDÁVAT, náklady na tokeny a provoz, riziky, testovacím pilotem a rollbackem. Výstup společně zrevidovat a předložit Michalovi ke schválení. Bez schválení nic neinstalovat, neměnit architekturu, neslučovat ani nenasazovat.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
