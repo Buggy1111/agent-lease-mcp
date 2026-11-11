@@ -215,3 +215,30 @@ def test_check_timeout_is_bounded_by_fixed_room_job_budget(fixture):
     write_policy(store, repo, timeout=601)
     with pytest.raises(SetupRequired):
         load_policy(store.db_path, str(repo))
+
+
+def test_sandbox_requires_separate_verified_limits(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_lease_mcp import quality_runner as runner
+    broker = tmp_path / "delegated" / "broker"
+    broker.mkdir(parents=True)
+    job = tmp_path / "delegated" / "job"
+    job.mkdir()
+    files = {"memory.max": str(runner.COMMAND_MEMORY), "memory.swap.max": "0",
+             "pids.max": str(runner.COMMAND_PIDS), "cpu.max": runner.COMMAND_CPU,
+             "memory.oom.group": "1"}
+    for name in files:
+        (job / name).write_text("max")
+    group = Mock(path=job)
+    group.cleanup.return_value = True
+    factory = Mock(return_value=group)
+    monkeypatch.setattr(runner, "current_cgroup", lambda: broker)
+    monkeypatch.setattr(runner, "CommandCgroup", factory)
+    assert runner.command_cgroup() is group
+    factory.assert_called_once_with(root=broker.parent)
+    assert all((job / name).read_text() == value for name, value in files.items())
+    (job / "pids.max").unlink()
+    with pytest.raises(SetupRequired):
+        runner.command_cgroup()
+    group.cleanup.assert_called_once()

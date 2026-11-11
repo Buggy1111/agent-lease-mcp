@@ -23,7 +23,7 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from ._quality_runs import CommandObservation, MetricObservation
-from .cgroup import current_cgroup
+from .cgroup import CgroupWatchdog, CommandCgroup, current_cgroup
 from .config import is_trusted_agent
 from .launch_gate import launch_gate
 from .quality import inspect_repository
@@ -36,6 +36,9 @@ MAX_MEMORY = 2 * 1024**3
 MAX_PIDS = 256
 MAX_JOB_SECONDS = 720
 MAX_TOOL_BYTES = 128 * 1024**2  # approved standalone CPython 3.13 is about 81 MB
+COMMAND_MEMORY = 1024**3
+COMMAND_PIDS = 128
+COMMAND_CPU = "75000 100000"
 
 
 class SetupRequired(ValueError):
@@ -90,8 +93,10 @@ def verify_limits() -> dict:
             if quota != "max":
                 cpu.append(int(quota) / int(period))
     if (not memory or not pids or not cpu or min(memory) > MAX_MEMORY
-            or min(pids) > MAX_PIDS or min(cpu) > 1):
-        raise SetupRequired("Runner requires cgroup limits: memory <= 2 GiB, CPU <= 100%, pids <= 256.")
+            or min(pids) > MAX_PIDS or min(cpu) > 1
+            or min(memory) < COMMAND_MEMORY + 256 * 1024**2
+            or min(pids) < COMMAND_PIDS + 32 or min(cpu) < 1):
+        raise SetupRequired("Runner requires bounded cgroup limits with reserved broker headroom.")
     return {"memory_bytes": min(memory), "pids": min(pids), "cpu_ratio": min(cpu)}
 
 
@@ -267,6 +272,27 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
     """Bounded binary capture. Killing the namespace init also kills setsid descendants."""
     started = time.monotonic()
     digest = hashlib.sha256()
+def command_cgroup() -> CommandCgroup:
+    current = current_cgroup()
+    # DelegateSubgroup=broker leaves an empty delegated parent for sibling jobs.
+    group = CommandCgroup(root=current.parent if current.name == "broker" else current)
+    try:
+        for filename, value in (("memory.max", str(COMMAND_MEMORY)),
+                                ("memory.swap.max", "0"), ("pids.max", str(COMMAND_PIDS)),
+                                ("cpu.max", COMMAND_CPU), ("memory.oom.group", "1")):
+            path = group.path / filename
+            if not path.exists():
+                raise SetupRequired("Independent sandbox cgroup controllers are unavailable.")
+            path.write_text(value)
+            if path.read_text().strip() != value:
+                raise SetupRequired("Cannot verify independent sandbox cgroup limits.")
+        return group
+    except BaseException:
+        if not group.cleanup():
+            raise RuntimeError("Cannot verify sandbox cgroup cleanup.") from None
+        raise
+
+
     size = 0
     interrupted = timed_out = limited = False
     killed_at = None
@@ -274,18 +300,25 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
     proc = None
     metric = None
     try:
+    if not hasattr(os, "memfd_create"):
+        raise SetupRequired("Runner requires Python with Linux memfd support.")
         argv = list(argv)
         argv[argv.index("__QUALITY_METRICS_FD__")] = str(metadata)
         with launch_gate(store.db_path):
+    group = watchdog = None
             if not can_continue():
+        group = command_cgroup()
+        watchdog = CgroupWatchdog(group)
                 raise SetupRequired("Runner was paused or task ownership was lost before launch.")
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        bootstrap = argv.index(str(Path(__file__).with_name("quality_namespace.py")))
+        argv[bootstrap + 1:bootstrap + 1] = ["--cgroup-fd", str(group.procs_fd)]
                                     stderr=subprocess.STDOUT, env={"PATH": "/usr/bin:/bin"},
-                                    pass_fds=(metadata,), start_new_session=True)
+                                    pass_fds=(metadata, group.procs_fd), start_new_session=True)
         with selectors.DefaultSelector() as selector:
             selector.register(proc.stdout, selectors.EVENT_READ)
             while selector.get_map() or proc.poll() is None:
-                if not can_continue():
+                if not can_continue() or watchdog.failed():
                     interrupted = True
                 timed_out = time.monotonic() - started >= timeout
                 if interrupted or timed_out or limited:
@@ -314,11 +347,17 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
                 metric = None  # absent/invalid metrics never become a passing coverage check
     finally:
         os.close(metadata)
-        if proc is not None:
-            if proc.poll() is None:
-                proc.kill()
-            proc.wait(timeout=5)
-            proc.stdout.close()
+        try:
+            if proc is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+        finally:
+            clean = group.cleanup() if group is not None else True
+            guarded = watchdog.finish(clean=clean) if watchdog is not None else True
+            if not clean or not guarded:
+                raise RuntimeError("Cannot verify sandbox cgroup cleanup.")
     return CommandObservation(name, code, timed_out, int((time.monotonic() - started) * 1000),
                               size, digest.hexdigest(), interrupted, limited, metric)
 
