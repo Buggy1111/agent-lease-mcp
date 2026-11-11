@@ -79,6 +79,16 @@ def test_inspection_is_not_a_run_and_no_public_result_import(store, plan):
     assert store.quality_runs() == []
 
 
+def test_broker_scan_overrules_forged_clean_client_scan(store, repo):
+    python_project(repo)
+    head = commit(repo, {"src/app.py": "password = " + repr("synthetic1" * 4) + "\n"})
+    plan = inspect_repository(repo, head)
+    review(store, plan)
+    result = record(store, plan)
+    assert result["overall_status"] == "FAIL"
+    assert result["checks"]["security"]["status"] == "FAIL"
+
+
 def test_evidence_survives_restart_and_never_contains_arguments_or_output(store, plan):
     result = record(store, plan)
     assert result["kind"] == "quality_run" and result["executed"] is True

@@ -20,6 +20,8 @@ from .config import human_name
 from .hygiene import check_path, check_short
 from .policy import normalize_path
 from .quality import COMMAND_CHECKS, Check, Inspection, Status, aggregate, inspect_repository
+from .secret_scan import scan_diff
+from .workspace import commit_diff
 
 
 @dataclass(frozen=True)
@@ -102,8 +104,6 @@ def _command_result(observation: CommandObservation) -> tuple[Status, str]:
 
 
 class QualityRunsMixin:
-    def _quality_record_run(self, agent: str, inspection: Inspection,
-                            observations: tuple[CommandObservation, ...], *,
     def _quality_record_attempt(self, agent: str, inspection: Inspection, result: dict) -> dict:
         """Keep refusals visible without inventing process observations or execution."""
         self._check_review_agent(agent)
@@ -117,6 +117,8 @@ class QualityRunsMixin:
             row = con.execute("SELECT * FROM quality_runs WHERE id=?", (cursor.lastrowid,)).fetchone()
             return self._quality_public(con, row)
 
+    def _quality_record_run(self, agent: str, inspection: Inspection,
+                            observations: tuple[CommandObservation, ...], *,
                             execution_id: str, task_id: int | None = None,
                             sandbox: dict | None = None, branch: str | None = None) -> dict:
         """Private runner sink, deliberately absent from the broker/MCP write API.
@@ -183,6 +185,8 @@ class QualityRunsMixin:
                     "task_id": task_id, "sandbox": sandbox,
                     "branch": branch,
                     "observations": [asdict(by_name[name]) for name in sorted(by_name)]}
+        evidence["broker_scan_clean"] = not scan_diff(commit_diff(
+            inspection.repository, inspection.commit_sha, inspection.base_commit))
         body = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._connect() as con:
@@ -208,10 +212,6 @@ class QualityRunsMixin:
     @staticmethod
     def _quality_public(con, row) -> dict:
         evidence = json.loads(row["evidence_json"])
-        # Approval is read from the existing B6 authority at read time. A new
-        # review/re-submit invalidates it; neither caller nor project sets it.
-        review = con.execute(
-            "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
         if "attempt" in evidence:
             return evidence["attempt"] | {
                 "run_id": row["id"], "execution_id": row["execution_id"],
@@ -219,6 +219,10 @@ class QualityRunsMixin:
                 "evidence_sha256": row["evidence_sha256"], "history": [], "logs": [],
                 "policy_approval": None, "observations": [], "review_status": "pending",
                 "policy_review_status": "pending" if evidence["attempt"]["policy_paths"] else "not_required"}
+        # Approval is read from the existing B6 authority at read time. A new
+        # review/re-submit invalidates it; neither caller nor project sets it.
+        review = con.execute(
+            "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
             "ORDER BY updated_at DESC, id DESC LIMIT 1",
             (row["repository"], row["commit_sha"], evidence["base_commit"]),
         ).fetchone()
@@ -229,9 +233,11 @@ class QualityRunsMixin:
                         and review["verdict"] == "approved" and review["security"] == "pass"
                         and review["security_by"] == review["verdict_by"]
                         and review["scan_commit"] == row["commit_sha"]
-                        and review["scan_findings"] == "[]")
+                        and review["scan_findings"] == "[]"
+                        and evidence.get("broker_scan_clean") is True)
         security_failed = bool(independent and review["security"] == "fail"
                                and review["security_by"] == review["verdict_by"])
+        security_failed = security_failed or evidence.get("broker_scan_clean") is False
         checks = []
         public_checks = {}
         for item in evidence["checks"]:
