@@ -511,7 +511,9 @@ class DeliveriesMixin:
         # Jedna (nejnovější) záloha na den, `keep` dní. Počítat soubory nestačí:
         # sedm restartů brokeru za den by smazalo všechny starší dny.
         newest_per_day: dict[str, Path] = {}
-        for path in sorted(directory.glob("room-*.db")):  # jméno = room-YYYYMMDD-HHMMSS-…
+        # jméno = room-YYYYMMDD-HHMMSS-<náhodný hex>; ve stejné sekundě rozhoduje
+        # náhoda, proto právě zapsaná záloha jde mezi stejnými časy vždy poslední.
+        for path in sorted(directory.glob("room-*.db"), key=lambda p: (p.name[5:20], p == target)):
             if (old := newest_per_day.get(path.name[5:13])) is not None:
                 old.unlink(missing_ok=True)
             newest_per_day[path.name[5:13]] = path

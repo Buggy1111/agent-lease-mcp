@@ -1191,8 +1191,9 @@ def test_backup_keeps_one_per_day_for_seven_days(store: Store, tmp_path: Path):
     for day in range(1, 10):  # 1.–9. 11., v každém dni dvě zálohy
         for hhmmss in ("080000", "200000"):
             (backups / f"room-202611{day:02d}-{hhmmss}-aaaaaa.db").write_text("x")
-    for _ in range(3):  # tři „restarty“ dnes
+    for _ in range(3):  # tři „restarty“ dnes, nejspíš ve stejné sekundě
         result = store.backup(backups, keep=7)
+        assert Path(result["path"]).exists(), "právě zapsaná záloha se nesmí smazat"
     left = sorted(p.name for p in backups.glob("room-*.db"))
     assert left == [f"room-202611{d:02d}-200000-aaaaaa.db" for d in range(4, 10)] + [Path(result["path"]).name]
 
