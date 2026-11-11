@@ -2,6 +2,31 @@
 
 ## Opravy auditu 11. 11. 2026 — aktuální kandidát
 
+### Doplnění F2 po review #12 a #14
+
+Adiny opravy `126fbf1` a `a854924` jsou převzaté do této větve přímým
+fast-forwardem. Nox nezávisle schválil přesný `a85492494931de7f52b6e305041be8357d08edb2`
+v review #14; celkový kandidát B7 se znovu předkládá Adě do review #12.
+
+Brokerův scan i přijímané nezávislé B6 review nyní pokrývají celý rozsah od
+operátorem připnutého `policy_base`. Evidence navíc ukládá `scan_base`; čistý
+scan se uzná pouze pro tentýž rozsah jako review. Starý uložený záznam bez
+prokazatelného rozsahu scanu se při aktualizaci nepovýší na PASS, vyžaduje nový běh.
+
+Ověření přesného `a854924` na izolovaném snapshotu:
+
+- **57 testů quality_runs PASS**; jeden socketový test nebyl součástí této
+  unit invokace, skutečnou broker cestu ověřuje celá E2E sada níže.
+- **Celá sandboxová sada 36/36 PASS v jediném běhu**, 484,31 s; Python i
+  TypeScript, broker, připnutý rozsah review, lidské schválení, izolace, přerušení,
+  úklid potomků a metriky. Běh použil dočasný delegovaný scope běžného uživatele.
+- Původní reprodukce se skutečným DB záznamem ze starého writeru `1b5c220`
+  zůstává po načtení v **REVIEW / security REVIEW**.
+- Ruff, whitespace, wheel i sdist a scan celého rozsahu review #14: **PASS**.
+
+Následující údaje z prvního předání oprav zůstávají historií ověření. Hostované
+CI ani aktivace B7 nejsou tímto doplněním provedené; celkové review #12 je samostatné.
+
 Autor oprav: Nox. Větev `nox/b7-fixes-20261111`, základ oprav `6e9331e`.
 Review celého B7 se porovnává s produkčním základem `9134485`; přesný plný hash
 kandidáta určuje záznam MCP review, nikoli tento průběžný dokument.
