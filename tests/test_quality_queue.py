@@ -120,3 +120,11 @@ def test_busy_room_is_distinct_and_can_be_requeued(fixture, monkeypatch):
     retry = store.quality_request("codex", str(repo))
     assert retry["id"] == request["id"] and retry["state"] == "queued"
 
+
+def test_sqlite_failure_in_runner_finishes_queue_request(fixture, monkeypatch):
+    import sqlite3
+    repo, store, _ = fixture
+    store.quality_request("codex", str(repo))
+    monkeypatch.setattr(store, "quality_check", Mock(side_effect=sqlite3.OperationalError("fixture")))
+    assert store._quality_drain_one()
+    assert store.quality_requests()[0]["state"] == "refused"

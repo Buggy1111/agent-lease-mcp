@@ -102,7 +102,7 @@ class QualityQueueMixin:
                          "completed" if result.get("execution_status") == "completed" else
                          "interrupted" if result.get("executed") else "refused")
                 detail = result["overall_status"]
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError, sqlite3.Error):
             pass  # only fixed diagnostics, no exception/source text in public queue
         with self._connect() as con:
             con.execute("UPDATE quality_requests SET state=?,run_id=?,detail=?,updated_at=? WHERE id=?",
