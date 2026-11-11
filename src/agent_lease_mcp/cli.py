@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import sys
 import time
 
@@ -23,6 +24,7 @@ from .briefing import session_briefing
 from .broker import open_store
 from .config import UNTRUSTED_PREFIXES, Settings
 from .models import DeliveryState, MessageKind
+from .store import Store
 
 # Příkazy, které nic nezapisují pod jménem volajícího — smí i bez AGENT_NAME.
 READ_ONLY_CMDS = frozenset({"owner", "history", "limits", "overdue", "jobs"})
@@ -479,7 +481,12 @@ def main(argv: list[str] | None = None) -> int:
               f"{result['backup_integrity']}")
 
     elif args.cmd == "prune":
-        removed = store.prune(args.days)
+        # Jen přímo nad DB (člověk), broker `prune` agentům nenabízí.
+        try:
+            removed = Store(settings=settings).prune(args.days)
+        except (OSError, sqlite3.Error) as exc:
+            print(f"prune needs direct access to {settings.db_path}: {exc}", file=sys.stderr)
+            return 1
         print(f"Deleted: {removed['messages']} messages, {removed['audit']} audit entries.")
 
     elif args.cmd == "history":

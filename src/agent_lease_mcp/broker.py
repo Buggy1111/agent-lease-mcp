@@ -34,12 +34,13 @@ from .store import Store
 METHODS = frozenset({
     "claim", "release", "release_all", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
     "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
-    "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "prune", "mark_seen",
+    "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "mark_seen",
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
     "failover_activation", "failover_sweep", "get_screen", "overdue", "extend_lease", "signal_mtime",
     "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
     "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "checkpoint_resume_approved", "paused", "pause",
     "checkpoint", "get_checkpoint", "backup_now",
+    # `prune` tu schválně není: `prune(0)` by agentovi smazal celý audit. Retence běží sama ve Store.
     # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
     "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
     "review_approved",
@@ -323,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     store = server.RequestHandlerClass.store
 
-    last_backup = [0.0]
+    last_backup = [store.last_backup_at()]  # platná záloha mladší 24 h → restart nezálohuje
 
     def sweeper() -> None:
         import time as _t

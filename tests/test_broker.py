@@ -427,6 +427,16 @@ def test_agents_cannot_write_screening_results_through_the_broker():
     assert "resume" not in METHODS
 
 
+def test_agents_cannot_prune_history_through_the_broker(broker):
+    """Audit 11.11. #7a: `prune(0)` přes socket by smazal celý audit."""
+    from agent_lease_mcp.broker import METHODS, RemoteStore
+
+    settings, sock = broker
+    assert "prune" not in METHODS
+    with pytest.raises(AttributeError):
+        RemoteStore(settings, sock).prune(0)
+
+
 def test_rpc_start_cannot_skip_the_checkpoint_hold(broker):
     """A6 přes skutečné RPC brokeru, ne jen přes Bridge/server wrapper (Nox #566/P1)."""
     settings, sock = broker
