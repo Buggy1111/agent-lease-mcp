@@ -260,3 +260,26 @@ def test_base_cannot_be_set_later_even_if_it_was_empty(store, tmp_path):
     assert review["base_commit"] == ""
     with pytest.raises(ValueError, match="cannot change"):
         store.review_submit(AUTHOR, review["id"], A, base_commit=B, secret_findings=[])
+
+
+def test_stale_review_is_reported_to_the_human_once_per_submit(store, tmp_path):
+    """Audit 11.11. #5: review #9 visel od 7. 11., recenzent bez session nic nedostal."""
+    from agent_lease_mcp._reviews import STALE_REVIEW_SECONDS
+
+    def notices() -> list[dict]:
+        return [m for m in store.latest_messages(200) if m["agent"] == "broker" and m["recipient"] == "michal"]
+
+    review = opened(store, tmp_path)
+    t0 = store.review_get(review["id"])["updated_at"]
+    assert store.review_stale_sweep(now=t0 + STALE_REVIEW_SECONDS - 60) == 0
+    assert store.review_stale_sweep(now=t0 + STALE_REVIEW_SECONDS + 60) == 1
+    assert f"#{review['id']}" in notices()[0]["text"] and REVIEWER in notices()[0]["text"]
+    assert store.review_stale_sweep(now=t0 + 3 * STALE_REVIEW_SECONDS) == 0, "jen jednou"
+
+    t1 = store.review_submit(AUTHOR, review["id"], B, secret_findings=[])["updated_at"]
+    assert store.review_stale_sweep(now=t1 + STALE_REVIEW_SECONDS - 60) == 0, "nové předložení nuluje hodiny"
+    assert store.review_stale_sweep(now=t1 + STALE_REVIEW_SECONDS + 60) == 1
+    assert len(notices()) == 2
+
+    store.review_verdict(REVIEWER, review["id"], "approved", B, security="pass", reviewer_findings=[])
+    assert store.review_stale_sweep(now=t1 + 5 * STALE_REVIEW_SECONDS) == 0, "rozhodnuté review se nehlásí"

@@ -70,7 +70,7 @@ script serves both clients.
 | **UserPromptSubmit** | new messages are delivered once, via a cursor |
 | **PreToolUse** (Edit/Write/apply_patch…) | an edit of a file someone else holds is refused |
 | **PreToolUse** (Bash) | a script being run is leased; obvious writes (`>`, `tee`, `sed -i`, `cp`/`mv` target) into a held file are refused |
-| **Stop / SessionEnd** | all leases are returned when the agent finishes its turn |
+| **Stop / SessionEnd** | leases the session took automatically for edits are returned when it finishes its turn (explicit `claim`s and running-script leases stay until `release`/TTL) |
 
 Injections stay silent when there is nothing to say.
 

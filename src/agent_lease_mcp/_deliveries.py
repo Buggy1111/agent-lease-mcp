@@ -508,9 +508,26 @@ class DeliveriesMixin:
             tmp.rename(bad)
             return {"path": str(bad), "integrity": ok, "backup_integrity": copy_ok}
         tmp.rename(target)                     # atomické zveřejnění
-        for old in sorted(directory.glob("room-*.db"))[:-keep]:
-            old.unlink(missing_ok=True)
+        # Jedna (nejnovější) záloha na den, `keep` dní. Počítat soubory nestačí:
+        # sedm restartů brokeru za den by smazalo všechny starší dny.
+        newest_per_day: dict[str, Path] = {}
+        # jméno = room-YYYYMMDD-HHMMSS-<náhodný hex>; ve stejné sekundě rozhoduje
+        # náhoda, proto právě zapsaná záloha jde mezi stejnými časy vždy poslední.
+        for path in sorted(directory.glob("room-*.db"), key=lambda p: (p.name[5:20], p == target)):
+            if (old := newest_per_day.get(path.name[5:13])) is not None:
+                old.unlink(missing_ok=True)
+            newest_per_day[path.name[5:13]] = path
+        for day in sorted(newest_per_day)[:-keep]:
+            newest_per_day[day].unlink(missing_ok=True)
         return {"path": str(target), "integrity": ok, "backup_integrity": copy_ok}
+
+    def last_backup_at(self) -> float:
+        """Čas poslední platné zálohy (0, když žádná není) — broker po restartu nezálohuje znovu."""
+        try:
+            return max((p.stat().st_mtime for p in (self.db_path.parent / "backups").glob("room-*.db")),
+                       default=0.0)
+        except OSError:
+            return 0.0
 
     @staticmethod
     def _integrity(con: sqlite3.Connection) -> str:

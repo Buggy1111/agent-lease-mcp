@@ -1179,8 +1179,30 @@ def test_backup_is_consistent_and_rotated(store: Store, tmp_path: Path):
         result = store.backup(tmp_path / "b", keep=2)
         time.sleep(1.1)
     assert result["integrity"] == "ok" and result["backup_integrity"] == "ok"
-    assert len(list((tmp_path / "b").glob("room-*.db"))) == 2
+    # tři zálohy ve stejný den → zůstane jen ta nejnovější
+    assert [str(p) for p in (tmp_path / "b").glob("room-*.db")] == [result["path"]]
     assert oct(Path(result["path"]).stat().st_mode & 0o777) == "0o600"
+
+
+def test_backup_keeps_one_per_day_for_seven_days(store: Store, tmp_path: Path):
+    """Audit 11.11. #7b: restarty v jednom dni nesmí vytlačit zálohy starších dnů."""
+    backups = tmp_path / "b"
+    backups.mkdir()
+    for day in range(1, 10):  # 1.–9. 11., v každém dni dvě zálohy
+        for hhmmss in ("080000", "200000"):
+            (backups / f"room-202611{day:02d}-{hhmmss}-aaaaaa.db").write_text("x")
+    for _ in range(3):  # tři „restarty“ dnes, nejspíš ve stejné sekundě
+        result = store.backup(backups, keep=7)
+        assert Path(result["path"]).exists(), "právě zapsaná záloha se nesmí smazat"
+    left = sorted(p.name for p in backups.glob("room-*.db"))
+    assert left == [f"room-202611{d:02d}-200000-aaaaaa.db" for d in range(4, 10)] + [Path(result["path"]).name]
+
+
+def test_last_backup_at_skips_startup_backup(store: Store):
+    """Broker po restartu nezálohuje, když existuje platná záloha mladší 24 h."""
+    assert store.last_backup_at() == 0.0
+    store.backup()
+    assert time.time() - store.last_backup_at() < 60
 
 
 def test_writing_callable_runner_is_refused(store: Store):

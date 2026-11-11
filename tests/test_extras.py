@@ -144,3 +144,27 @@ def test_doctor_reports_a_service_crash_loop(tmp_path, monkeypatch, capsys):
                 if c["id"] == "service_restarts"]
     assert [w["service"] for w in warnings] == ["agent-lease-codex-wake.service"]
     assert warnings[0]["restarts"] == 7104 and "journalctl" in warnings[0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("matcher", "status"),
+    [("Edit|Write|NotebookEdit", "failure"), ("Edit|Write|NotebookEdit|MultiEdit|Bash", "ok"), ("*", "ok")],
+)
+def test_doctor_checks_guard_matcher(tmp_path, monkeypatch, capsys, matcher, status):
+    """Audit 11.11. #9: guard s krátkým matcherem nehlídá Bash ani MultiEdit."""
+    import json
+
+    from agent_lease_mcp import doctor
+
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [
+        {"type": "command", "command": "AGENT_NAME=claude-code /x/agent-lease-guard"}]}]}}))
+    doctor.run_doctor(json_output=True)
+    check = {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["claude_guard"]
+    assert check["status"] == status
+    if status == "failure":
+        assert check["missing_tools"] == ["MultiEdit", "Bash"]

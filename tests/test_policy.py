@@ -108,12 +108,63 @@ class TestShellWriteTargets:
 
 
 def test_script_target_sees_through_wrappers(tmp_path, monkeypatch):
-    from agent_lease_mcp.policy import script_target
+    from agent_lease_mcp.policy import script_targets
 
     (tmp_path / "x.sh").write_text("echo")
     monkeypatch.chdir(tmp_path)
-    assert script_target("sudo bash x.sh") == "x.sh"
-    assert script_target("env A=1 bash x.sh") == "x.sh"
+    assert script_targets("sudo bash x.sh") == ["x.sh"]
+    assert script_targets("env A=1 bash x.sh") == ["x.sh"]
+
+
+class TestScriptTargets:
+    """Audit 11.11. #3: běžné tvary spuštění skriptu, relativně k cwd agenta."""
+
+    @pytest.fixture
+    def repo(self, tmp_path):
+        (tmp_path / "deploy").mkdir()
+        (tmp_path / "deploy" / "make.sh").write_text("echo")
+        (tmp_path / "deploy" / "job.py").write_text("print()")
+        (tmp_path / "x").mkdir()
+        return tmp_path
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("cd deploy && ./make.sh", ["deploy/make.sh"]),
+            ("cd deploy && bash make.sh", ["deploy/make.sh"]),
+            ("cd deploy; ./make.sh 2>&1 | tee log", ["deploy/make.sh"]),
+            ("uv run python deploy/job.py", ["deploy/job.py"]),
+            ("uv run deploy/job.py", ["deploy/job.py"]),
+            ("uv run --with requests python deploy/job.py --flag", ["deploy/job.py"]),
+            ("timeout 60 bash deploy/make.sh", ["deploy/make.sh"]),
+            ("timeout -k 5 60 ./deploy/make.sh", ["deploy/make.sh"]),
+            ("nohup bash deploy/make.sh &", ["deploy/make.sh"]),
+            ("bash deploy/make.sh && uv run deploy/job.py", ["deploy/make.sh", "deploy/job.py"]),
+            # negativní: soubor neexistuje, není to skript, cd neznámo kam
+            ("bash deploy/missing.sh", []),
+            ("cd x && ./make.sh", []),
+            ("uv run pytest", []),
+            ("uv run python -m pytest tests/test_x.py", []),
+            ("cd x && ls", []),
+            ("cd $DIR && ./make.sh", []),
+            # Nox, review #11: cd v podshellu nepřetéká ven; uv run --directory platí pro příkaz
+            ("(cd deploy && ./make.sh); ./deploy/make.sh", ["deploy/make.sh"]),
+            ("(cd deploy && bash make.sh) && bash deploy/job.py", ["deploy/make.sh", "deploy/job.py"]),
+            ("(cd x && ls); ./deploy/make.sh", ["deploy/make.sh"]),
+            ("uv run --directory deploy ./make.sh", ["deploy/make.sh"]),
+            ("uv run --directory=deploy python job.py", ["deploy/job.py"]),
+            ("uv run --directory deploy ./make.sh; ./deploy/make.sh", ["deploy/make.sh"]),
+        ],
+    )
+    def test_shapes(self, repo, command, expected):
+        from agent_lease_mcp.policy import script_targets
+
+        assert script_targets(command, str(repo)) == [str(repo / p) for p in expected]
+
+    def test_absolute_runner_path(self, repo):
+        from agent_lease_mcp.policy import script_targets
+
+        assert script_targets("/usr/bin/python3 deploy/job.py", str(repo)) == [str(repo / "deploy/job.py")]
 
 
 def test_cp_mv_target_directory_flag():

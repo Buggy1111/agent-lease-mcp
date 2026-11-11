@@ -21,6 +21,7 @@ import tomllib
 from pathlib import Path
 
 from .config import Settings, is_trusted_agent, parse_fallbacks
+from .init_cmd import CLIENTS
 
 OK, WARN, FAIL = "✔", "⚠", "✘"
 
@@ -32,6 +33,20 @@ def _hooks_mention(path: Path, needle: str) -> bool | None:
         return needle in json.dumps(json.loads(path.read_text()))
     except (OSError, ValueError):
         return None
+
+
+def _guard_matcher_missing(path: Path, required: str) -> list[str]:
+    """Nástroje z matcheru, který instaluje `init`, na které guard v `path` nedosáhne."""
+    try:
+        entries = json.loads(path.read_text()).get("hooks", {}).get("PreToolUse", [])
+        matchers = [e.get("matcher") or "*" for e in entries
+                    if any("agent-lease-guard" in h.get("command", "") for h in e.get("hooks", []))]
+    except (OSError, ValueError, AttributeError):
+        return []
+    covered = {tool for m in matchers for tool in m.split("|")}
+    if covered & {"*", ".*"}:
+        return []
+    return [tool for tool in required.split("|") if tool not in covered]
 
 
 def _hook_agent_names(path: Path) -> set[str] | None:
@@ -191,17 +206,23 @@ def run_doctor(*, json_output: bool = False) -> int:
         ("Codex", home / ".codex" / "hooks.json", "agent-lease-guard"),
     ):
         slug = "claude" if label == "Claude Code" else "codex"
+        client = "claude-code" if slug == "claude" else "codex"
         found = _hooks_mention(path, needle)
         if found is None:
             line(f"{slug}_guard", WARN,
                  f"{label}: {path} not found / unreadable — guard hook not verified")
-        elif found:
-            line(f"{slug}_guard", OK, f"{label}: guard hook set")
-        else:
+        elif not found:
             problems += 1
             line(f"{slug}_guard", FAIL,
                  f"{label}: agent-lease-guard missing in {path} "
                  "(without it this is only a notice board)")
+        elif missing := _guard_matcher_missing(path, CLIENTS[client]["matcher"]):
+            problems += 1
+            line(f"{slug}_guard", FAIL,
+                 f"{label}: guard hook matcher misses {'|'.join(missing)} — those calls are "
+                 f"not guarded (run `agent-lease init {client} --write`)", missing_tools=missing)
+        else:
+            line(f"{slug}_guard", OK, f"{label}: guard hook set")
         if found:
             ctx = _hooks_mention(path, "agent-lease-context")
             rewake = _hooks_mention(path, "--rewake")

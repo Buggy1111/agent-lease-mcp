@@ -30,6 +30,7 @@ from .hygiene import check_path, check_short, check_text
 from .policy import normalize_path
 
 MAX_FIX_CYCLES = 3
+STALE_REVIEW_SECONDS = 24 * 3600  # po té době bez verdiktu se ozve člověk
 
 WORKING = "working"
 AWAITING = "awaiting_review"
@@ -119,6 +120,35 @@ class ReviewsMixin:
             self.send(sender, recipient, text, kind="chat")
         except (ValueError, PermissionError, sqlite3.Error):
             pass
+
+    def review_stale_sweep(self, now: float | None = None) -> int:
+        """
+        Review čekající na recenzenta déle než `STALE_REVIEW_SECONDS` ohlásí člověku,
+        jednou za předložení. Vzkaz recenzentovi je jen `chat` (bridge ho neprovede,
+        po 48 h vyprší), takže bez tohohle review tiše visí (#9 od 7. 11.).
+        Volá ho sweeper brokeru; nové předložení (`updated_at`) hodiny nuluje.
+        """
+        now = time.time() if now is None else now
+        human = human_name(self.db_path)
+        sent = 0
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            stale = con.execute(
+                "SELECT * FROM reviews r WHERE state=? AND updated_at < ? AND NOT EXISTS ("
+                "SELECT 1 FROM review_events e WHERE e.review_id=r.id AND e.event='stale-notice' "
+                "AND e.at >= r.updated_at)",
+                (AWAITING, now - STALE_REVIEW_SECONDS),
+            ).fetchall()
+            for r in stale:
+                hours = int((now - r["updated_at"]) // 3600)
+                self._insert_event(
+                    con, "broker", human,
+                    f"Review #{r['id']} čeká na {r['reviewer'] or 'recenzenta'} už {hours} h "
+                    f"a nikdo ho nevzal: {r['topic']} @ {r['head_commit'][:12]}", None, now)
+                self._review_event(con, r["id"], "broker", "stale-notice", AWAITING, AWAITING,
+                                   r["head_commit"], f"{hours} h")
+                sent += 1
+        return sent
 
     def review_open(self, author: str, repo: str, topic: str, reviewer: str = "",
                     base_commit: str = "", head_commit: str = "",

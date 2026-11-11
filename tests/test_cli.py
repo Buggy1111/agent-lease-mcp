@@ -32,6 +32,29 @@ def peer(db: Path, agent: str = "codex") -> dict:
     return next(p for p in Store(db).peers() if p["agent"] == agent)
 
 
+def test_prune_runs_directly_on_the_db(db: Path, monkeypatch, capsys):
+    """Audit 11.11. #7a: `prune` už broker nenabízí, CLI ho dělá přímo nad DB."""
+    from agent_lease_mcp import cli
+
+    monkeypatch.setattr(cli, "open_store", lambda _s: object())  # přes broker by to nešlo
+    Store(db).say("codex", "stará zpráva")
+    assert main(["prune", "--days", "0"]) == 0
+    assert "Deleted: 1 messages" in capsys.readouterr().out
+    assert Store(db).latest_messages(10) == []
+
+
+def test_prune_without_db_access_fails_loudly(db: Path, monkeypatch, capsys):
+    from agent_lease_mcp import cli
+
+    def no_access(*_a, **_k):
+        raise PermissionError("sandbox")
+
+    monkeypatch.setattr(cli, "open_store", lambda _s: object())  # sandbox: jen broker
+    monkeypatch.setattr(Store, "__init__", no_access)
+    assert main(["prune"]) == 1
+    assert "direct access" in capsys.readouterr().err
+
+
 def test_stop_reports_when_pause_cannot_be_confirmed(db: Path, monkeypatch, capsys):
     def cannot_confirm(*_args):
         raise TimeoutError("launcher stuck")

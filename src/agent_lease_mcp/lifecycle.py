@@ -5,8 +5,8 @@ Hooky, které drží koordinaci naživu BEZ uživatele u klávesnice.
   a nedoručené vzkazy do kontextu. Agent se tedy nemusí ptát; dozví se to sám.
 - `rewake_wait`   (`agent-lease wait --rewake`, async Stop/SessionStart hook) — spí bez tokenů a probudí
   session, když jí přijde adresná zpráva (viz `rewake_wait`).
-- `release_main`  (Stop, SessionEnd) — vrátí všechny nájmy, jakmile agent dotáhne
-  tah. Bez tohohle by soubory zůstaly zamčené až do vypršení TTL, i když je nikdo
+- `release_main`  (Stop, SessionEnd) — vrátí automatické editační nájmy session,
+  jakmile agent dotáhne tah (explicitní `claim` a běžící skript zůstávají). Bez tohohle by soubory zůstaly zamčené až do vypršení TTL, i když je nikdo
   nedrží, a druhý agent by zbytečně čekal.
 
 Obojí je fail-open a mlčí, když není co říct.
@@ -135,7 +135,7 @@ def context_main() -> int:
 
 def release_main() -> int:
     """
-    Stop / SessionEnd — vrátit všechno, co agent držel.
+    Stop / SessionEnd — vrátit nájmy, které si session vzala sama při editaci.
 
     ⚠️ Tohle je hlavní důvod, proč nájmy nemusí mít dlouhé TTL. Agent, který
     dokončil tah, už soubory nepotřebuje; držet je „pro jistotu" jen blokuje
@@ -145,7 +145,10 @@ def release_main() -> int:
     settings = Settings.from_env()
     try:
         store = open_store(settings)
-        released = store.release_all(settings.agent)
+        session = _hook_session()
+        # Jen automatické editační nájmy TÉTO session: druhá session stejného jména,
+        # běžící skript na pozadí ani explicitní `claim` o nájem nesmí přijít (audit #2).
+        released = store.release_session(settings.agent, None if session == "default" else session)
         if released:
             print(f"[agent-lease] released {len(released)} lease(s)", file=sys.stderr)
         automatic = os.environ.get("AGENT_LEASE_QUALITY_AUTORUN", "").lower() in {"1", "true", "yes"}

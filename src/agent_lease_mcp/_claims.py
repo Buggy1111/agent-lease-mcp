@@ -23,6 +23,9 @@ from .hygiene import (
 from .models import Claim, ClaimResult
 from .policy import covers, normalize_path
 
+AUTO_EDIT = "auto (edit)"  # nájem, který hook vzal sám při editaci; jen ten vrací Stop
+SHARED_SESSION = "*"  # automatický nájem, který editovalo víc session téhož jména
+
 
 class ClaimsMixin:
     def claim(
@@ -68,17 +71,19 @@ class ClaimsMixin:
         return max(1, min(int(ttl_seconds or self.settings.default_ttl), MAX_TTL_SECONDS))
 
     def _upsert_claim(self, con: sqlite3.Connection, path: str, agent: str, purpose: str,
-                      now: float, ttl: int) -> None:
+                      now: float, ttl: int, session: str | None = None) -> None:
         """Zapíše (nebo převezme) nájem na cestu a zaznamená to do auditu."""
         con.execute(
-            "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at) "
-            "VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
-            "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at",
-            (path, agent, purpose, now, now + ttl),
+            "INSERT INTO claims(path, agent, purpose, claimed_at, expires_at, session) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET "
+            "agent=excluded.agent, purpose=excluded.purpose, expires_at=excluded.expires_at, "
+            "session=excluded.session",
+            (path, agent, purpose, now, now + ttl, session),
         )
         self._record(con, agent, "claim", path, purpose)
 
-    def edit_gate(self, path: str, agent: str, purpose: str = "auto (edit)") -> Claim | None:
+    def edit_gate(self, path: str, agent: str, purpose: str = AUTO_EDIT,
+                  session: str | None = None) -> Claim | None:
         """
         Jedno atomické rozhodnutí pro hook (APP-007): smí `agent` editovat `path`?
 
@@ -89,6 +94,8 @@ class ClaimsMixin:
         """
         _check_agent(agent)
         target = normalize_path(check_path(path))
+        if session is not None:
+            check_short("session", session)
         now = time.time()
         ttl = self._ttl()
         with self._connect() as con:
@@ -110,8 +117,22 @@ class ClaimsMixin:
                     f"WHERE agent = ? AND path IN ({marks})",
                     (now + ttl, agent, *[c.path for c in covering]),
                 )
+                # Druhá session téhož jména edituje stejný soubor: nájem je sdílený a
+                # Stop žádné z nich ho nevrátí (vyprší sám), jinak by jedna session
+                # vzala nájem druhé, která na souboru pořád pracuje (Nox, review #11).
+                con.execute(
+                    f"UPDATE claims SET session=? WHERE agent=? AND purpose=? AND path IN ({marks}) "
+                    "AND session IS NOT ? AND session IS NOT ?",
+                    (SHARED_SESSION, agent, AUTO_EDIT, *[c.path for c in covering],
+                     session, SHARED_SESSION),
+                )
+                if purpose != AUTO_EDIT:
+                    # Upravený a pak spuštěný skript: Stop už ho nesmí vrátit jako pouhou editaci.
+                    con.execute("UPDATE claims SET purpose=? WHERE path=? AND agent=? AND purpose=?",
+                                (purpose[:500], target, agent, AUTO_EDIT))
             else:
-                self._upsert_claim(con, target, agent, purpose[:500], now, ttl)
+                self._upsert_claim(con, target, agent, purpose[:500], now, ttl,
+                                   session if purpose == AUTO_EDIT else None)
         return None
 
     @staticmethod
@@ -177,6 +198,24 @@ class ClaimsMixin:
         with self._connect() as con:
             rows = con.execute("SELECT path FROM claims WHERE agent = ?", (agent,)).fetchall()
             con.execute("DELETE FROM claims WHERE agent = ?", (agent,))
+            for r in rows:
+                self._record(con, agent, "release", r["path"])
+        return [r["path"] for r in rows]
+
+    def release_session(self, agent: str, session: str | None = None) -> list[str]:
+        """
+        Stop/SessionEnd: vrátí jen nájmy, které si session vzala automaticky při editaci.
+
+        Explicitní `claim` a běžící skript (`auto (running script)`) přežijí do
+        `release`/TTL, stejně jako nájmy jiné session stejného jména a nájmy sdílené
+        víc session (`SHARED_SESSION`). Bez session id se vrátí jen automatické
+        editační nájmy, které také session nemají.
+        """
+        with self._connect() as con:
+            where = "agent = ? AND purpose = ? AND " + ("session = ?" if session else "session IS NULL")
+            params = (agent, AUTO_EDIT, *([session] if session else []))
+            rows = con.execute(f"SELECT path FROM claims WHERE {where}", params).fetchall()
+            con.execute(f"DELETE FROM claims WHERE {where}", params)
             for r in rows:
                 self._record(con, agent, "release", r["path"])
         return [r["path"] for r in rows]
