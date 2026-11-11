@@ -45,6 +45,10 @@ class SetupRequired(ValueError):
     """Only fixed, source-free diagnostics cross the broker boundary."""
 
 
+class RunnerBusy(SetupRequired):
+    """A temporary room lock conflict; an explicit request can retry."""
+
+
 def tree_digest(root: Path) -> str:
     """Pin an operator's tool tree without following links outside that tree."""
     root = root.resolve(strict=True)
@@ -413,7 +417,10 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
         lock = os.open(str(store.db_path.resolve()) + ".quality-lock",
                        os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RunnerBusy("Another quality run holds the room lock.") from None
             with tempfile.TemporaryDirectory(prefix="agent-lease-quality-") as tmp:
                 root = Path(tmp)
                 original, bins = root / "snapshot", root / "bin"
@@ -465,9 +472,10 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         # Exceptions from parsers/process launch can include source or secret args.
         result = {"schema_version": 1, "kind": "quality_refusal", "executed": attempted,
-                "execution_status": "unverified" if attempted else "not_started",
+                "execution_status": "busy" if type(error) is RunnerBusy else
+                "unverified" if attempted else "not_started",
                 "overall_status": "REVIEW" if attempted else "SETUP_REQUIRED",
-                "error": str(error) if type(error) is SetupRequired else
+                "error": str(error) if type(error) in {SetupRequired, RunnerBusy} else
                 "Runner setup, task authorization, snapshot, policy pins or isolation could not be verified."}
         if plan is not None:
             if plan.policy_paths:

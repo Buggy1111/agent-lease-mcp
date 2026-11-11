@@ -51,11 +51,15 @@ class QualityQueueMixin:
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute("SELECT * FROM quality_requests WHERE request_key=?", (key,)).fetchone()
-            if row:
+            if row and row["state"] not in {"refused", "interrupted", "busy"}:
                 return dict(row)
             if con.execute("SELECT COUNT(*) FROM quality_requests WHERE state IN ('queued','running')").fetchone()[0] >= 20:
                 raise ValueError("Quality queue is full")
             now = time.time()
+            if row:
+                con.execute("UPDATE quality_requests SET state='queued',run_id=NULL,detail='',updated_at=? WHERE id=?",
+                            (now, row["id"]))
+                return dict(con.execute("SELECT * FROM quality_requests WHERE id=?", (row["id"],)).fetchone())
             cursor = con.execute(
                 "INSERT INTO quality_requests(request_key,agent,repository,commit_sha,base_commit,"
                 "policy_sha256,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued',?,?)",
@@ -94,7 +98,8 @@ class QualityQueueMixin:
                 result = self.quality_check(row["agent"], row["repository"], row["commit_sha"],
                                             row["base_commit"] or None)
                 run_id = result.get("run_id")
-                state = ("completed" if result.get("execution_status") == "completed" else
+                state = ("busy" if result.get("execution_status") == "busy" else
+                         "completed" if result.get("execution_status") == "completed" else
                          "interrupted" if result.get("executed") else "refused")
                 detail = result["overall_status"]
         except (OSError, ValueError, RuntimeError):
