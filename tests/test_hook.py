@@ -192,6 +192,14 @@ def test_patch_relative_path_uses_agent_cwd(db: Path, tmp_path: Path):
     assert [c.path for c in Store(db).claims()] == [str((deploy / "make.sh").resolve())]
 
 
+def test_auto_lease_remembers_the_session(db: Path, tmp_path: Path):
+    """Audit 11.11. #2: Stop vrací jen nájmy své session — hook ji musí zapsat."""
+    target = tmp_path / "a.txt"
+    assert run_hook(edit(target) | {"session_id": "s1"}, agent="claude-code", db=db).returncode == 0
+    assert Store(db).release_session("claude-code", "s2") == []
+    assert Store(db).release_session("claude-code", "s1") == [str(target.resolve())]
+
+
 def test_script_after_cd_is_leased_relative_to_agent_cwd(db: Path, tmp_path: Path):
     """Audit 11.11. #3: `cd deploy && ./make.sh` z cwd agenta (≠ cwd hooku) zabere skript."""
     script = tmp_path / "deploy" / "make.sh"

@@ -123,28 +123,53 @@ class TestContextHook:
         assert out.returncode == 0
 
 
+def stop(agent: str, db: Path, session: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-c",
+         "from agent_lease_mcp.lifecycle import release_main; raise SystemExit(release_main())"],
+        input=json.dumps({"session_id": session} if session else {}),
+        capture_output=True, text=True, check=False, env=_env(agent, db),
+    )
+
+
 class TestReleaseHook:
-    def test_stop_releases_everything_the_agent_held(self, db: Path):
-        """Bez tohohle by soubory zůstaly zamčené až do vypršení TTL."""
-        Store(db).claim(["/repo/a.sh", "/repo/b.sh"], agent="claude-code")
+    def test_stop_releases_auto_edit_leases(self, db: Path):
+        """Bez tohohle by editované soubory zůstaly zamčené až do vypršení TTL."""
+        store = Store(db)
+        store.edit_gate("/repo/a.sh", "claude-code")
+        store.edit_gate("/repo/b.sh", "claude-code")
 
-        out = subprocess.run(
-            [sys.executable, "-c",
-             "from agent_lease_mcp.lifecycle import release_main; raise SystemExit(release_main())"],
-            input="{}", capture_output=True, text=True, check=False, env=_env("claude-code", db),
-        )
-
-        assert out.returncode == 0
+        assert stop("claude-code", db).returncode == 0
         assert Store(db).claims() == []
 
-    def test_other_agents_claims_survive(self, db: Path):
-        Store(db).claim(["/repo/a.sh"], agent="codex")
+    def test_stop_keeps_the_other_sessions_leases(self, db: Path):
+        """Audit 11.11. #2: dvě session `claude-code` — Stop jedné nesmí vzít nájmy druhé."""
+        store = Store(db)
+        store.edit_gate("/repo/mine.sh", "claude-code", session="s1")
+        store.edit_gate("/repo/theirs.sh", "claude-code", session="s2")
 
-        subprocess.run(
-            [sys.executable, "-c",
-             "from agent_lease_mcp.lifecycle import release_main; raise SystemExit(release_main())"],
-            input="{}", capture_output=True, text=True, check=False, env=_env("claude-code", db),
-        )
+        assert stop("claude-code", db, session="s1").returncode == 0
+        assert [c.path for c in Store(db).claims()] == ["/repo/theirs.sh"]
+
+    def test_stop_keeps_running_script_and_explicit_claims(self, db: Path):
+        """Audit 11.11. #2: skript běží dál po konci tahu; explicitní claim vrací jen `release`."""
+        store = Store(db)
+        store.claim(["/repo/deploy"], agent="claude-code", purpose="balím")
+        store.edit_gate("/repo/run.sh", "claude-code", purpose="auto (running script)", session="s1")
+        store.edit_gate("/repo/edited-then-run.sh", "claude-code", session="s1")
+        store.edit_gate("/repo/edited-then-run.sh", "claude-code", purpose="auto (running script)", session="s1")
+        store.edit_gate("/repo/edit.txt", "claude-code", session="s1")
+
+        assert stop("claude-code", db, session="s1").returncode == 0
+        assert sorted(c.path for c in Store(db).claims()) == [
+            "/repo/deploy", "/repo/edited-then-run.sh", "/repo/run.sh"]
+        assert stop("claude-code", db).returncode == 0, "ani bez session id"
+        assert len(Store(db).claims()) == 3
+
+    def test_other_agents_claims_survive(self, db: Path):
+        Store(db).edit_gate("/repo/a.sh", "codex")
+
+        stop("claude-code", db)
 
         assert [c.agent for c in Store(db).claims()] == ["codex"]
 

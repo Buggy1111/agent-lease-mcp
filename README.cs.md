@@ -101,7 +101,7 @@ Proto jsou i ostatní části na hoocích, ne na dobré vůli:
 | **UserPromptSubmit** | doručí nové vzkazy — jednou, přes kurzor, ať se neopakují |
 | **PreToolUse** | zablokuje editaci cizího rozpracovaného souboru |
 | **PreToolUse (Bash)** | spouštěný skript si vezme do nájmu, takže ho druhý nesmí editovat za běhu |
-| **Stop / SessionEnd** | vrátí všechny nájmy, jakmile agent dotáhne tah |
+| **Stop / SessionEnd** | vrátí nájmy, které si session vzala sama při editaci, jakmile dotáhne tah (explicitní `claim` a běžící skript zůstávají do `release`/TTL) |
 
 Ten předposlední řádek je ta konkrétní kombinace, která 9. 9. rozbila balíček:
 jeden agent skript spouštěl, druhý ho zároveň editoval.

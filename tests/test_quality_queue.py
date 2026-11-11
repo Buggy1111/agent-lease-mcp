@@ -62,7 +62,7 @@ def test_stop_hook_only_enqueues_clean_commits_when_explicitly_enabled(fixture, 
     from agent_lease_mcp import lifecycle
     repo, store, _ = fixture
     remote = Mock()
-    remote.release_all.return_value = []
+    remote.release_session.return_value = []
     remote.quality_autorun_enabled.return_value = False
     monkeypatch.setattr(lifecycle.Settings, "from_env", lambda: store.settings)
     monkeypatch.setattr(lifecycle, "open_store", lambda _settings: remote)
@@ -71,7 +71,7 @@ def test_stop_hook_only_enqueues_clean_commits_when_explicitly_enabled(fixture, 
     assert lifecycle.release_main() == 0
     remote.quality_request.assert_not_called()
     monkeypatch.setenv("AGENT_LEASE_QUALITY_AUTORUN", "1")
-    remote.release_all.return_value = []
+    remote.release_session.return_value = []
     assert lifecycle.release_main() == 0
     remote.quality_request.assert_called_once()
     (repo / "README.md").write_text("dirty")

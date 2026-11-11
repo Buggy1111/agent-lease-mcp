@@ -72,8 +72,10 @@ def main() -> int:
                 store.record(settings.agent, "blocked", target, "shell write")
                 return EXIT_BLOCK
         if paths and is_write_tool(tool):
+            session = payload.get("session_id") or payload.get("sessionId")
             for raw_path in paths:
-                blocker = store.edit_gate(raw_path, settings.agent, purpose=purpose)
+                blocker = store.edit_gate(raw_path, settings.agent, purpose=purpose,
+                                          session=str(session) if session else None)
                 if blocker is not None:
                     print(decide(tool, raw_path, blocker, settings.agent).reason, file=sys.stderr)
                     return EXIT_BLOCK

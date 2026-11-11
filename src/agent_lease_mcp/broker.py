@@ -32,7 +32,7 @@ from .policy import normalize_path
 from .store import Store
 
 METHODS = frozenset({
-    "claim", "release", "release_all", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
+    "claim", "release", "release_all", "release_session", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
     "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
     "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "mark_seen",
     "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",

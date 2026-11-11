@@ -320,8 +320,15 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
             self._migrate_deliveries(con)
             self._migrate_checkpoints(con)
             self._migrate_reviews(con)
+            self._migrate_claims(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
+
+    @staticmethod
+    def _migrate_claims(con: sqlite3.Connection) -> None:
+        """Session, která si nájem vzala automaticky při editaci (Stop vrací jen ty její)."""
+        if "session" not in {row["name"] for row in con.execute("PRAGMA table_info(claims)")}:
+            con.execute("ALTER TABLE claims ADD COLUMN session TEXT")
 
     @staticmethod
     def _migrate_deliveries(con: sqlite3.Connection) -> None:
