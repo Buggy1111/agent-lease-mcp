@@ -107,7 +107,8 @@ class QualityRunsMixin:
     def _quality_record_attempt(self, agent: str, inspection: Inspection, result: dict) -> dict:
         """Keep refusals visible without inventing process observations or execution."""
         self._check_review_agent(agent)
-        evidence = json.dumps({"attempt": inspection.public() | result | {"agent": agent}}, sort_keys=True)
+        evidence = json.dumps({"attempt": inspection.public() | {"kind": "quality_attempt"}
+                               | result | {"agent": agent}}, sort_keys=True)
         with self._connect() as con:
             cursor = con.execute(
                 "INSERT INTO quality_runs(execution_id,repository,commit_sha,recorded_at,"
@@ -249,7 +250,7 @@ class QualityRunsMixin:
                 item["detail"] = ("Exact-commit independent B6 review and diff scan approved."
                                   if approved else "Independent B6 review is pending or not approved.")
                 if security_failed:
-                    item["detail"] = "Independent B6 security review rejected this commit."
+                    item["detail"] = "Broker diff scan or independent B6 security review rejected this commit."
             public_checks[name] = item
             checks.append(Check(name, Status(item["status"]), item["required"], item["detail"]))
         policy_approval = con.execute("SELECT approved_by,approved_at FROM quality_policy_approvals WHERE run_id=?",

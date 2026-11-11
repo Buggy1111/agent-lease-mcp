@@ -1398,7 +1398,7 @@ function renderRoom(r) {
   if (r.me) me = r.me;
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
-    qgRecords = records.filter(record => record && record.kind === "quality_run" && record.executed === true);
+    qgRecords = records.filter(record => record && ((record.kind === "quality_run" && record.executed === true) || (["quality_attempt", "quality_refusal"].includes(record.kind) && Number.isInteger(record.run_id) && record.run_id > 0)));
   }
   if (Array.isArray(r.quality_requests)) qgRequests = r.quality_requests;
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs") || Object.prototype.hasOwnProperty.call(r, "quality_requests")) renderQualityGate();
@@ -1588,7 +1588,7 @@ function renderQualityGate() {
   document.getElementById("qgProjectTable").innerHTML=qgTable(records);
   document.querySelectorAll("[data-qg-project]").forEach(b=>b.onclick=()=>{const record=records[Number(b.dataset.qgProject)];qgSelected=qgDemo ? record.repository : record.run_id;showView("quality");renderQualityProject();document.getElementById("qgProjectTitle").focus({preventScroll:true});});
   const pending = qgDemo ? [] : qgRequests.filter(request=>request.state !== "completed").slice(0,10);
-  const requestLabels = {queued:"Čeká ve frontě",running:"Kontroly běží",refused:"Je potřeba nastavení",interrupted:"Běh byl přerušen"};
+  const requestLabels = {queued:"Čeká ve frontě",running:"Kontroly běží",busy:"Čeká na volný runner",refused:"Je potřeba nastavení",interrupted:"Běh byl přerušen"};
   document.getElementById("qgRequests").innerHTML = pending.length ? `<div class="card"><h3>Požadavky na kontrolu</h3><ul>${pending.map(request=>`<li>${esc(request.repository)} · ${esc(requestLabels[request.state] || "Stav není známý")} ${request.detail ? "· " + esc(request.detail) : ""}</li>`).join("")}</ul></div>` : "";
   renderQualityProject();
 }
@@ -1598,7 +1598,8 @@ function renderQualityProject() {
   document.getElementById("qgProjectTitle").textContent=r ? r.repository : "Detail repozitáře";
   if(!r){el.innerHTML=`<div class="empty">${qgDemo ? "Vyber ukázkový repozitář z tabulky." : "Vyber zaznamenaný běh z tabulky repozitářů."}</div>`;return;}
   const checks=QG_CHECKS;
-  el.innerHTML=`${qgDemo ? '<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p>' : ''}<dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
+  const executionLabels = {not_started:"Kontroly nebyly spuštěny",busy:"Runner je obsazený",unverified:"Průběh kontrol nelze ověřit",interrupted:"Kontroly byly přerušeny",completed:"Kontroly byly dokončeny"};
+  el.innerHTML=`${qgDemo ? '<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p>' : ''}${r.execution_status ? `<p>${esc(executionLabels[r.execution_status] || "Stav spuštění není známý")}${r.error ? ": " + esc(r.error) : ""}</p>` : ""}<dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
     + checks.map(([key,label])=>{const c=r.checks?.[key];return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`;}).join("")
     + `</div><div class="detail-section"><h3>Změny testů a pravidel</h3><p>${r.policy_review_required ? r.policy_review_status === "approved" ? "Kritické změny schválil člověk pro tento běh." : "Kritické změny čekají na lidské schválení." : "Další schválení kritických změn není požadováno."}</p>${!qgDemo && r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c=>!c.required || c.status === "PASS") ? '<button class="btn" id="qgApprovePolicy">Schválit kritické změny</button>' : ""}</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status === 'approved' ? 'Schváleno pro tento commit.' : r.review_status === 'pending' ? 'Čeká na nezávislé review.' : r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>${qgDemo ? 'Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.' : 'Úplné protokoly nejsou připojené; dostupná jsou pouze procesní metadata a otisky výstupu.'}</p>${qgDemo ? '' : qgLogs(r)}</div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
   const approve = document.getElementById("qgApprovePolicy");
