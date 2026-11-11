@@ -179,3 +179,14 @@ def test_own_lease_is_renewed_on_every_write(db: Path, tmp_path: Path):
 
     assert run_hook(edit(target), agent="claude-code", db=db).returncode == 0
     assert Store(db).holder_of(str(target)).expires_at > before + 60
+
+
+def test_patch_relative_path_uses_agent_cwd(db: Path, tmp_path: Path):
+    """Audit 11.11. #8: relativní cesta z `apply_patch` patří ke cwd agenta, ne hooku."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    patch = "*** Begin Patch\n*** Update File: make.sh\n@@\n-a\n+b\n*** End Patch\n"
+    payload = {"tool_name": "apply_patch", "cwd": str(deploy), "tool_input": {"input": patch}}
+
+    assert run_hook(payload, agent="codex", db=db).returncode == 0
+    assert [c.path for c in Store(db).claims()] == [str((deploy / "make.sh").resolve())]

@@ -43,6 +43,7 @@ def main() -> int:
         return 0  # nerozumím vstupu → pustit dál, ne blokovat naslepo
 
     tool, paths = extract_targets(payload)
+    paths = _in_cwd(paths, payload.get("cwd"))  # `*** Update File: make.sh` z Codexu je relativní
     purpose = "auto (edit)"
     write_targets: list[str] = []
 
@@ -53,7 +54,7 @@ def main() -> int:
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
         if isinstance(command, str):
             if found := script_target(command):
-                paths, tool, purpose = [found], "Edit", "auto (running script)"
+                paths, tool, purpose = _in_cwd([found], payload.get("cwd")), "Edit", "auto (running script)"
             write_targets = _in_cwd(shell_write_targets(command), payload.get("cwd"))
 
     if not write_targets and (not paths or not is_write_tool(tool)):
