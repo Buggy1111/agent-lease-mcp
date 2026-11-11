@@ -22,7 +22,7 @@ jobs:
       - name: Install sandbox and fixture tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap iproute2 nodejs npm
+          sudo apt-get install -y bubblewrap iproute2 nodejs npm node-istanbul
           python -m pip install -e ".[dev]"
           python -m pip install --target "$RUNNER_TEMP/quality-metrics" coverage==7.17.2 lizard==1.25.0
           npm install --prefix "$RUNNER_TEMP/quality-tools" typescript@5.9.3

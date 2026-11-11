@@ -31,10 +31,25 @@ project code cannot select an arbitrary host mount. No package installation is
 performed. The Agent Lease build needs a pinned build frontend, Hatchling and
 its dependencies because its command uses `build --no-isolation` offline.
 
+`[policy_bases]` must map each canonical repository to a full operator-reviewed
+commit SHA. Policy changes are compared against this pinned ancestor, separately
+from the caller's B6 review base. Stacking a documentation commit on a critical
+change cannot remove the human-approval requirement. Missing/invalid/nonancestor
+baselines refuse execution. Read-only inspection without operator policy remains
+a diagnostic comparison against its selected base, never an execution approval.
+Python commands receive `PYTHONSAFEPATH=1`; use explicit package/source imports
+instead of depending on an implicit current-directory entry. Changes to tool
+shadow modules, hidden check configuration and committed node_modules are guarded.
+
 ## Isolation and cancellation
 
 Linux requires working unprivileged user/network/mount/PID namespaces, bubblewrap,
 `ip`, and effective cgroup limits at most 2 GiB memory, one CPU, 256 tasks.
+The broker runs in the `broker` subgroup of a delegated scope. Every command
+joins a separate sibling cgroup before namespace startup: 1 GiB memory, no swap,
+128 tasks, 75% CPU and group OOM kill. Limits are read back before launch; a watchdog
+outside the command group kills remaining members if the supervisor dies. Parent
+limits must leave at least 256 MiB, 32 tasks and CPU headroom for the broker.
 Unsupported hosts fail closed before executing project code. Per-command timeout
 is operator-controlled (1–600 seconds), the complete job has a 720-second budget,
 and a room lock prevents concurrent jobs multiplying that budget.
@@ -71,8 +86,11 @@ validated numeric counts through a private memfd; project processes have no
 capabilities and cannot reopen the nondumpable collector's `/proc/1/fd`.
 Malformed/missing reports never pass coverage. At least 80% line coverage passes;
 lower coverage requests review. This fixed threshold cannot be changed in repo
-configuration. Coverage reports are produced by project tests, not cryptographic
-proof that tests are honest; changes to tests and gate authority require review.
+configuration. **Trust limit (F6): any project code, including ordinary source or
+an atexit handler, can forge these reports.** Numeric validation checks format and
+bounds, not provenance or honest coverage. Coverage/CRAP are advisory review signals;
+they cannot replace required test exit codes, B6 review or human policy approval.
+Do not use a high metric as security evidence or proof a test actually ran.
 
 Python CRAP optionally uses operator-pinned Lizard plus coverage.py. It analyzes
 immutable source with AST function ownership, excluding nested functions and
@@ -89,6 +107,9 @@ authority additionally require a direct authenticated human approval scoped to
 that exact run, with a reason. This cannot waive failed required checks or
 pending independent review. Role-labelled synthetic test rooms do not provide
 independent review of this implementation.
+The broker independently scans the exact committed review diff when recording a
+run. A caller's claimed clean scan cannot grant B7 security PASS; legacy evidence
+without a broker scan also cannot grant PASS.
 
 ## Automatic events and dashboard
 
@@ -99,6 +120,16 @@ are deduplicated per agent/repo/head/base/policy. At most 20 are active; policy
 changes refuse queued requests rather than executing with changed authority.
 Dirty worktrees are not automatically queued. Explicit check still selects
 committed objects.
+Refusals and opt-outs are recorded with their exact commit and execution state;
+the latest attempt replaces an older PASS in repository summaries. Critical
+opt-outs require REVIEW. Failed/interrupted/busy requests can be explicitly
+requeued; active and completed requests remain deduplicated. There is no automatic
+retry of an interrupted job, and a transient SQLite run error terminates its queue
+row when the final-state database write is available.
+
+CI includes `quality-e2e`, which installs the fixture tools and runs the complete
+sandbox suite in a disposable delegated systemd scope via
+`scripts/quality_e2e_scope.py`. Missing kernel features fail the job, not skip it.
 
 Existing Codex installation uses `.codex/hooks.json`. Codex requires human trust
 of hooks via `/hooks`; do not bypass it. Stop is the suitable event for this

@@ -286,6 +286,7 @@ def test_operator_baseline_survives_stacked_commits_and_review_base(repo):
         assert plan.base_commit == weakened
         assert plan.policy_base == pinned
         assert "tests/test_example.py" in plan.policy_paths
+        assert plan.public()["inspection_id"] != inspect_repository(repo, head, base).public()["inspection_id"]
     assert inspect_repository(repo, pinned, policy_base=pinned).policy_paths == ()
     with pytest.raises(ValueError):
         inspect_repository(repo, pinned, policy_base=head)

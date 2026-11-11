@@ -423,7 +423,10 @@ fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:map.getC
         run = store.quality_check("codex", str(root), head)
         assert run["checks"]["coverage"]["status"] == "PASS", run
         assert run["checks"]["crap"]["status"] == "NA", run
-        assert run["overall_status"] == "PASS", run
+        assert run["overall_status"] == "REVIEW" and "package.json" in run["policy_paths"], run
+        approved = store.quality_human_approve_policy("michal", run["run_id"], head,
+                                                     "Accept the synthetic coverage command change.")
+        assert approved["overall_status"] == "PASS", approved
     assert "% lines" in run["checks"]["coverage"]["value"]
     assert "coverage_pipeline" not in json.dumps(run.get("observations"))
 
@@ -475,7 +478,8 @@ command=["python","-m","unittest","discover","-s","tests"]
 def test_stacked_commit_cannot_hide_critical_change(project):
     root, store, language, _ = project
     filename = "tests/test_app.py" if language == "python" else "test.cjs"
-    commit(root, {filename: "# weakened\n" if language == "python" else "// weakened\n"})
+    commit(root, {filename: "import unittest\nclass Weakened(unittest.TestCase):\n def test_trivial(self): self.assertTrue(True)\n"
+                  if language == "python" else "// weakened\n"})
     head = commit(root, {"README.md": "trivial follow-up\n"})
     approve(store, root, head)
     run = store.quality_check("codex", str(root), head)
@@ -495,10 +499,20 @@ def test_command_cgroup_is_separate_from_broker(project):
     thread = threading.Thread(target=lambda: results.append(store.quality_check("codex", str(root), head)))
     thread.start()
     try:
+        def project_pids():
+            found = []
+            for pid in matching_processes(marker):
+                try:
+                    args = Path(f"/proc/{pid}/cmdline").read_bytes().rstrip(b"\0").split(b"\0")
+                    if len(args) == 3 and args[1] == b"hold.py":
+                        found.append(pid)
+                except OSError:
+                    pass
+            return found
         deadline = time.monotonic() + 8
-        while not matching_processes(marker) and time.monotonic() < deadline:
+        while not project_pids() and time.monotonic() < deadline:
             time.sleep(.02)
-        pids = matching_processes(marker)
+        pids = project_pids()
         assert pids, "command did not start"
         broker = current_cgroup()
         for pid in pids:

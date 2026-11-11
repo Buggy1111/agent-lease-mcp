@@ -103,7 +103,7 @@ class Inspection:
         if not self.enabled and not self.policy_paths:
             status = Status.NOT_RUN
         identity = "\0".join((self.repository, self.commit_sha, self.base_commit,
-                               self.config_digest or ""))
+                               self.config_digest or "", self.policy_base or ""))
         return {"schema_version": 1, "kind": "inspection", "executed": False,
                 "execution_allowed": False,
                 "inspection_id": hashlib.sha256(identity.encode()).hexdigest(),
