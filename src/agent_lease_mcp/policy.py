@@ -6,6 +6,7 @@ od SQLite mechaniky pod ní i od MCP slupky nad ní.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from pathlib import Path
@@ -149,32 +150,71 @@ _RUNNERS = frozenset({"bash", "sh", "zsh", "python", "python3", "node", "npx", "
 _SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".js", ".mjs", ".cjs", ".ts", ".ps1")
 
 
-def script_target(command: str) -> str | None:
+# Volby `timeout` a `uv run`, které berou hodnotu jako samostatný argument.
+_TIMEOUT_VALUE_OPTS = frozenset({"-s", "--signal", "-k", "--kill-after"})
+_UV_RUN_VALUE_OPTS = frozenset({
+    "--with", "--with-editable", "--with-requirements", "--python", "-p", "--project",
+    "--directory", "--package", "--extra", "--group", "--env-file", "--index", "--default-index",
+})
+
+
+def _strip_wrappers(tokens: list[str]) -> list[str]:
+    """`sudo`, `env A=1`, `timeout -s KILL 60`, `uv run --with x` … pryč, zbude skutečný příkaz."""
+    while tokens:
+        head = Path(tokens[0]).name
+        if head in _WRAPPERS or "=" in tokens[0]:
+            tokens = tokens[1:]
+        elif head == "timeout" or (head == "uv" and tokens[1:2] == ["run"]):
+            value_opts = _TIMEOUT_VALUE_OPTS if head == "timeout" else _UV_RUN_VALUE_OPTS
+            i = 1 if head == "timeout" else 2
+            while i < len(tokens) and tokens[i].startswith("-"):
+                i += 2 if tokens[i] in value_opts else 1
+            tokens = tokens[i + 1:] if head == "timeout" else tokens[i:]  # timeout: i = DURATION
+        else:
+            return tokens
+    return tokens
+
+
+def script_targets(command: str, cwd: str | None = None) -> list[str]:
     """
-    Cesta ke skriptu, který ten příkaz spouští, nebo None.
+    Cesty ke skriptům, které ten příkaz spouští (prázdný seznam, když žádný).
 
     Schválně úzké: falešné zabrání cesty je horší než žádné, protože by agenta
-    naučilo hook obcházet. Proto musí soubor existovat a být buď za známým
-    interpretem, nebo spuštěný přes `./`.
+    naučilo hook obcházet. Proto musí soubor existovat, mít příponu skriptu a být
+    buď za známým interpretem, nebo spuštěný cestou (`./x.sh`, `deploy/x.sh`).
+    Relativní cesty se vztahují k `cwd` agenta posunutému o úvodní `cd DIR`.
     """
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-    while tokens and (Path(tokens[0]).name in _WRAPPERS or "=" in tokens[0]):
-        tokens = tokens[1:]  # `sudo bash x.sh`, `env A=1 ./x.sh`
-    if not tokens:
-        return None
-
-    candidate: str | None = None
-    if tokens[0].startswith("./"):
-        candidate = tokens[0]
-    elif Path(tokens[0]).name in _RUNNERS:
-        candidate = next((t for t in tokens[1:] if not t.startswith("-")), None)
-
-    if not candidate or not candidate.endswith(_SCRIPT_SUFFIXES):
-        return None
-    return candidate if Path(candidate).expanduser().is_file() else None
+    tokens = _shell_tokens(command)
+    if tokens is None:
+        return []
+    base = cwd or ""
+    found: list[str] = []
+    segment: list[str] = []
+    for tok in [*tokens, ";"]:
+        if tok not in _SEPARATORS:
+            segment.append(tok)
+            continue
+        words = _strip_wrappers(segment)
+        segment = []
+        if not words:
+            continue
+        if words[0] == "cd":
+            target = words[1] if len(words) > 1 else ""
+            if not target or target.startswith(("-", "$")):
+                return found  # `cd`, `cd -`, `cd $X`: dál nevím, kde jsem
+            base = os.path.join(base, os.path.expanduser(target))
+            continue
+        candidate: str | None = None
+        if Path(words[0]).name in _RUNNERS:
+            candidate = next((t for t in words[1:] if not t.startswith("-")), None)
+        elif "/" in words[0]:
+            candidate = words[0]
+        if not candidate or not candidate.endswith(_SCRIPT_SUFFIXES):
+            continue
+        path = os.path.normpath(os.path.join(base, os.path.expanduser(candidate)))
+        if Path(path).is_file() and path not in found:
+            found.append(path)
+    return found
 
 
 # ── zápisy z příkazové řádky (APP-006) ───────────────────────────────────────
@@ -189,6 +229,16 @@ _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _MAX_NESTING = 3
 
 
+def _shell_tokens(command: str) -> list[str] | None:
+    """Slova a oddělovače (`;`, `&&`, `|`, `>` …) příkazu; None, když nejde rozparsovat."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        return list(lexer)
+    except ValueError:
+        return None
+
+
 def shell_write_targets(command: str, _depth: int = 0) -> list[str]:
     """
     Cesty, do kterých příkaz zjevně zapíše. Prázdný seznam, když nevím.
@@ -198,11 +248,8 @@ def shell_write_targets(command: str, _depth: int = 0) -> list[str]:
     """
     if _depth > _MAX_NESTING:
         return []
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:
+    tokens = _shell_tokens(command)
+    if tokens is None:
         return []
 
     targets: list[str] = []

@@ -23,7 +23,7 @@ import sys
 
 from .broker import open_store
 from .config import Settings
-from .policy import decide, extract_targets, is_write_tool, script_target, shell_write_targets
+from .policy import decide, extract_targets, is_write_tool, script_targets, shell_write_targets
 
 EXIT_BLOCK = 2  # blokuje volání v Claude Code i v Codexu
 
@@ -53,8 +53,9 @@ def main() -> int:
         raw_input = payload.get("tool_input") or payload.get("toolInput") or {}
         command = raw_input.get("command") if isinstance(raw_input, dict) else None
         if isinstance(command, str):
-            if found := script_target(command):
-                paths, tool, purpose = _in_cwd([found], payload.get("cwd")), "Edit", "auto (running script)"
+            cwd = payload.get("cwd")
+            if found := script_targets(command, cwd if isinstance(cwd, str) else None):
+                paths, tool, purpose = found, "Edit", "auto (running script)"
             write_targets = _in_cwd(shell_write_targets(command), payload.get("cwd"))
 
     if not write_targets and (not paths or not is_write_tool(tool)):

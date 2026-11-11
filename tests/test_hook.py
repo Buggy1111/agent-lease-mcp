@@ -190,3 +190,15 @@ def test_patch_relative_path_uses_agent_cwd(db: Path, tmp_path: Path):
 
     assert run_hook(payload, agent="codex", db=db).returncode == 0
     assert [c.path for c in Store(db).claims()] == [str((deploy / "make.sh").resolve())]
+
+
+def test_script_after_cd_is_leased_relative_to_agent_cwd(db: Path, tmp_path: Path):
+    """Audit 11.11. #3: `cd deploy && ./make.sh` z cwd agenta (≠ cwd hooku) zabere skript."""
+    script = tmp_path / "deploy" / "make.sh"
+    script.parent.mkdir()
+    script.write_text("echo")
+    payload = {"tool_name": "Bash", "cwd": str(tmp_path), "tool_input": {"command": "cd deploy && ./make.sh"}}
+
+    assert run_hook(payload, agent="codex", db=db).returncode == 0
+    held = Store(db).holder_of(str(script))
+    assert held is not None and held.purpose == "auto (running script)"
