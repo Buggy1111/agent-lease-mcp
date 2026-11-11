@@ -394,3 +394,20 @@ def test_secret_in_an_earlier_stacked_commit_is_still_scanned(store, repo):
     result = record(store, plan)
     assert result["overall_status"] == "FAIL"
     assert result["checks"]["security"]["status"] == "FAIL"
+
+
+def test_older_evidence_without_scan_range_is_not_upgraded_by_a_pinned_review(store, repo):
+    """Nox, #14: evidence s připnutým základem, ale bez záznamu rozsahu scanu, neprojde."""
+    pinned = python_project(repo)
+    head = commit(repo, {"src/app.py": "answer = 42\n"})
+    plan = inspect_repository(repo, head, pinned, policy_base=pinned)
+    review(store, plan, base_commit=pinned)
+    run = record(store, plan)
+    assert run["overall_status"] == "PASS"
+    with store._connect() as con:
+        body = json.loads(con.execute("SELECT evidence_json FROM quality_runs WHERE id=?",
+                                      (run["run_id"],)).fetchone()[0])
+        body.pop("scan_base")
+        con.execute("UPDATE quality_runs SET evidence_json=? WHERE id=?",
+                    (json.dumps(body), run["run_id"]))
+    assert store.quality_get(run["run_id"])["overall_status"] == "REVIEW"

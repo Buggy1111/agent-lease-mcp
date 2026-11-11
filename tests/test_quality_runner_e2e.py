@@ -22,8 +22,7 @@ from test_webui import authenticated_handler, call_handler
 
 from agent_lease_mcp.broker import RemoteStore, serve
 from agent_lease_mcp.config import Settings
-from agent_lease_mcp.quality import inspect_repository
-from agent_lease_mcp.quality_runner import verify_limits
+from agent_lease_mcp.quality_runner import load_policy, verify_limits
 from agent_lease_mcp.store import Store
 
 pytestmark = pytest.mark.skipif(os.environ.get("AGENT_LEASE_QUALITY_E2E") != "1",
@@ -78,10 +77,11 @@ command=["python","-m","compileall","-q","src"]
 
 
 def approve(store, root, head, actor="codex"):
-    plan = inspect_repository(root, head)
+    # B7 přijme jen review od základu připnutého operátorem (review #12/#14, F2).
+    pinned = load_policy(store.db_path, str(Path(root).resolve()), verify_pins=False)["policy_base"]
     peer = "claude-code" if actor == "codex" else "codex"
     review = store.review_open(actor, str(root), "fixture-"+uuid.uuid4().hex, peer,
-                               plan.base_commit, head, secret_findings=[])
+                               pinned, head, secret_findings=[])
     store.review_verdict(peer, review["id"], "approved", head,
                          security="pass", reviewer_findings=[])
 

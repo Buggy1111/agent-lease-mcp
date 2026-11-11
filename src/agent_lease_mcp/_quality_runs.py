@@ -188,9 +188,9 @@ class QualityRunsMixin:
                     "observations": [asdict(by_name[name]) for name in sorted(by_name)]}
         # Celý rozsah od základu připnutého operátorem, ne od základu volajícího: jinak
         # by se starší commit ze zásobníku P→A→B schoval před A..B (review #12, F2).
+        evidence["scan_base"] = inspection.policy_base or inspection.base_commit
         evidence["broker_scan_clean"] = not scan_diff(commit_diff(
-            inspection.repository, inspection.commit_sha,
-            inspection.policy_base or inspection.base_commit))
+            inspection.repository, inspection.commit_sha, evidence["scan_base"]))
         body = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._connect() as con:
@@ -227,12 +227,16 @@ class QualityRunsMixin:
         # review/re-submit invalidates it; neither caller nor project sets it.
         # Review must start at the operator-pinned base: a review of only the
         # last commit of a stack would leave the earlier commits unreviewed (#12, F2).
+        review_base = evidence.get("policy_base") or evidence["base_commit"]
         review = con.execute(
             "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
             "ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (row["repository"], row["commit_sha"],
-             evidence.get("policy_base") or evidence["base_commit"]),
+            (row["repository"], row["commit_sha"], review_base),
         ).fetchone()
+        # Čistý scan se počítá jen pro stejný rozsah jako review. Starší evidence s
+        # připnutým základem, ale bez záznamu rozsahu scanu, se nepovýší (Nox, #14).
+        scan_base = evidence.get("scan_base") or (
+            None if evidence.get("policy_base") else evidence["base_commit"])
         independent = bool(review and review["verdict_by"]
                            and review["verdict_by"] != review["author"]
                            and review["verdict_commit"] == row["commit_sha"])
@@ -241,6 +245,7 @@ class QualityRunsMixin:
                         and review["security_by"] == review["verdict_by"]
                         and review["scan_commit"] == row["commit_sha"]
                         and review["scan_findings"] == "[]"
+                        and scan_base == review_base
                         and evidence.get("broker_scan_clean") is True)
         security_failed = bool(independent and review["security"] == "fail"
                                and review["security_by"] == review["verdict_by"])
