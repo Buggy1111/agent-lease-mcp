@@ -186,8 +186,11 @@ class QualityRunsMixin:
                     "task_id": task_id, "sandbox": sandbox,
                     "branch": branch,
                     "observations": [asdict(by_name[name]) for name in sorted(by_name)]}
+        # Celý rozsah od základu připnutého operátorem, ne od základu volajícího: jinak
+        # by se starší commit ze zásobníku P→A→B schoval před A..B (review #12, F2).
         evidence["broker_scan_clean"] = not scan_diff(commit_diff(
-            inspection.repository, inspection.commit_sha, inspection.base_commit))
+            inspection.repository, inspection.commit_sha,
+            inspection.policy_base or inspection.base_commit))
         body = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._connect() as con:
@@ -222,10 +225,13 @@ class QualityRunsMixin:
                 "policy_review_status": "pending" if evidence["attempt"]["policy_paths"] else "not_required"}
         # Approval is read from the existing B6 authority at read time. A new
         # review/re-submit invalidates it; neither caller nor project sets it.
+        # Review must start at the operator-pinned base: a review of only the
+        # last commit of a stack would leave the earlier commits unreviewed (#12, F2).
         review = con.execute(
             "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
             "ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (row["repository"], row["commit_sha"], evidence["base_commit"]),
+            (row["repository"], row["commit_sha"],
+             evidence.get("policy_base") or evidence["base_commit"]),
         ).fetchone()
         independent = bool(review and review["verdict_by"]
                            and review["verdict_by"] != review["author"]

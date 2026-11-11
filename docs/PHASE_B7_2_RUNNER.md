@@ -101,7 +101,10 @@ does not imply subprocess coverage. Numeric results contain no source/function
 names or file paths.
 
 PASS also requires independent B6 approval and security/clean scan for the exact
-repo/base/head. Author cannot approve their own change. Approval revocation is
+repo/base/head, where the base is the operator-pinned `policy_bases` commit: the
+broker scans `policy_base..head` itself and accepts only a B6 review opened with
+that base. A review of just the last commit of a stack therefore keeps the run at
+REVIEW (review #12, F2). Open the review with `base` = the pinned commit. Author cannot approve their own change. Approval revocation is
 reflected when reading evidence. Changes to tests, CI, security policy and gate
 authority additionally require a direct authenticated human approval scoped to
 that exact run, with a reason. This cannot waive failed required checks or
