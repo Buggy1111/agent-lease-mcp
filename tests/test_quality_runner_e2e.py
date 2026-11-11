@@ -52,7 +52,7 @@ command=["python","lint.py"]
 [checks.build]
 command=["python","-m","compileall","-q","src"]
 ''',
-                 "tests/test_app.py": "import unittest\nfrom src.app import answer\nclass App(unittest.TestCase):\n def test_answer(self): self.assertEqual(answer,42)\n",
+                 "tests/test_app.py": "import unittest,sys,pathlib\nsys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))\nfrom src.app import answer\nclass App(unittest.TestCase):\n def test_answer(self): self.assertEqual(answer,42)\n",
                  "lint.py": "import ast,pathlib\nfor p in pathlib.Path('src').glob('*.py'): ast.parse(p.read_text()); assert '\\t' not in p.read_text()\n",
                  "src/app.py": "answer = 41\n"}
         good = {"src/app.py": "answer = 42\n"}
@@ -455,3 +455,60 @@ command=["python","-m","compileall","-q","src"]
 '''})
     run = store.quality_check("codex", str(root), head)
     assert run["checks"]["tests"]["status"] == "PASS", run
+
+
+def test_project_module_cannot_replace_pinned_python_runner(project):
+    root, store, _, _ = project
+    head = commit(root, {"pyproject.toml": '[project]\nname="shadow-fixture"\n',
+        "unittest.py": "raise SystemExit(0)\n",
+        "tests/test_shadow.py": "import unittest\nclass Failing(unittest.TestCase):\n def test_failure(self): self.fail('must fail')\n",
+        ".agent-lease/quality.toml": '''version=1
+language="python"
+[checks.tests]
+command=["python","-m","unittest","discover","-s","tests"]
+'''})
+    run = store.quality_check("codex", str(root), head)
+    assert run["checks"]["tests"]["status"] == "FAIL", run
+    assert "unittest.py" in run["policy_paths"]
+
+
+def test_stacked_commit_cannot_hide_critical_change(project):
+    root, store, language, _ = project
+    filename = "tests/test_app.py" if language == "python" else "test.cjs"
+    commit(root, {filename: "# weakened\n" if language == "python" else "// weakened\n"})
+    head = commit(root, {"README.md": "trivial follow-up\n"})
+    approve(store, root, head)
+    run = store.quality_check("codex", str(root), head)
+    assert run["overall_status"] == "REVIEW" and run["policy_review_required"], run
+    assert filename in run["policy_paths"]
+
+
+def test_command_cgroup_is_separate_from_broker(project):
+    from agent_lease_mcp.cgroup import current_cgroup
+    root, store, _, _ = project
+    marker = "quality-cgroup-" + uuid.uuid4().hex
+    head = commit(root, {"pyproject.toml": '[project]\nname="cgroup-fixture"\n',
+        "hold.py": "import time\ntime.sleep(3)\n",
+        ".agent-lease/quality.toml": 'version=1\nlanguage="python"\n[checks.tests]\ncommand='
+        + json.dumps(["python", "hold.py", marker]) + '\n'})
+    results = []
+    thread = threading.Thread(target=lambda: results.append(store.quality_check("codex", str(root), head)))
+    thread.start()
+    try:
+        deadline = time.monotonic() + 8
+        while not matching_processes(marker) and time.monotonic() < deadline:
+            time.sleep(.02)
+        pids = matching_processes(marker)
+        assert pids, "command did not start"
+        broker = current_cgroup()
+        for pid in pids:
+            relative = next(line[3:] for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines()
+                            if line.startswith("0::"))
+            group = Path("/sys/fs/cgroup") / relative.lstrip("/")
+            assert group != broker and group.parent == broker.parent
+            assert (group / "memory.max").read_text().strip() == str(1024**3)
+            assert (group / "pids.max").read_text().strip() == "128"
+            assert (group / "cpu.max").read_text().strip() == "75000 100000"
+    finally:
+        thread.join(12)
+    assert not thread.is_alive() and results[0]["checks"]["tests"]["status"] == "PASS", results

@@ -251,7 +251,7 @@ def _changed_policy(root: str, head: str, base: str,
         raise ValueError("Cannot establish the quality policy diff")
     paths = [path.decode("utf-8", "surrogateescape") for path in output.split(b"\0") if path]
     return tuple(sorted(path for path in paths if policy_path(path)
-                        or PurePosixPath(path).parts[0].removesuffix(".py") in tool_modules))
+                        or PurePosixPath(path).parts[0].split(".")[0] in tool_modules))
 
 
 def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None,

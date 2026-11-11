@@ -270,7 +270,7 @@ def test_tool_configuration_is_policy(path):
     assert policy_path(path)
 
 
-@pytest.mark.parametrize("path", ["pytest.py", "pytest/__main__.py", "ruff.py", "build/__init__.py"])
+@pytest.mark.parametrize("path", ["pytest.py", "pytest.pyc", "pytest/__main__.py", "ruff.py", "build/__init__.py"])
 def test_command_module_shadow_is_policy(repo, path):
     python_project(repo)
     head = commit(repo, {path: "raise SystemExit(0)\n"})
