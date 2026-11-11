@@ -58,10 +58,14 @@ DEFAULT_COMMANDS = {
     # `{last_message}`: Codex zapíše jen svou finální odpověď do souboru. Bez toho
     # by výsledek byl celý přepis běhu (výpisy nástrojů, hooky, tokeny) oříznutý
     # na konec — odpověď zahrabaná v šumu (živý test 20. 10., task #288).
-    "codex": "codex exec --sandbox read-only --skip-git-repo-check "
+    # C3a: `--json` / `--output-format json` hlásí spotřebu tokenů a skutečný model.
+    "codex": "codex exec --sandbox read-only --skip-git-repo-check --json "
              "--output-last-message {last_message} {prompt}",
-    "claude-code": "claude -p {prompt} --output-format text --permission-mode plan",
+    "claude-code": "claude -p {prompt} --output-format json --permission-mode plan",
 }
+# Kam vložit připnutý model (C3a). Bez něj běží výchozí model účtu, který se mění
+# s nastavením člověka (11. 11. přepnutí na jiný model změnilo i bezobslužné běhy).
+_MODEL_FLAG = {"codex": "-m", "claude-code": "--model"}
 _RATE_LIMIT = re.compile(
     r"rate.?limit|usage limit|weekly limit|too many requests|\b429\b|quota", re.IGNORECASE,
 )
@@ -94,6 +98,8 @@ class RunResult:
     aborted: bool = False
     # Ukončení skupiny procesů se nepodařilo potvrdit → nikdy nehlásit „hotovo“.
     cleanup_failed: bool = False
+    # C3a: spotřeba, jak ji hlásí klient; None = klient nic strojově čitelného nevrátil.
+    usage: dict | None = None
 
 
 def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
@@ -335,10 +341,69 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                              aborted=True, cleanup_failed=True)
         raise tick_error
     output = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    output, usage = extract_usage(template, output)  # z celého výstupu, před oříznutím
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
-                         cleanup_failed=not gone)
-    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone)
+                         cleanup_failed=not gone, usage=usage)
+    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone,
+                     usage=usage)
+
+
+def with_model(agent: str, command: str, model: str) -> str:
+    """Příkaz s připnutým modelem (C3a); bez modelu nebo u neznámého klienta beze změny."""
+    if not model or agent not in _MODEL_FLAG or " {prompt}" not in command:
+        return command
+    return command.replace(" {prompt}", f" {_MODEL_FLAG[agent]} {shlex.quote(model)} {{prompt}}", 1)
+
+
+def _int(value) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def extract_usage(template: str, output: str) -> tuple[str, dict | None]:
+    """
+    Text výsledku a spotřeba ze strojového výstupu klienta (C3a).
+
+    Claude `--output-format json`: jeden objekt s `result`, `usage`, `modelUsage`
+    a `total_cost_usd`. Codex `--json`: řádky událostí; spotřebu nese událost s
+    `usage` (bere se poslední). Cokoli jiného: text beze změny, spotřeba None
+    („neznámo“, nikdy nula).
+    """
+    if "--output-format json" in template:
+        try:
+            data = json.loads(output)
+        except ValueError:
+            return output, None
+        if not isinstance(data, dict):
+            return output, None
+        raw = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        models = data.get("modelUsage") if isinstance(data.get("modelUsage"), dict) else {}
+        text = data.get("result") if isinstance(data.get("result"), str) else output
+        cost = data.get("total_cost_usd")
+        return text, {
+            "source": "claude-json", "model": ",".join(sorted(models)) or None,
+            "input_tokens": _int(raw.get("input_tokens")),
+            "output_tokens": _int(raw.get("output_tokens")),
+            "cache_read_tokens": _int(raw.get("cache_read_input_tokens")),
+            "cache_creation_tokens": _int(raw.get("cache_creation_input_tokens")),
+            "cost_usd": cost if isinstance(cost, (int, float)) and cost >= 0 else None,
+        }
+    if " --json" in template:
+        usage = None
+        for line in output.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and isinstance(event.get("usage"), dict):
+                raw = event["usage"]
+                usage = {"source": "codex-jsonl", "model": None,
+                         "input_tokens": _int(raw.get("input_tokens")),
+                         "output_tokens": _int(raw.get("output_tokens")),
+                         "cache_read_tokens": _int(raw.get("cached_input_tokens")),
+                         "cache_creation_tokens": None, "cost_usd": None}
+        return output, usage
+    return output, None
 
 
 def _resolve_prctl():
@@ -673,6 +738,11 @@ class Bridge:
                     self._run_fence.release()
                 except OSError:
                     result = dataclasses.replace(result, ok=False, cleanup_failed=True)
+        if result.usage is not None:
+            try:  # evidence spotřeby nesmí změnit výsledek úkolu (C3a)
+                self.store.record_usage(mid, self.agent, delivery.attempts, result.usage)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
             self._cleanup_blocked = True
@@ -826,8 +896,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="command template with {prompt}; default per agent")
     p.add_argument("--provider", choices=["cli", "openrouter"], default="cli",
                    help="cli = codex/claude headless; openrouter = any model over the API")
-    p.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", ""),
-                   help="e.g. anthropic/claude-sonnet-4.5 (only for --provider openrouter)")
+    p.add_argument("--model", default="",
+                   help="pinned model; cli: passed to codex/claude (env AGENT_LEASE_MODEL), "
+                        "openrouter: e.g. anthropic/claude-sonnet-4.5 (env OPENROUTER_MODEL)")
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--lease-seconds", type=int, default=120,
                    help="task lease length; renewed while the command runs")
@@ -849,8 +920,14 @@ def main(argv: list[str] | None = None) -> int:
         help="seconds a present interactive session gets before the bridge takes a task",
     )
     args = p.parse_args(argv)
+    args.model = args.model or os.environ.get(
+        "OPENROUTER_MODEL" if args.provider == "openrouter" else "AGENT_LEASE_MODEL", "")
     runner = None
     command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
+    read_only = True if args.provider == "openrouter" else (
+        True if command in DEFAULT_COMMANDS.values() else None)
+    if args.provider == "cli":
+        command = with_model(args.agent, command, args.model)  # read-only určeno výše
     if args.provider == "openrouter":
         key = os.environ.get("OPENROUTER_API_KEY", "")
         if not key or not args.model:
@@ -868,7 +945,7 @@ def main(argv: list[str] | None = None) -> int:
         args.agent, include_existing=args.include_existing,
     )
     bridge = Bridge(store, args.agent, command, runner=runner,
-                    read_only=True if args.provider == "openrouter" else None,
+                    read_only=read_only,
                     timeout=args.timeout, max_per_hour=args.max_per_hour,
                     lease_seconds=args.lease_seconds,
                     after_message_id=after_message_id,

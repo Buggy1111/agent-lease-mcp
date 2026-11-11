@@ -46,6 +46,8 @@ METHODS = frozenset({
     "review_approved",
     "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
     "quality_autorun_enabled",
+    # C3a: bridge zapisuje spotřebu pokusu; přehled je jen čtení.
+    "record_usage", "usage_summary",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})

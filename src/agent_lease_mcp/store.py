@@ -32,6 +32,8 @@ from ._store_common import (
     BRIDGE_ACCEPT_NOTE,
     _limit,
 )
+from ._usage import SCHEMA as USAGE_SCHEMA
+from ._usage import UsageMixin
 from .config import (
     Settings,
 )
@@ -285,7 +287,7 @@ CREATE TABLE IF NOT EXISTS quality_policy_approvals (
 
 
 class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
-            QualityRunsMixin, QualityQueueMixin):
+            QualityRunsMixin, QualityQueueMixin, UsageMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i
@@ -310,6 +312,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
                 os.chmod(candidate, 0o600)
         with self._connect() as con:
             con.executescript(SCHEMA)
+            con.executescript(USAGE_SCHEMA)
             # Migrace = PRAGMA + ALTER. Souběžné Store() by jinak oba viděli chybějící
             # sloupec a druhý ALTER by spadl (duplicate column). Zámek až po
             # executescript, ten otevřenou transakci sám commitne.
