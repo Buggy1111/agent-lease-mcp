@@ -350,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
                 store.expire_stale_chats()
             except Exception as exc:  # noqa: BLE001
                 print(f"expire_stale_chats: {exc}", file=sys.stderr)
+            try:
+                store.review_stale_sweep()
+            except Exception as exc:  # noqa: BLE001
+                print(f"review_stale_sweep: {exc}", file=sys.stderr)
 
     threading.Thread(target=sweeper, daemon=True).start()
     print(f"broker listening on {path or default_socket_path(settings)} (0600)", flush=True)
