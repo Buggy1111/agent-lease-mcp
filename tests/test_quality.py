@@ -216,7 +216,7 @@ def test_no_manifests_is_setup_and_explicit_opt_out_is_never_pass(repo: Path):
     assert inspect_repository(repo).public()["overall_status"] == "SETUP_REQUIRED"
     head = commit(repo, {".agent-lease/quality.toml": "version=1\nenabled=false\n"})
     report = inspect_repository(repo, head).public()
-    assert report["enabled"] is False and report["overall_status"] == "NOT_RUN"
+    assert report["enabled"] is False and report["overall_status"] == "REVIEW"
     assert report["policy_review_required"] is True
 
 

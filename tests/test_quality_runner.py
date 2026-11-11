@@ -61,8 +61,8 @@ def test_default_is_disabled_and_no_project_execution(fixture, monkeypatch):
         raise AssertionError("must not execute without operator policy")
     monkeypatch.setattr("agent_lease_mcp.quality_runner.supervise", must_not_launch)
     result = run_quality(store, "codex", str(repo))
-    assert result["overall_status"] == "SETUP_REQUIRED" and result["executed"] is False
-    assert store.quality_runs() == []
+    assert result["overall_status"] == "REVIEW" and result["executed"] is False
+    assert store.quality_runs()[0]["commit_sha"] == result["commit_sha"]
 
 
 def test_policy_is_independent_of_project_and_pins_tools(fixture):
@@ -137,7 +137,7 @@ def test_pause_and_missing_limits_prevent_launch(fixture, monkeypatch):
         raise SetupRequired("Missing limits.")
     monkeypatch.setattr("agent_lease_mcp.quality_runner.verify_limits", no_limits)
     result = run_quality(store, "codex", str(repo))
-    assert not result["executed"] and result["overall_status"] == "SETUP_REQUIRED"
+    assert not result["executed"] and result["overall_status"] == "REVIEW"
     store.pause("michal", "fixture stop")
     assert run_quality(store, "codex", str(repo))["executed"] is False
 
@@ -242,3 +242,19 @@ def test_sandbox_requires_separate_verified_limits(tmp_path, monkeypatch):
     with pytest.raises(SetupRequired):
         runner.command_cgroup()
     group.cleanup.assert_called_once()
+
+
+def test_refusal_and_optout_replace_previous_run(fixture, monkeypatch):
+    from agent_lease_mcp._quality_runs import CommandObservation
+    repo, store = fixture
+    old = store._quality_record_run("codex", inspect_repository(repo),
+        (CommandObservation("tests", 0, False, 1, 0, "a" * 64),), execution_id="d" * 32)
+    write_policy(store, repo)
+    head = commit(repo, {".agent-lease/quality.toml": 'version=1\nenabled=false\nlanguage="python"\n'})
+    result = run_quality(store, "codex", str(repo), head)
+    assert result["overall_status"] == "REVIEW" and not result["executed"]
+    assert result["policy_review_required"]
+    latest = store.quality_runs()[0]
+    assert latest["commit_sha"] == head and latest["history"][0]["run_id"] == old["run_id"]
+    with pytest.raises(PermissionError):
+        store.quality_human_approve_policy("michal", latest["run_id"], head, "Must not approve optout.")

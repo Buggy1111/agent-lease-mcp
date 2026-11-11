@@ -100,7 +100,7 @@ class Inspection:
 
     def public(self) -> dict:
         status = aggregate(self.checks, policy_review_required=bool(self.policy_paths))
-        if not self.enabled:
+        if not self.enabled and not self.policy_paths:
             status = Status.NOT_RUN
         identity = "\0".join((self.repository, self.commit_sha, self.base_commit,
                                self.config_digest or ""))

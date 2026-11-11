@@ -94,7 +94,8 @@ class QualityQueueMixin:
                 result = self.quality_check(row["agent"], row["repository"], row["commit_sha"],
                                             row["base_commit"] or None)
                 run_id = result.get("run_id")
-                state = ("completed" if run_id else "interrupted" if result.get("executed") else "refused")
+                state = ("completed" if result.get("execution_status") == "completed" else
+                         "interrupted" if result.get("executed") else "refused")
                 detail = result["overall_status"]
         except (OSError, ValueError, RuntimeError):
             pass  # only fixed diagnostics, no exception/source text in public queue

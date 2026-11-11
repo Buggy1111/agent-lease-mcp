@@ -268,10 +268,6 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
             "coverage" if collect_metrics else "none", *command]
 
 
-def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) -> CommandObservation:
-    """Bounded binary capture. Killing the namespace init also kills setsid descendants."""
-    started = time.monotonic()
-    digest = hashlib.sha256()
 def command_cgroup() -> CommandCgroup:
     current = current_cgroup()
     # DelegateSubgroup=broker leaves an empty delegated parent for sibling jobs.
@@ -293,26 +289,30 @@ def command_cgroup() -> CommandCgroup:
         raise
 
 
+def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) -> CommandObservation:
+    """Bounded binary capture. Killing the namespace init also kills setsid descendants."""
+    started = time.monotonic()
+    digest = hashlib.sha256()
     size = 0
     interrupted = timed_out = limited = False
     killed_at = None
+    if not hasattr(os, "memfd_create"):
+        raise SetupRequired("Runner requires Python with Linux memfd support.")
     metadata = os.memfd_create("agent-lease-quality-metrics", os.MFD_CLOEXEC)
     proc = None
     metric = None
-    try:
-    if not hasattr(os, "memfd_create"):
-        raise SetupRequired("Runner requires Python with Linux memfd support.")
-        argv = list(argv)
-        argv[argv.index("__QUALITY_METRICS_FD__")] = str(metadata)
-        with launch_gate(store.db_path):
     group = watchdog = None
-            if not can_continue():
+    try:
         group = command_cgroup()
         watchdog = CgroupWatchdog(group)
-                raise SetupRequired("Runner was paused or task ownership was lost before launch.")
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        argv = list(argv)
+        argv[argv.index("__QUALITY_METRICS_FD__")] = str(metadata)
         bootstrap = argv.index(str(Path(__file__).with_name("quality_namespace.py")))
         argv[bootstrap + 1:bootstrap + 1] = ["--cgroup-fd", str(group.procs_fd)]
+        with launch_gate(store.db_path):
+            if not can_continue():
+                raise SetupRequired("Runner was paused or task ownership was lost before launch.")
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, env={"PATH": "/usr/bin:/bin"},
                                     pass_fds=(metadata, group.procs_fd), start_new_session=True)
         with selectors.DefaultSelector() as selector:
@@ -389,6 +389,7 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
     if not is_trusted_agent(agent):
         raise PermissionError("Quality execution requires a configured agent identity")
     attempted = False
+    plan = None
     job_started = time.monotonic()
     try:
         plan = inspect_repository(repo, commit, base)
@@ -397,7 +398,7 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
                                   policy_base=policy["policy_base"])
         branch = committed_branch(plan.repository, plan.commit_sha)
         if not plan.enabled or plan.problems:
-            return plan.public()
+            return store._quality_record_attempt(agent, plan, {"execution_status": "not_started"})
         can_continue = lambda: (time.monotonic() - job_started < MAX_JOB_SECONDS
                                 and _task_valid(store, agent, plan.repository, task_id, lease_token))
         if not can_continue():
@@ -405,7 +406,7 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
         limits = verify_limits()
         commands = [c for c in plan.checks if c.command]
         if not commands:
-            return plan.public()
+            return store._quality_record_attempt(agent, plan, {"execution_status": "not_started"})
         if any(c.command[0] not in policy["tools"] for c in commands):
             raise SetupRequired("A committed command has no explicitly pinned operator tool.")
         # One live run per room. This avoids multiplying aggregate resource budgets.
@@ -463,11 +464,16 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
             os.close(lock)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         # Exceptions from parsers/process launch can include source or secret args.
-        return {"schema_version": 1, "kind": "quality_refusal", "executed": attempted,
+        result = {"schema_version": 1, "kind": "quality_refusal", "executed": attempted,
                 "execution_status": "unverified" if attempted else "not_started",
                 "overall_status": "REVIEW" if attempted else "SETUP_REQUIRED",
                 "error": str(error) if type(error) is SetupRequired else
                 "Runner setup, task authorization, snapshot, policy pins or isolation could not be verified."}
+        if plan is not None:
+            if plan.policy_paths:
+                result["overall_status"] = "REVIEW"
+            return store._quality_record_attempt(agent, plan, result)
+        return result
 
 
 def check_cli(repo: str, commit: str, base: str | None, task_id: int | None,

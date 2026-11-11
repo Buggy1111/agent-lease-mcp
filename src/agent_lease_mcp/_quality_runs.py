@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 
@@ -103,6 +104,19 @@ def _command_result(observation: CommandObservation) -> tuple[Status, str]:
 class QualityRunsMixin:
     def _quality_record_run(self, agent: str, inspection: Inspection,
                             observations: tuple[CommandObservation, ...], *,
+    def _quality_record_attempt(self, agent: str, inspection: Inspection, result: dict) -> dict:
+        """Keep refusals visible without inventing process observations or execution."""
+        self._check_review_agent(agent)
+        evidence = json.dumps({"attempt": inspection.public() | result | {"agent": agent}}, sort_keys=True)
+        with self._connect() as con:
+            cursor = con.execute(
+                "INSERT INTO quality_runs(execution_id,repository,commit_sha,recorded_at,"
+                "evidence_sha256,evidence_json) VALUES(?,?,?,?,?,?)",
+                (uuid.uuid4().hex, inspection.repository, inspection.commit_sha, time.time(),
+                 hashlib.sha256(evidence.encode()).hexdigest(), evidence))
+            row = con.execute("SELECT * FROM quality_runs WHERE id=?", (cursor.lastrowid,)).fetchone()
+            return self._quality_public(con, row)
+
                             execution_id: str, task_id: int | None = None,
                             sandbox: dict | None = None, branch: str | None = None) -> dict:
         """Private runner sink, deliberately absent from the broker/MCP write API.
@@ -198,6 +212,13 @@ class QualityRunsMixin:
         # review/re-submit invalidates it; neither caller nor project sets it.
         review = con.execute(
             "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
+        if "attempt" in evidence:
+            return evidence["attempt"] | {
+                "run_id": row["id"], "execution_id": row["execution_id"],
+                "timestamp": datetime.fromtimestamp(row["recorded_at"], UTC).isoformat(),
+                "evidence_sha256": row["evidence_sha256"], "history": [], "logs": [],
+                "policy_approval": None, "observations": [], "review_status": "pending",
+                "policy_review_status": "pending" if evidence["attempt"]["policy_paths"] else "not_required"}
             "ORDER BY updated_at DESC, id DESC LIMIT 1",
             (row["repository"], row["commit_sha"], evidence["base_commit"]),
         ).fetchone()
