@@ -92,6 +92,7 @@ class Inspection:
     problems: tuple[str, ...]
     declared_tools: tuple[str, ...]
     config_digest: str | None
+    policy_base: str | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", self.commit_sha):
@@ -108,7 +109,8 @@ class Inspection:
                 "inspection_id": hashlib.sha256(identity.encode()).hexdigest(),
                 "repository": self.repository, "commit_sha": self.commit_sha,
                 "branch": None, "agent": None, "timestamp": None,
-                "base_commit": self.base_commit or None, "language": self.language,
+                "base_commit": self.base_commit or None, "policy_base": self.policy_base,
+                "language": self.language,
                 "package_manager": self.package_manager, "working_tree_dirty": self.dirty,
                 "enabled": self.enabled, "overall_status": status.value,
                 "checks": {check.name: check.public() for check in self.checks},
@@ -252,7 +254,8 @@ def _changed_policy(root: str, head: str, base: str,
                         or PurePosixPath(path).parts[0].removesuffix(".py") in tool_modules))
 
 
-def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None) -> Inspection:
+def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None,
+                       *, policy_base: str | None = None) -> Inspection:
     """Plan only from a resolved commit. No room, configuration writes, installs or shell execution."""
     if not commit or len(commit) > 1024 or any(ord(c) < 32 for c in commit):
         raise ValueError("Invalid quality commit")
@@ -263,7 +266,12 @@ def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None 
         _, base_sha, _ = resolve_commit(root, base)
         if not is_strict_ancestor(root, base_sha, head):
             raise ValueError("Quality base must be a strict ancestor of the selected commit")
-    guarded = _changed_policy(root, head, base_sha)
+    if policy_base is not None:
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", policy_base):
+            raise ValueError("Policy baseline must be an operator-pinned full commit hash")
+        _, pinned, _ = resolve_commit(root, policy_base)
+        if pinned != policy_base or (pinned != head and not is_strict_ancestor(root, pinned, head)):
+            raise ValueError("Policy baseline must be an ancestor of the selected commit")
     snapshot = _Snapshot(root, head)
     problems: list[str] = []
     commands: dict[str, tuple[tuple[str, ...], str]] = {}
@@ -353,9 +361,10 @@ def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None 
     for command, _ in commands.values():
         if "-m" in command and command.index("-m") + 1 < len(command):
             tool_modules.add(command[command.index("-m") + 1].split(".")[0])
-    guarded = _changed_policy(root, head, base_sha, frozenset(tool_modules))
+    guarded = (() if policy_base == head else
+               _changed_policy(root, head, policy_base or base_sha, frozenset(tool_modules)))
     return Inspection(root, head, base_sha, language, manager, dirty, enabled, tuple(checks),
-                      guarded, tuple(problems), tuple(tools), config_digest)
+                      guarded, tuple(problems), tuple(tools), config_digest, policy_base)
 
 
 def inspect_cli(repo: str, commit: str, base: str | None) -> int:

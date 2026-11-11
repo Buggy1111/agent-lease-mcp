@@ -36,6 +36,7 @@ def write_policy(store, repo, *, mounts=None, tools=None, timeout=10):
     tools = tools or {"python": str(Path("/usr/bin/python3").resolve())}
     text = 'version=1\nenabled=true\nrepositories=' + json.dumps([str(repo)])
     text += f"\ntimeout_seconds={timeout}\n"
+    text += '\n[policy_bases]\n' + json.dumps(str(repo)) + '=' + json.dumps(git(repo, "rev-parse", "HEAD^")) + '\n'
     for name, root in (mounts or {}).items():
         text += f'\n[mounts.{name}]\npath={json.dumps(str(root))}\ntree_sha256="{tree_digest(root)}"\n'
     for name, path in tools.items():

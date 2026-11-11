@@ -123,7 +123,7 @@ class QualityRunsMixin:
         if type(inspection) is not Inspection:
             raise TypeError("An inspection is required, not a submitted JSON report")
         current = inspect_repository(inspection.repository, inspection.commit_sha,
-                                     inspection.base_commit or None)
+                                     inspection.base_commit or None, policy_base=inspection.policy_base)
         if replace(current, dirty=inspection.dirty) != inspection:
             raise ValueError("Run plan does not match committed project metadata")
         if not inspection.enabled or inspection.problems:
@@ -163,6 +163,7 @@ class QualityRunsMixin:
         # Explicit allowlist: Inspection.public() is a plan, never the stored run.
         evidence = {"repository": inspection.repository, "commit_sha": inspection.commit_sha,
                     "base_commit": inspection.base_commit, "agent": agent,
+                    "policy_base": inspection.policy_base,
                     "language": inspection.language, "config_digest": inspection.config_digest,
                     "policy_paths": list(inspection.policy_paths), "checks": checks,
                     "task_id": task_id, "sandbox": sandbox,
@@ -235,6 +236,7 @@ class QualityRunsMixin:
                 "run_id": row["id"], "execution_id": row["execution_id"],
                 "repository": row["repository"], "commit_sha": row["commit_sha"],
                 "base_commit": evidence["base_commit"] or None,
+                "policy_base": evidence.get("policy_base"),
                 "branch": evidence.get("branch"), "agent": evidence["agent"],
                 "task_id": evidence.get("task_id"), "sandbox": evidence.get("sandbox"),
                 "execution_status": "interrupted" if interrupted else "completed",

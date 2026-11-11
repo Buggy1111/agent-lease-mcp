@@ -43,6 +43,8 @@ class QualityQueueMixin:
             raise PermissionError("Quality execution requires a configured agent identity")
         plan = inspect_repository(repo, commit, base)
         policy = load_policy(self.db_path, plan.repository, verify_pins=False)
+        plan = inspect_repository(plan.repository, plan.commit_sha, base,
+                                  policy_base=policy["policy_base"])
         identity = "\0".join((agent, plan.repository, plan.commit_sha,
                               plan.base_commit, policy["sha256"]))
         key = hashlib.sha256(identity.encode()).hexdigest()

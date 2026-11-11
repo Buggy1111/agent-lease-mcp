@@ -116,7 +116,7 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
     raw = policy_bytes(db_path)
     try:
         policy = tomllib.loads(raw.decode())
-        if (set(policy) - {"version", "enabled", "automatic", "repositories", "mounts", "tools", "timeout_seconds"}
+        if (set(policy) - {"version", "enabled", "automatic", "repositories", "policy_bases", "mounts", "tools", "timeout_seconds"}
                 or policy.get("version") != 1 or type(policy.get("version")) is not int
                 or policy.get("enabled") is not True):
             raise ValueError
@@ -128,6 +128,9 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
                 or repository not in [str(Path(p).resolve(strict=True)) for p in repositories]):
             raise ValueError
         timeout = policy.get("timeout_seconds", 60)
+        policy_base = policy["policy_bases"][repository]
+        if not isinstance(policy_base, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy_base):
+            raise ValueError
         if type(timeout) is not int or not 1 <= timeout <= 600:
             raise ValueError
         if len(policy.get("mounts", {})) > 8 or len(policy["tools"]) > 32:
@@ -174,6 +177,7 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
     except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
         raise SetupRequired("Runner policy is invalid, project is not allowed, or a tool pin changed.") from None
     return {"mounts": mounts, "tools": tools, "timeout": timeout,
+            "policy_base": policy_base,
             "sha256": hashlib.sha256(raw).hexdigest()}
 
 
@@ -349,6 +353,9 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
     job_started = time.monotonic()
     try:
         plan = inspect_repository(repo, commit, base)
+        policy = load_policy(store.db_path, plan.repository)
+        plan = inspect_repository(plan.repository, plan.commit_sha, base,
+                                  policy_base=policy["policy_base"])
         branch = committed_branch(plan.repository, plan.commit_sha)
         if not plan.enabled or plan.problems:
             return plan.public()
@@ -357,7 +364,6 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
         if not can_continue():
             raise SetupRequired("Runner is paused or the task binding is invalid.")
         limits = verify_limits()
-        policy = load_policy(store.db_path, plan.repository)
         commands = [c for c in plan.checks if c.command]
         if not commands:
             return plan.public()

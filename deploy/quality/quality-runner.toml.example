@@ -6,6 +6,10 @@ automatic = false
 repositories = ["/absolute/path/to/reviewed/repository"]
 timeout_seconds = 600
 
+# Full immutable SHA of the operator-reviewed baseline; never an agent's review base/ref.
+[policy_bases]
+"/absolute/path/to/reviewed/repository" = "REPLACE_WITH_REVIEWED_FULL_COMMIT_SHA"
+
 [mounts.python]
 path = "/absolute/path/to/pinned/python"
 tree_sha256 = "REPLACE_WITH_REVIEWED_TREE_SHA256"

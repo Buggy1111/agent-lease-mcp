@@ -277,6 +277,22 @@ def test_command_module_shadow_is_policy(repo, path):
     assert path in inspect_repository(repo, head).policy_paths
 
 
+def test_operator_baseline_survives_stacked_commits_and_review_base(repo):
+    pinned = python_project(repo)
+    weakened = commit(repo, {"tests/test_example.py": "def test_example(): assert True\n"})
+    head = commit(repo, {"README.md": "trivial follow-up\n"})
+    for base in (None, weakened):
+        plan = inspect_repository(repo, head, base, policy_base=pinned)
+        assert plan.base_commit == weakened
+        assert plan.policy_base == pinned
+        assert "tests/test_example.py" in plan.policy_paths
+    assert inspect_repository(repo, pinned, policy_base=pinned).policy_paths == ()
+    with pytest.raises(ValueError):
+        inspect_repository(repo, pinned, policy_base=head)
+    with pytest.raises(ValueError):
+        inspect_repository(repo, head, policy_base="main")
+
+
 def test_base_must_be_real_ancestor_and_deleted_tests_remain_guarded(repo: Path):
     base = python_project(repo)
     with pytest.raises(ValueError):
