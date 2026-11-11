@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from .config import (
@@ -21,10 +22,13 @@ BRIDGE_ACCEPT_NOTE = "bridge took the task, starting a headless run (read-only)"
 
 # Společné kousky čtení zpráv (Nox, rozbor #516). WHERE/ORDER/LIMIT zůstávají
 # u každé metody zvlášť; nesjednocovat LEFT a INNER JOIN.
-_MSG_COLS = "m.*, d.state AS delivery_state, d.attempts, d.last_error"
+_MSG_COLS = ("m.*, d.state AS delivery_state, d.attempts, d.last_error, "
+             "f.repo AS fix_repo, f.base_commit AS fix_base, f.allowed AS fix_allowed")
 _RECEIPT_COLS = "r.seen_at, r.accepted_at, r.note AS accept_note"
 _FROM_MSG = ("FROM messages m LEFT JOIN deliveries d "
-             "ON d.message_id=m.id AND d.recipient=m.recipient")
+             "ON d.message_id=m.id AND d.recipient=m.recipient "
+             # C1a: člověk musí vidět přesný rozsah opravy, kterou schvaluje (Nox, #13)
+             "LEFT JOIN fix_tasks f ON f.message_id=m.id")
 _JOIN_RECEIPTS = "LEFT JOIN receipts r ON r.message_id=m.id AND r.recipient=m.recipient"
 
 def _check_agent(agent: str) -> None:
@@ -78,6 +82,9 @@ def _row_to_message(row: sqlite3.Row, now: float) -> dict:
         "seen": bool(row["seen_at"]) if "seen_at" in keys else None,
         "accepted": bool(row["accepted_at"]) if "accepted_at" in keys else None,
         "accept_note": row["accept_note"] if "accept_note" in keys else "",
+        "fix": ({"repo": row["fix_repo"], "base_commit": row["fix_base"],
+                 "allowed": json.loads(row["fix_allowed"])}
+                if "fix_repo" in keys and row["fix_repo"] else None),
     }
 
 

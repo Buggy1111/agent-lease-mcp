@@ -309,6 +309,19 @@ class DeliveriesMixin:
                 if self._checkpoint_hold(con, message_id, recipient, att["attempts"], workspace,
                                          att["agent"], time.time(), held_state=current):
                     return False
+                # C1a: politiku a schválení opravy ověřit znovu i těsně před startem;
+                # mezi převzetím a startem je mohl člověk odebrat (Nox, review #13)
+                hold = self._fix_hold(con, message_id, recipient, next_attempt=False)
+                if hold:
+                    now = time.time()
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, lease_token=NULL, "
+                        "lease_until=NULL, updated_at=? WHERE message_id=? AND recipient=? AND state=?",
+                        (hold, now, message_id, recipient, current),
+                    )
+                    self._insert_event(con, "broker", att["agent"],
+                                       f"Task #{message_id} not started: {hold}.", message_id, now)
+                    return False
             clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "

@@ -12,7 +12,8 @@
    "last_error": "",
    "seen": true,
    "accepted": true,
-   "accept_note": "beru"
+   "accept_note": "beru",
+   "fix": null
   },
   {
    "id": 2,
@@ -26,7 +27,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 3,
@@ -40,7 +42,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 4,
@@ -54,7 +57,8 @@
    "last_error": "",
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 5,
@@ -68,7 +72,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 6,
@@ -82,7 +87,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   }
  ],
  "latest": [
@@ -98,7 +104,8 @@
    "last_error": "",
    "seen": true,
    "accepted": true,
-   "accept_note": "beru"
+   "accept_note": "beru",
+   "fix": null
   },
   {
    "id": 2,
@@ -112,7 +119,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 3,
@@ -126,7 +134,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 4,
@@ -140,7 +149,8 @@
    "last_error": "",
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 5,
@@ -154,7 +164,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   },
   {
    "id": 6,
@@ -168,7 +179,8 @@
    "last_error": null,
    "seen": false,
    "accepted": false,
-   "accept_note": null
+   "accept_note": null,
+   "fix": null
   }
  ],
  "undelivered": [
@@ -184,7 +196,8 @@
    "last_error": "",
    "seen": null,
    "accepted": null,
-   "accept_note": ""
+   "accept_note": "",
+   "fix": null
   },
   {
    "id": 4,
@@ -198,7 +211,8 @@
    "last_error": "",
    "seen": null,
    "accepted": null,
-   "accept_note": ""
+   "accept_note": "",
+   "fix": null
   }
  ],
  "addressed": [
@@ -214,7 +228,8 @@
    "last_error": "",
    "seen": null,
    "accepted": null,
-   "accept_note": ""
+   "accept_note": "",
+   "fix": null
   },
   {
    "id": 4,
@@ -228,7 +243,8 @@
    "last_error": "",
    "seen": null,
    "accepted": null,
-   "accept_note": ""
+   "accept_note": "",
+   "fix": null
   }
  ],
  "jobs": [

@@ -160,3 +160,32 @@ def test_relative_fix_repo_is_resolved_in_the_client_over_the_broker(tmp_path: P
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_start_rechecks_policy_after_lease(store: Store, repo: Path):
+    """Nox, review #13: odebraná politika mezi převzetím a startem start zastaví."""
+    path = policy(store, repo)
+    mid = fix(store, repo)
+    assert store.approve_fix(mid, "codex", "michal", "ok")
+    d = store.lease_next("codex")                      # leased, ještě nezačalo
+    path.unlink()
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token) is False
+    job = state(store, mid)
+    assert job["state"] == "needs_review" and "not enabled" in job["last_error"]
+
+
+def test_start_with_valid_policy_and_approval_still_works(store: Store, repo: Path):
+    policy(store, repo)
+    mid = fix(store, repo)
+    assert store.approve_fix(mid, "codex", "michal", "ok")
+    d = store.lease_next("codex")
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token) is True
+
+
+def test_human_sees_the_exact_fix_scope_in_listings(store: Store, repo: Path):
+    mid = fix(store, repo, allowed=["src/x.py", "docs"])
+    msg = next(m for m in store.latest_messages(limit=10) if m["id"] == mid)
+    assert msg["fix"] == {"repo": str(repo.resolve()), "base_commit": BASE,
+                          "allowed": ["docs", "src/x.py"]}
+    plain = store.send("michal", "codex", "běžný", kind="task")
+    assert next(m for m in store.latest_messages(limit=10) if m["id"] == plain)["fix"] is None

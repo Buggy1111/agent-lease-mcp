@@ -1287,9 +1287,16 @@ function renderTaskActions(m,div) {
         if (reason) post("/api/approve", {id: m.id, to: m.recipient, reason});
       });
     }
-    if (m.state === "needs_review" && (m.last_error || "").startsWith("fix:")) {
+    if (m.fix) {
+      const info = document.createElement("div");
+      info.className = "fix-scope";
+      info.textContent = `Oprava se zápisem · repozitář ${m.fix.repo} · základ ${m.fix.base_commit.slice(0, 12)} · cesty: ${m.fix.allowed.length ? m.fix.allowed.join(", ") : "celé repo"}`;
+      actions.appendChild(info);
+    }
+    if (m.fix && ["pending", "needs_review"].includes(m.state) && (m.state === "pending" || (m.last_error || "").startsWith("fix:"))) {
       add("Povolit zápis jednou", () => {
-        const reason = prompt("Tato oprava smí zapisovat do repozitáře. Proč ji povolit? (zaznamená se)");
+        const scope = `Repozitář: ${m.fix.repo}\nZáklad: ${m.fix.base_commit}\nSmí měnit: ${m.fix.allowed.length ? m.fix.allowed.join(", ") : "celé repo"}`;
+        const reason = prompt(`Tato oprava smí zapisovat do repozitáře.\n${scope}\n\nProč ji povolit? (zaznamená se)`);
         if (reason) post("/api/approve-fix", {id: m.id, to: m.recipient, reason});
       });
     }
