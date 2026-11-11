@@ -311,3 +311,25 @@ def test_init_rewake_rearms_after_every_turn(tmp_path):
         assert "--timeout" not in wake[0]["command"] and "--since" not in wake[0]["command"]
     codex = build_hooks("codex", rewake=True)
     assert "--rewake" not in json.dumps(codex)  # Codex asyncRewake nemá
+
+
+def test_lease_edited_by_two_sessions_survives_stop_of_either(tmp_path):
+    """Nox, review #11: Stop jedné session nesmí vzít nájem, na kterém pracuje druhá."""
+    store = Store(tmp_path / "room.db")
+    target = str(tmp_path / "shared.py")
+    assert store.edit_gate(target, "codex", session="s1") is None
+    assert store.edit_gate(target, "codex", session="s2") is None
+    assert store.release_session("codex", "s1") == []
+    assert store.release_session("codex", "s2") == []
+    assert store.holder_of(target).agent == "codex"
+
+
+def test_stop_without_session_keeps_leases_of_known_sessions(tmp_path):
+    """Nox, review #11: Stop bez session id vrací jen nájmy, které session také nemají."""
+    store = Store(tmp_path / "room.db")
+    mine = str(tmp_path / "mine.py")
+    other = str(tmp_path / "other.py")
+    assert store.edit_gate(mine, "codex") is None
+    assert store.edit_gate(other, "codex", session="s1") is None
+    assert store.release_session("codex", None) == [mine]
+    assert store.holder_of(other).agent == "codex"

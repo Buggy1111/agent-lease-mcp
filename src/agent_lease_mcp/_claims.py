@@ -24,6 +24,7 @@ from .models import Claim, ClaimResult
 from .policy import covers, normalize_path
 
 AUTO_EDIT = "auto (edit)"  # nájem, který hook vzal sám při editaci; jen ten vrací Stop
+SHARED_SESSION = "*"  # automatický nájem, který editovalo víc session téhož jména
 
 
 class ClaimsMixin:
@@ -116,6 +117,15 @@ class ClaimsMixin:
                     f"WHERE agent = ? AND path IN ({marks})",
                     (now + ttl, agent, *[c.path for c in covering]),
                 )
+                # Druhá session téhož jména edituje stejný soubor: nájem je sdílený a
+                # Stop žádné z nich ho nevrátí (vyprší sám), jinak by jedna session
+                # vzala nájem druhé, která na souboru pořád pracuje (Nox, review #11).
+                con.execute(
+                    f"UPDATE claims SET session=? WHERE agent=? AND purpose=? AND path IN ({marks}) "
+                    "AND session IS NOT ? AND session IS NOT ?",
+                    (SHARED_SESSION, agent, AUTO_EDIT, *[c.path for c in covering],
+                     session, SHARED_SESSION),
+                )
                 if purpose != AUTO_EDIT:
                     # Upravený a pak spuštěný skript: Stop už ho nesmí vrátit jako pouhou editaci.
                     con.execute("UPDATE claims SET purpose=? WHERE path=? AND agent=? AND purpose=?",
@@ -197,11 +207,12 @@ class ClaimsMixin:
         Stop/SessionEnd: vrátí jen nájmy, které si session vzala automaticky při editaci.
 
         Explicitní `claim` a běžící skript (`auto (running script)`) přežijí do
-        `release`/TTL, stejně jako nájmy jiné session stejného jména. Bez session id
-        se vrátí automatické editační nájmy agenta (nic jiného).
+        `release`/TTL, stejně jako nájmy jiné session stejného jména a nájmy sdílené
+        víc session (`SHARED_SESSION`). Bez session id se vrátí jen automatické
+        editační nájmy, které také session nemají.
         """
         with self._connect() as con:
-            where = "agent = ? AND purpose = ?" + (" AND session = ?" if session else "")
+            where = "agent = ? AND purpose = ? AND " + ("session = ?" if session else "session IS NULL")
             params = (agent, AUTO_EDIT, *([session] if session else []))
             rows = con.execute(f"SELECT path FROM claims WHERE {where}", params).fetchall()
             con.execute(f"DELETE FROM claims WHERE {where}", params)

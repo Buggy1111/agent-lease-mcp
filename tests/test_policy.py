@@ -147,6 +147,13 @@ class TestScriptTargets:
             ("uv run python -m pytest tests/test_x.py", []),
             ("cd x && ls", []),
             ("cd $DIR && ./make.sh", []),
+            # Nox, review #11: cd v podshellu nepřetéká ven; uv run --directory platí pro příkaz
+            ("(cd deploy && ./make.sh); ./deploy/make.sh", ["deploy/make.sh"]),
+            ("(cd deploy && bash make.sh) && bash deploy/job.py", ["deploy/make.sh", "deploy/job.py"]),
+            ("(cd x && ls); ./deploy/make.sh", ["deploy/make.sh"]),
+            ("uv run --directory deploy ./make.sh", ["deploy/make.sh"]),
+            ("uv run --directory=deploy python job.py", ["deploy/job.py"]),
+            ("uv run --directory deploy ./make.sh; ./deploy/make.sh", ["deploy/make.sh"]),
         ],
     )
     def test_shapes(self, repo, command, expected):
