@@ -135,7 +135,10 @@ class QualityWorker:
                     self.store._quality_recover_requests()
                     recovered = True
                 worked = self.store._quality_drain_one()
-            except (OSError, ValueError, RuntimeError, sqlite3.Error):
+            except sqlite3.Error:
+                recovered = False  # retry recovery before draining after a failed final-state write
+                worked = False
+            except (OSError, ValueError, RuntimeError):
                 worked = False
             if not worked:
                 self.stop.wait(.5)

@@ -128,3 +128,34 @@ def test_sqlite_failure_in_runner_finishes_queue_request(fixture, monkeypatch):
     monkeypatch.setattr(store, "quality_check", Mock(side_effect=sqlite3.OperationalError("fixture")))
     assert store._quality_drain_one()
     assert store.quality_requests()[0]["state"] == "refused"
+
+
+def test_worker_recovers_after_final_state_write_error(fixture, monkeypatch):
+    import sqlite3
+    import time
+
+    from agent_lease_mcp._quality_queue import QualityWorker
+    repo, store, _ = fixture
+    request = store.quality_request("codex", str(repo))
+    drain = store._quality_drain_one
+    failed = False
+
+    def fail_once_after_claim():
+        nonlocal failed
+        if not failed:
+            failed = True
+            with store._connect() as con:
+                con.execute("UPDATE quality_requests SET state='running' WHERE id=?", (request["id"],))
+            raise sqlite3.OperationalError("final-state write unavailable")
+        return drain()
+
+    monkeypatch.setattr(store, "_quality_drain_one", fail_once_after_claim)
+    worker = QualityWorker(store)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and store.quality_requests()[0]["state"] != "interrupted":
+            time.sleep(.02)
+        assert store.quality_requests()[0]["state"] == "interrupted"
+    finally:
+        worker.close()
