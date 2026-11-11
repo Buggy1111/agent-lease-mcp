@@ -95,8 +95,8 @@ def verify_limits() -> dict:
     return {"memory_bytes": min(memory), "pids": min(pids), "cpu_ratio": min(cpu)}
 
 
-def policy_bytes(db_path: Path) -> bytes:
-    path = db_path.resolve().parent / "quality-runner.toml"
+def policy_bytes(db_path: Path, name: str = "quality-runner.toml") -> bytes:
+    path = db_path.resolve().parent / name
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)

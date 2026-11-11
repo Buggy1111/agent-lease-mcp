@@ -45,6 +45,8 @@ METHODS = frozenset({
     "review_approved",
     "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
     "quality_autorun_enabled",
+    # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.
+    "fix_task",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
@@ -273,8 +275,11 @@ def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
         path_list(0, "paths")
     elif method in {"edit_gate", "holder_of"}:
         one_path(0, "path")
-    elif method == "send" and kwargs.get("paths") is not None:
-        kwargs["paths"] = [normalize_path(path) for path in kwargs["paths"]]
+    elif method == "send":
+        if kwargs.get("paths") is not None:
+            kwargs["paths"] = [normalize_path(path) for path in kwargs["paths"]]
+        if kwargs.get("fix_repo"):
+            kwargs["fix_repo"] = normalize_path(kwargs["fix_repo"])
     elif method == "history":
         one_path(1, "path")
     elif method in {"quality_check", "quality_request"}:

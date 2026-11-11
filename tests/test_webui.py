@@ -569,3 +569,33 @@ def test_human_review_actions_only_in_web_ui(tmp_path: Path):
 def test_review_card_shows_secret_scan_without_values():
     assert "function scanTag(v)" in PAGE_HTML and "${scanTag(v)}" in PAGE_HTML
     assert "tajné údaje" in PAGE_HTML
+
+
+def test_only_authenticated_human_approves_a_fix(tmp_path: Path):
+    """C1a: zápisový běh opravy povolí jen přihlášený člověk, s důvodem."""
+    import os
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    policy = tmp_path / "fix-runner.toml"
+    policy.write_text(f'version = 1\nenabled = true\nrepositories = ["{repo}"]\nagents = ["codex"]\n')
+    os.chmod(policy, 0o600)
+    mid = store.send("michal", "codex", "oprav", kind="task", fix_repo=str(repo),
+                     fix_base="a" * 40, fix_allowed=["src"])
+    assert store.lease_next("codex") is None                    # brána ho zadrží
+    handler_type = authenticated_handler(store, settings, "secret")
+    body = {"id": mid, "to": "codex", "reason": "zadání zkontrolováno"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                             headers={"Origin": "http://localhost:8765"}, body=body,
+                             handler_type=handler_type)
+    assert status in (401, 403)
+    headers = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://localhost:8765"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                             headers=headers, body={"id": mid, "to": "codex"},
+                             handler_type=handler_type)
+    assert status == 400                                       # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                               headers=headers, body=body, handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["fix_approved"] is True
+    assert store.lease_next("codex").message_id == mid

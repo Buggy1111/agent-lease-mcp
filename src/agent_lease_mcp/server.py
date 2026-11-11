@@ -99,11 +99,22 @@ def send(
     reply_to: int | None = None,
     paths: list[str] | None = None,
     priority: int = 0,
+    fix_repo: str = "",
+    fix_base: str = "",
+    fix_allowed: list[str] | None = None,
 ) -> dict:
-    """Addressed message/task. Task paths are explicit and make scheduling lease-aware."""
+    """Addressed message/task. Task paths are explicit and make scheduling lease-aware.
+
+    A task with `fix_repo` (repository path) and `fix_base` (full commit hash) is a
+    write-mode fix: `fix_allowed` lists the paths it may change, relative to the
+    repository (empty = whole repository). It never starts until the operator policy
+    allows it and the human approves this exact run in the web UI.
+    """
+    repo = (os.path.join(os.getcwd(), os.path.expanduser(fix_repo)) if fix_repo else "")
     msg_id = _store.send(
         _settings.agent, to, text, kind=MessageKind(kind),
         dedupe_key=dedupe_key, reply_to=reply_to, paths=paths, priority=priority,
+        fix_repo=repo, fix_base=fix_base, fix_allowed=fix_allowed,
     )
     _store.heartbeat(_settings.agent, cwd=os.getcwd())
     return {"id": msg_id, "to": to, "kind": kind}

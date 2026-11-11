@@ -217,6 +217,18 @@ class DeliveriesMixin:
                                        "not started, waiting for the human to review.",
                                        candidate["id"], now)
                     continue
+                hold = self._fix_hold(con, candidate["id"], recipient)
+                if hold:
+                    # oprava se zápisem bez politiky nebo schválení: nespustit, k člověku (C1a)
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (hold, now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started: {hold}.",
+                                       candidate["id"], now)
+                    continue
                 if start and self._checkpoint_hold(con, candidate["id"], recipient,
                                                    candidate["attempts"] + 1, workspace,
                                                    candidate["agent"], now):

@@ -218,6 +218,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_approve()
             if parts.path == "/api/approve-resume":
                 return self._handle_approve_resume()
+            if parts.path == "/api/approve-fix":
+                return self._handle_approve_fix()
             if parts.path == "/api/quality-policy-approve":
                 data = self._read_json()
                 if data is None:
@@ -416,6 +418,23 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             if not store.approve_checkpoint_resume(message_id, recipient, web_agent, reason):
                 return self._reject(409, "only a task held back by its checkpoint can be resumed")
             self._json_response({"id": message_id, "state": "pending", "resume_approved": True})
+
+        def _handle_approve_fix(self) -> None:
+            """Člověk povolí jeden zápisový běh opravy (C1a); politiku nenahrazuje."""
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                message_id = int(data["id"])
+                recipient = str(data["to"]).strip()
+                reason = str(data.get("reason", "")).strip()
+            except (KeyError, TypeError, ValueError):
+                return self._reject(400, "approve-fix needs a valid 'id' and 'to'")
+            if not recipient or not reason:
+                return self._reject(400, "approve-fix needs 'id', 'to' and a reason")
+            if not store.approve_fix(message_id, recipient, web_agent, reason):
+                return self._reject(409, "only a fix that has not run, or was held by its gate, can be approved")
+            self._json_response({"id": message_id, "state": "pending", "fix_approved": True})
 
         def _handle_review(self, grant: bool) -> None:
             """Člověk u review (B4): povolit ještě jedno kolo po eskalaci, nebo uzavřít."""
@@ -1266,6 +1285,12 @@ function renderTaskActions(m,div) {
       add("Schválit a spustit jednou", () => {
         const reason = prompt("Proč je bezpečné tento zadržený úkol spustit? (zaznamená se)");
         if (reason) post("/api/approve", {id: m.id, to: m.recipient, reason});
+      });
+    }
+    if (m.state === "needs_review" && (m.last_error || "").startsWith("fix:")) {
+      add("Povolit zápis jednou", () => {
+        const reason = prompt("Tato oprava smí zapisovat do repozitáře. Proč ji povolit? (zaznamená se)");
+        if (reason) post("/api/approve-fix", {id: m.id, to: m.recipient, reason});
       });
     }
     if (m.state === "needs_review" && (m.last_error || "").startsWith("checkpoint:")) {
