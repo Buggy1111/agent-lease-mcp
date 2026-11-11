@@ -264,6 +264,19 @@ def test_changed_test_ci_and_security_names_are_guarded(path):
     assert policy_path(path)
 
 
+@pytest.mark.parametrize("path", [".pytest.ini", "pytest.toml", ".pytest.toml", ".mypy.ini",
+                                  "node_modules/.bin/test", "nested/node_modules/pkg/index.js"])
+def test_tool_configuration_is_policy(path):
+    assert policy_path(path)
+
+
+@pytest.mark.parametrize("path", ["pytest.py", "pytest/__main__.py", "ruff.py", "build/__init__.py"])
+def test_command_module_shadow_is_policy(repo, path):
+    python_project(repo)
+    head = commit(repo, {path: "raise SystemExit(0)\n"})
+    assert path in inspect_repository(repo, head).policy_paths
+
+
 def test_base_must_be_real_ancestor_and_deleted_tests_remain_guarded(repo: Path):
     base = python_project(repo)
     with pytest.raises(ValueError):

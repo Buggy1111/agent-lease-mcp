@@ -240,6 +240,7 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
             "--chdir", "/work", "--setenv", "PATH", "/tools/bin:/usr/bin:/bin",
             "--setenv", "HOME", "/tmp/home", "--setenv", "TMPDIR", "/tmp",
             "--setenv", "LANG", "C.UTF-8", "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+            "--setenv", "PYTHONSAFEPATH", "1",
             "--setenv", "npm_config_offline", "true", "--setenv", "npm_config_cache", "/tmp/npm"]
     for name, source in policy["mounts"].items():
         argv += ["--ro-bind", source, "/tools/" + name]

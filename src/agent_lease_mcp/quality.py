@@ -214,7 +214,7 @@ def policy_path(path: str) -> bool:
     """Conservative filename guard; semantic test weakening still needs independent review."""
     name = PurePosixPath(path.lower())
     if any(part in {"test", "tests", "__tests__", ".github", ".circleci", ".agent-lease",
-                    "security", ".semgrep"} for part in name.parts):
+                    "security", ".semgrep", "node_modules"} for part in name.parts):
         return True
     filename = name.name
     if ("agent_lease_mcp" in name.parts and filename in {
@@ -226,7 +226,8 @@ def policy_path(path: str) -> bool:
                                  "playwright.config.", "cypress.config.", ".nycrc"))
             or re.search(r"(?:\.test\.|\.spec\.|_test\.)[^/]+$", filename) is not None
             or filename in {"conftest.py", "pyproject.toml", "package.json", "uv.lock",
-                            "requirements.txt", "requirements-dev.txt", "pytest.ini", "tox.ini",
+                            "requirements.txt", "requirements-dev.txt", "pytest.ini", ".pytest.ini",
+                            "pytest.toml", ".pytest.toml", ".mypy.ini", "tox.ini",
                             "setup.cfg", ".coveragerc", "ruff.toml", ".ruff.toml", "mypy.ini",
                             ".gitlab-ci.yml", "jenkinsfile", "azure-pipelines.yml", ".gitmodules",
                             ".gitattributes", ".npmrc", ".pre-commit-config.yaml",
@@ -236,7 +237,8 @@ def policy_path(path: str) -> bool:
             or filename in LOCKS)
 
 
-def _changed_policy(root: str, head: str, base: str) -> tuple[str, ...]:
+def _changed_policy(root: str, head: str, base: str,
+                    tool_modules: frozenset[str] = frozenset()) -> tuple[str, ...]:
     if base:
         output = _git_hardened(Path(root), "diff", "--name-only", "-z", "--no-ext-diff",
                                "--no-textconv", "--no-renames", base, head, "--")
@@ -246,7 +248,8 @@ def _changed_policy(root: str, head: str, base: str) -> tuple[str, ...]:
     if output is None or len(output) > 4 * 1024 * 1024:
         raise ValueError("Cannot establish the quality policy diff")
     paths = [path.decode("utf-8", "surrogateescape") for path in output.split(b"\0") if path]
-    return tuple(sorted(path for path in paths if policy_path(path)))
+    return tuple(sorted(path for path in paths if policy_path(path)
+                        or PurePosixPath(path).parts[0].removesuffix(".py") in tool_modules))
 
 
 def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None) -> Inspection:
@@ -346,6 +349,11 @@ def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None 
         else:
             status, detail = Status.NA, "No applicable configured metric; not a passing result."
         checks.append(Check(name, status, required, detail, command, source))
+    tool_modules = {Path(command[0]).stem for command, _ in commands.values()}
+    for command, _ in commands.values():
+        if "-m" in command and command.index("-m") + 1 < len(command):
+            tool_modules.add(command[command.index("-m") + 1].split(".")[0])
+    guarded = _changed_policy(root, head, base_sha, frozenset(tool_modules))
     return Inspection(root, head, base_sha, language, manager, dirty, enabled, tuple(checks),
                       guarded, tuple(problems), tuple(tools), config_digest)
 
