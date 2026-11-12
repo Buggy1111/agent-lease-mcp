@@ -1480,7 +1480,10 @@ async function establishSession() {
 }
 
 function showLoginHelp() {
-  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Spusť v terminálu <b>agent-lease web --open</b> — otevře se ti přihlášená stránka.</div></div>`;
+  // Bez platné session by horní pruh navždy ukazoval „Načítám stav systému…“.
+  const help = `Nejsi přihlášený (třeba se web restartoval). Otevři stránku znovu s tokenem: <b>http://localhost:${location.port}/#token=…</b> — token je v souboru <b>~/.agent-lease/webui.token</b>.`;
+  document.getElementById("pause").innerHTML = `<div class="pausebar"><div class="big">${help}</div></div>`;
+  feed.innerHTML = `<div class="bubble"><div class="text">${help}</div></div>`;
 }
 
 establishSession()

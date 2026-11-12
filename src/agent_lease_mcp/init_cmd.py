@@ -50,6 +50,12 @@ def _is_ours(entry: dict) -> bool:
     return any("agent-lease" in h.get("command", "") for h in entry.get("hooks", []))
 
 
+def _has_rewake(existing: dict) -> bool:
+    return any("--rewake" in h.get("command", "")
+               for entries in existing.get("hooks", {}).values() for e in entries
+               if _is_ours(e) for h in e.get("hooks", []))
+
+
 def merge(existing: dict, ours: dict) -> dict:
     out = json.loads(json.dumps(existing))
     section = out.setdefault("hooks", {})
@@ -74,6 +80,11 @@ def run_init(agent: str, *, write: bool, rewake: bool, home: Path | None = None)
     if rewake and agent != "claude-code":
         print("--rewake applies to Claude Code only; wake Codex with agent-lease-codex-wake.",
               file=sys.stderr)
+    if not rewake and agent == "claude-code" and _has_rewake(existing):
+        # Bez přepínače se už nastavené probouzení neodstraní (11. 11.: oprava matcheru
+        # ho tiše smazala a zprávy pak čekaly na další prompt).
+        rewake = True
+        print("Keeping the existing session wake-up hook (--rewake).", file=sys.stderr)
     merged = merge(existing, build_hooks(agent, rewake=rewake))
     text = json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
     if not write:

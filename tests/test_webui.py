@@ -569,3 +569,12 @@ def test_human_review_actions_only_in_web_ui(tmp_path: Path):
 def test_review_card_shows_secret_scan_without_values():
     assert "function scanTag(v)" in PAGE_HTML and "${scanTag(v)}" in PAGE_HTML
     assert "tajné údaje" in PAGE_HTML
+
+
+def test_expired_login_replaces_the_loading_bar_with_help():
+    """Po restartu webu nesmí horní pruh viset na „Načítám stav systému…“."""
+    from agent_lease_mcp.webui import PAGE_HTML
+    start = PAGE_HTML.index("function showLoginHelp()")
+    body = PAGE_HTML[start:PAGE_HTML.index("}", PAGE_HTML.index("feed.innerHTML", start))]
+    assert 'getElementById("pause")' in body and "webui.token" in body
+    assert "agent-lease web --open" not in body   # bez AGENT_NAME ten příkaz odmítne start
