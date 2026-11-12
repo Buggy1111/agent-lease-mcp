@@ -915,3 +915,11 @@ def test_dripping_client_is_cut_off_at_the_absolute_deadline(tmp_path: Path, mon
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_expired_login_replaces_the_loading_bar_with_help():
+    """Review #17: po restartu webu nesmí horní pruh viset na načítání; rada vede na ikonu / web-login."""
+    start = PAGE_HTML.index("function showLoginHelp()")
+    body = PAGE_HTML[start:PAGE_HTML.index("feed.innerHTML", start)]
+    assert 'getElementById("pause")' in body and "web-login" in body
+    assert "web --open" not in body

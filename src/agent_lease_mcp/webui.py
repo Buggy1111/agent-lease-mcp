@@ -2613,7 +2613,10 @@ function showSessionLost() {
   document.body.prepend(bar);
 }
 function showLoginHelp() {
-  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.</div></div>`;
+  // Bez platného přihlášení by horní pruh navždy ukazoval „Načítám…“ (review #17).
+  const help = "Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.";
+  document.getElementById("pause").innerHTML = `<div class="pausebar"><div class="big">${help}</div></div>`;
+  feed.innerHTML = `<div class="bubble"><div class="text">${help}</div></div>`;
 }
 
 establishSession()

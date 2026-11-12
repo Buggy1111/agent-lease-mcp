@@ -73,3 +73,16 @@ def test_concurrent_claims_have_one_winner(tmp_path: Path):
     [t.start() for t in ts]
     [t.join() for t in ts]
     assert results.count(True) == 1
+
+
+def test_init_without_rewake_keeps_an_existing_wake_up_hook(tmp_path: Path):
+    """11. 11.: `init --write` kvůli matcheru tiše smazal probouzení spící session."""
+    path = tmp_path / ".claude" / "settings.json"
+    assert run_init("claude-code", write=True, rewake=True, home=tmp_path) == 0
+    assert run_init("claude-code", write=True, rewake=False, home=tmp_path) == 0
+    data = json.loads(path.read_text())
+    assert "--rewake" in json.dumps(data["hooks"]["SessionStart"])
+    assert "--rewake" in json.dumps(data["hooks"]["Stop"])
+    fresh = tmp_path / "fresh"
+    assert run_init("claude-code", write=True, rewake=False, home=fresh) == 0
+    assert "--rewake" not in (fresh / ".claude" / "settings.json").read_text()
