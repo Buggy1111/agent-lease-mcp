@@ -174,6 +174,10 @@ class DeliveriesMixin:
                 ).fetchone()
                 if seen and now - seen["seen_at"] <= STALE_PEER_SECONDS:
                     newest = now - float(defer_if_present)
+            # C3b: denní strop agenta – nic nového nezačne, úkoly počkají ve frontě.
+            # Běžící pokus se nezabíjí; strop se uplatní až před dalším startem.
+            if self._daily_over(con, recipient, now):
+                return None
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, COALESCE(tm.priority, 0) AS priority "
                 "FROM deliveries d "
@@ -202,6 +206,18 @@ class DeliveriesMixin:
                 # Kontrola i převzetí jsou v jedné transakci, takže vyhraje jen jeden.
                 if paths and self._conflicts(con, paths, recipient, task_id=candidate["id"],
                                              held=held):
+                    continue
+                over = self._task_over(con, candidate["id"], recipient)
+                if over:
+                    # C3b: úkol vyčerpal svůj strop – další pokus jen po rozhodnutí člověka
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (over, now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started again: {over}.",
+                                       candidate["id"], now)
                     continue
                 risk = self._quarantined(con, candidate["id"], recipient)
                 if risk:

@@ -32,7 +32,40 @@ _COUNTS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation
 _SOURCES = frozenset({"claude-json", "codex-jsonl", "unreported"})
 
 
+_TOKENS = ("COALESCE(input_tokens,0)+COALESCE(output_tokens,0)"
+           "+COALESCE(cache_read_tokens,0)+COALESCE(cache_creation_tokens,0)")
+
+
 class UsageMixin:
+    def _budget_spent(self, con, where: str, args: tuple) -> tuple[int, float]:
+        row = con.execute(f"SELECT COALESCE(SUM({_TOKENS}),0), COALESCE(SUM(cost_usd),0) "
+                          f"FROM task_usage WHERE {where}", args).fetchone()
+        return int(row[0]), float(row[1])
+
+    def _daily_over(self, con, recipient: str, now: float) -> str | None:
+        """Důvod, proč agent dnes už nic nového nezačne (C3b), nebo None."""
+        s = self.settings
+        if not (s.daily_budget_tokens or s.daily_budget_usd):
+            return None
+        tokens, usd = self._budget_spent(con, "recipient=? AND at>=?", (recipient, now - 86400))
+        if s.daily_budget_tokens and tokens >= s.daily_budget_tokens:
+            return f"budget: {recipient} used {tokens} tokens in 24 h (cap {s.daily_budget_tokens})"
+        if s.daily_budget_usd and usd >= s.daily_budget_usd:
+            return f"budget: {recipient} used {usd:.2f} USD in 24 h (cap {s.daily_budget_usd:.2f})"
+        return None
+
+    def _task_over(self, con, message_id: int, recipient: str) -> str | None:
+        """Důvod, proč úkol nesmí dostat další pokus (součet všech jeho pokusů), nebo None."""
+        s = self.settings
+        if not (s.task_budget_tokens or s.task_budget_usd):
+            return None
+        tokens, usd = self._budget_spent(con, "message_id=? AND recipient=?", (message_id, recipient))
+        if s.task_budget_tokens and tokens >= s.task_budget_tokens:
+            return f"budget: task used {tokens} tokens (cap {s.task_budget_tokens})"
+        if s.task_budget_usd and usd >= s.task_budget_usd:
+            return f"budget: task used {usd:.2f} USD (cap {s.task_budget_usd:.2f})"
+        return None
+
     def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict) -> bool:
         """
         Spotřeba právě běžícího pokusu; zapisuje jen držitel platného lease.

@@ -149,3 +149,67 @@ def test_model_is_pinned_before_the_prompt(agent, flag):
     assert f"{flag} 'some model' {{prompt}}" in pinned
     assert with_model(agent, DEFAULT_COMMANDS[agent], "") == DEFAULT_COMMANDS[agent]
     assert with_model("kimi", "x {prompt}", "m") == "x {prompt}"
+
+
+# ── C3b: stropy ──────────────────────────────────────────────────────────────
+
+def capped(tmp_path: Path, **caps) -> Store:
+    return Store(tmp_path / "room.db",
+                 settings=Settings(tmp_path / "room.db", "codex", 1800, **caps))
+
+
+def use(store: Store, mid: int, token: str, tokens: int, usd: float | None = None):
+    assert store.record_usage(mid, "codex", token, {"source": "claude-json",
+                                                    "input_tokens": tokens, "cost_usd": usd})
+
+
+def test_task_over_its_token_cap_is_not_started_again(tmp_path: Path):
+    store = capped(tmp_path, task_budget_tokens=1000)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 1200)
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "neprošlo")
+    assert store.retry(mid, "codex")                     # člověk vrátí do fronty
+    assert store.lease_next("codex") is None             # strop: další pokus ne
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("budget: task used 1200")
+
+
+def test_daily_cap_stops_new_starts_but_keeps_tasks_queued(tmp_path: Path):
+    store = capped(tmp_path, daily_budget_usd=1.0)
+    first = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    use(store, first, d.lease_token, 10, usd=1.5)
+    store.complete(first, "codex", d.lease_token, "succeeded", "hotovo")
+    second = store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex") is None
+    assert next(j for j in store.jobs("codex") if j["id"] == second)["state"] == "pending"
+    with store._connect() as con:                        # starší než 24 h se nepočítá
+        con.execute("UPDATE task_usage SET at = at - 90000")
+    assert store.lease_next("codex").message_id == second
+
+
+def test_no_caps_and_unknown_usage_never_block(tmp_path: Path):
+    store = capped(tmp_path)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 10**9, usd=10**5)
+    store.complete(mid, "codex", d.lease_token, "needs_review", "x")
+    assert store.retry(mid, "codex")
+    assert store.lease_next("codex").message_id == mid
+    capped_store = capped(tmp_path / "b", daily_budget_usd=1.0)
+    other = capped_store.send("michal", "codex", "ukol", kind="task")
+    d = capped_store.lease_next("codex")
+    use(capped_store, other, d.lease_token, 5)              # cena neznámá → do USD stropu se nepočítá
+    capped_store.complete(other, "codex", d.lease_token, "succeeded", "ok")
+    nxt = capped_store.send("michal", "codex", "dalsi", kind="task")
+    assert capped_store.lease_next("codex").message_id == nxt
+
+
+def test_budget_env_is_read_by_the_broker_process(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_LEASE_TASK_BUDGET_TOKENS", "5000")
+    monkeypatch.setenv("AGENT_LEASE_DAILY_BUDGET_USD", "2.5")
+    monkeypatch.setenv("AGENT_LEASE_DAILY_BUDGET_TOKENS", "-3")      # neplatné → bez stropu
+    s = Settings.from_env()
+    assert (s.task_budget_tokens, s.daily_budget_usd, s.daily_budget_tokens) == (5000, 2.5, 0)
