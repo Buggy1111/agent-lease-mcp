@@ -740,7 +740,9 @@ class Bridge:
                     result = dataclasses.replace(result, ok=False, cleanup_failed=True)
         if result.usage is not None:
             try:  # evidence spotřeby nesmí změnit výsledek úkolu (C3a)
-                self.store.record_usage(mid, self.agent, delivery.attempts, result.usage)
+                if not self.store.record_usage(mid, self.agent, token, result.usage):
+                    print(f"[agent-lease-bridge] usage of task #{mid} not recorded: lease lost",
+                          file=sys.stderr)
             except Exception as exc:  # noqa: BLE001
                 print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
         if result.cleanup_failed:

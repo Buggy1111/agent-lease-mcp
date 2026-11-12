@@ -32,8 +32,12 @@ _SOURCES = frozenset({"claude-json", "codex-jsonl"})
 
 
 class UsageMixin:
-    def record_usage(self, message_id: int, recipient: str, attempt: int, usage: dict) -> None:
-        """Spotřeba jednoho pokusu; opakovaný zápis téhož pokusu ho přepíše."""
+    def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict) -> bool:
+        """
+        Spotřeba právě běžícího pokusu. Zapíše ji jen držitel platného lease a jen
+        jednou: záznam nejde přepsat ani snížit, jinak by agent přes broker obešel
+        stropy (C3b) nebo je podstrčil jinému pokusu. Vrací False bez platného lease.
+        """
         if not isinstance(usage, dict) or usage.get("source") not in _SOURCES:
             raise ValueError("unknown usage source")
         values = []
@@ -49,17 +53,23 @@ class UsageMixin:
         if model is not None and (not isinstance(model, str) or len(model) > 200):
             raise ValueError("invalid model")
         with self._connect() as con:
-            con.execute(
+            con.execute("BEGIN IMMEDIATE")
+            now = time.time()
+            held = con.execute(
+                "SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
+                "AND lease_token=? AND state IN ('leased','started') AND lease_until>?",
+                (int(message_id), recipient, lease_token or "", now),
+            ).fetchone()
+            if held is None:
+                return False
+            cur = con.execute(
                 "INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, "
                 "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient, attempt) "
-                "DO UPDATE SET at=excluded.at, source=excluded.source, model=excluded.model, "
-                "input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, "
-                "cache_read_tokens=excluded.cache_read_tokens, "
-                "cache_creation_tokens=excluded.cache_creation_tokens, cost_usd=excluded.cost_usd",
-                (int(message_id), recipient, int(attempt), time.time(), usage["source"], model,
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient, attempt) DO NOTHING",
+                (int(message_id), recipient, held["attempts"], now, usage["source"], model,
                  *values, cost),
             )
+        return bool(cur.rowcount)
 
     def usage_summary(self, *, since: float = 0, recipient: str | None = None) -> dict:
         """Součty od `since` (unix čas), volitelně pro jednoho agenta; neznámé hodnoty se nesčítají."""

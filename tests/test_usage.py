@@ -79,9 +79,24 @@ def test_bridge_records_usage_of_the_attempt(store: Store, tmp_path: Path):
 
 def test_invalid_usage_is_refused(store: Store):
     with pytest.raises(ValueError):
-        store.record_usage(1, "codex", 1, {"source": "made-up"})
+        store.record_usage(1, "codex", "t", {"source": "made-up"})
     with pytest.raises(ValueError):
-        store.record_usage(1, "codex", 1, {"source": "claude-json", "input_tokens": -5})
+        store.record_usage(1, "codex", "t", {"source": "claude-json", "input_tokens": -5})
+
+
+def test_usage_needs_the_live_lease_and_cannot_be_rewritten(store: Store):
+    """Bezpečnostní review C3a: přes broker nejde spotřebu podvrhnout ani snížit."""
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    big = {"source": "claude-json", "input_tokens": 5000}
+    assert store.record_usage(mid, "codex", "wrong-token", big) is False
+    assert store.record_usage(mid, "codex", d.lease_token, big) is True
+    assert store.record_usage(mid, "codex", d.lease_token,
+                              {"source": "claude-json", "input_tokens": 1}) is False
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    assert store.record_usage(mid, "codex", d.lease_token, big) is False   # po konci lease
+    with store._connect() as con:
+        assert con.execute("SELECT input_tokens FROM task_usage").fetchall()[0][0] == 5000
 
 
 def test_usage_methods_are_on_the_broker():
