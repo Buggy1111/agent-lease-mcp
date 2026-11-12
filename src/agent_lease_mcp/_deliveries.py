@@ -306,6 +306,11 @@ class DeliveriesMixin:
                 return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
+            # C3b: strop dosažený mezi převzetím a startem – nespouštět (review #15, Nox).
+            # Lease propadne a lease_next pak úkol podrží stejným pravidlem.
+            if state_value == "started" and (self._daily_over(con, recipient, time.time())
+                                             or self._task_over(con, message_id, recipient)):
+                return False
             if state_value == "started":
                 att = con.execute("SELECT d.attempts, m.agent FROM deliveries d JOIN messages m "
                                   "ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",

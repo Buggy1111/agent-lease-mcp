@@ -213,3 +213,15 @@ def test_budget_env_is_read_by_the_broker_process(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("AGENT_LEASE_DAILY_BUDGET_TOKENS", "-3")      # neplatné → bez stropu
     s = Settings.from_env()
     assert (s.task_budget_tokens, s.daily_budget_usd, s.daily_budget_tokens) == (5000, 2.5, 0)
+
+
+def test_cap_reached_after_lease_blocks_the_start(tmp_path: Path):
+    """Úkol převzatý před dosažením stropu se už nespustí (repro Noxe k #15/#16)."""
+    store = capped(tmp_path, daily_budget_tokens=100)
+    first = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    store.send("michal", "codex", "druhy", kind="task")
+    e = store.lease_next("codex")
+    use(store, first, d.lease_token, 120)
+    store.complete(first, "codex", d.lease_token, "succeeded", "ok")
+    assert not store.ack(e.message_id, "codex", "started", lease_token=e.lease_token)
