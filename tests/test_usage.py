@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_lease_mcp.bridge import DEFAULT_COMMANDS, Bridge, extract_usage, with_model
+from agent_lease_mcp.bridge import DEFAULT_COMMANDS, Bridge, RunResult, extract_usage, with_model
 from agent_lease_mcp.broker import METHODS
 from agent_lease_mcp.config import Settings
 from agent_lease_mcp.store import Store
@@ -40,7 +40,8 @@ def test_codex_jsonl_takes_the_last_usage_event_and_keeps_the_text():
                                    "cached_input_tokens": 3, "output_tokens": 5}})])
     text, usage = extract_usage(DEFAULT_COMMANDS["codex"], lines)
     assert text == lines
-    assert usage["source"] == "codex-jsonl" and usage["input_tokens"] == 10
+    # Codex počítá cache do vstupu; uložený vstup je jen ten nový (jako u Claude)
+    assert usage["source"] == "codex-jsonl" and usage["input_tokens"] == 7
     assert usage["cache_read_tokens"] == 3 and usage["cost_usd"] is None
 
 
@@ -84,19 +85,36 @@ def test_invalid_usage_is_refused(store: Store):
         store.record_usage(1, "codex", "t", {"source": "claude-json", "input_tokens": -5})
 
 
-def test_usage_needs_the_live_lease_and_cannot_be_rewritten(store: Store):
-    """Bezpečnostní review C3a: přes broker nejde spotřebu podvrhnout ani snížit."""
+def test_usage_needs_the_live_lease_and_only_grows(store: Store):
+    """Review #15 F1: podvržený první zápis (nuly) nesmí zablokovat pravdivý zápis bridge."""
     mid = store.send("michal", "codex", "ukol", kind="task")
     d = store.lease_next("codex")
-    big = {"source": "claude-json", "input_tokens": 5000}
-    assert store.record_usage(mid, "codex", "wrong-token", big) is False
-    assert store.record_usage(mid, "codex", d.lease_token, big) is True
-    assert store.record_usage(mid, "codex", d.lease_token,
-                              {"source": "claude-json", "input_tokens": 1}) is False
+    forged = {"source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
+    real = {"source": "codex-jsonl", "input_tokens": 50000, "output_tokens": 100}
+    assert store.record_usage(mid, "codex", "wrong-token", real) is False
+    assert store.record_usage(mid, "codex", d.lease_token, forged) is True
+    assert store.record_usage(mid, "codex", d.lease_token, real) is True
+    assert store.record_usage(mid, "codex", d.lease_token, forged) is True   # nesníží
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
     store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
-    assert store.record_usage(mid, "codex", d.lease_token, big) is False   # po konci lease
+    assert store.record_usage(mid, "codex", d.lease_token, real) is False    # po konci lease
     with store._connect() as con:
-        assert con.execute("SELECT input_tokens FROM task_usage").fetchall()[0][0] == 5000
+        row = con.execute("SELECT * FROM task_usage").fetchone()
+    assert (row["input_tokens"], row["output_tokens"], row["source"]) == (50000, 100, "codex-jsonl")
+
+
+@pytest.mark.parametrize("result", [
+    RunResult(True, "plain text"),                          # klient bez strojového výstupu
+    RunResult(False, "timed out after 60 s"),               # timeout / zaseknutí
+])
+def test_every_attempt_leaves_a_record_even_without_numbers(store: Store, result):
+    """Review #15 F2: proběhlý pokus musí být vidět i s neznámou spotřebou."""
+    store.send("michal", "codex", "ukol", kind="task")
+    assert Bridge(store, "codex", "unused {prompt}", runner=lambda _p: result,
+                  read_only=True, lease_seconds=10).step()
+    summary = store.usage_summary()
+    assert summary["attempts"] == 1 and summary["cost_unknown"] == 1
+    assert summary["input_tokens"] is None
 
 
 def test_usage_methods_are_on_the_broker():

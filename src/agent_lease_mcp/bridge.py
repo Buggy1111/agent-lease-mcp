@@ -397,8 +397,13 @@ def extract_usage(template: str, output: str) -> tuple[str, dict | None]:
                 continue
             if isinstance(event, dict) and isinstance(event.get("usage"), dict):
                 raw = event["usage"]
+                total, cached = _int(raw.get("input_tokens")), _int(raw.get("cached_input_tokens"))
+                # Codex počítá cache do input_tokens (Claude zvlášť); sjednotit, ať se
+                # v součtech C3b nepočítá dvakrát (C0 Noxe 12. 11.).
+                fresh = total - cached if total is not None and cached is not None \
+                    and cached <= total else total
                 usage = {"source": "codex-jsonl", "model": None,
-                         "input_tokens": _int(raw.get("input_tokens")),
+                         "input_tokens": fresh,
                          "output_tokens": _int(raw.get("output_tokens")),
                          "cache_read_tokens": _int(raw.get("cached_input_tokens")),
                          "cache_creation_tokens": None, "cost_usd": None}
@@ -738,13 +743,13 @@ class Bridge:
                     self._run_fence.release()
                 except OSError:
                     result = dataclasses.replace(result, ok=False, cleanup_failed=True)
-        if result.usage is not None:
-            try:  # evidence spotřeby nesmí změnit výsledek úkolu (C3a)
-                if not self.store.record_usage(mid, self.agent, token, result.usage):
-                    print(f"[agent-lease-bridge] usage of task #{mid} not recorded: lease lost",
-                          file=sys.stderr)
-            except Exception as exc:  # noqa: BLE001
-                print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
+        try:  # záznam o každém pokusu, i bez čísel; evidence nesmí změnit výsledek (C3a)
+            if not self.store.record_usage(mid, self.agent, token,
+                                           result.usage or {"source": "unreported"}):
+                print(f"[agent-lease-bridge] usage of task #{mid} not recorded: lease lost",
+                      file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
             self._cleanup_blocked = True

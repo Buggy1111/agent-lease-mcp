@@ -28,15 +28,19 @@ CREATE TABLE IF NOT EXISTS task_usage (
 """
 
 _COUNTS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")
-_SOURCES = frozenset({"claude-json", "codex-jsonl"})
+# "unreported": pokus proběhl, ale klient nic strojově čitelného nevrátil (timeout, text…).
+_SOURCES = frozenset({"claude-json", "codex-jsonl", "unreported"})
 
 
 class UsageMixin:
     def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict) -> bool:
         """
-        Spotřeba právě běžícího pokusu. Zapíše ji jen držitel platného lease a jen
-        jednou: záznam nejde přepsat ani snížit, jinak by agent přes broker obešel
-        stropy (C3b) nebo je podstrčil jinému pokusu. Vrací False bez platného lease.
+        Spotřeba právě běžícího pokusu; zapisuje jen držitel platného lease.
+
+        Lease ale nedokazuje, že čísla změřil bridge: agent s vlastním lease může
+        zapsat první. Proto hodnoty pokusu jen rostou (žádné přepsání ani snížení) –
+        podvržený zápis může stropy C3b jen zpřísnit, pravdivý zápis bridge nikdy
+        nezablokuje. Vrací False bez platného lease.
         """
         if not isinstance(usage, dict) or usage.get("source") not in _SOURCES:
             raise ValueError("unknown usage source")
@@ -65,11 +69,16 @@ class UsageMixin:
             cur = con.execute(
                 "INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, "
                 "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient, attempt) DO NOTHING",
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient, attempt) DO UPDATE SET "
+                + ", ".join(f"{c} = CASE WHEN excluded.{c} IS NULL THEN {c} WHEN {c} IS NULL "
+                            f"THEN excluded.{c} ELSE MAX({c}, excluded.{c}) END"
+                            for c in (*_COUNTS, "cost_usd"))
+                + ", source = CASE WHEN excluded.source = 'unreported' THEN source "
+                  "ELSE excluded.source END, model = COALESCE(excluded.model, model)",
                 (int(message_id), recipient, held["attempts"], now, usage["source"], model,
                  *values, cost),
             )
-        return bool(cur.rowcount)
+        return cur.rowcount > 0
 
     def usage_summary(self, *, since: float = 0, recipient: str | None = None) -> dict:
         """Součty od `since` (unix čas), volitelně pro jednoho agenta; neznámé hodnoty se nesčítají."""
