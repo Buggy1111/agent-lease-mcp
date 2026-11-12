@@ -95,12 +95,34 @@ def test_usage_needs_the_live_lease_and_only_grows(store: Store):
     assert store.record_usage(mid, "codex", d.lease_token, forged) is True
     assert store.record_usage(mid, "codex", d.lease_token, real) is True
     assert store.record_usage(mid, "codex", d.lease_token, forged) is True   # nesníží
-    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
     store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
     assert store.record_usage(mid, "codex", d.lease_token, real) is False    # po konci lease
     with store._connect() as con:
         row = con.execute("SELECT * FROM task_usage").fetchone()
-    assert (row["input_tokens"], row["output_tokens"], row["source"]) == (50000, 100, "codex-jsonl")
+    assert (row["input_tokens"], row["output_tokens"]) == (50000, 100)
+    assert row["cost_usd"] is None             # podvržená cena 0 nepřebije neznámou (Nox)
+
+
+def test_forged_numbers_cannot_hide_an_unreported_attempt(store: Store):
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.record_usage(mid, "codex", d.lease_token,
+                              {"source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0})
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.usage_summary()["input_tokens"] is None
+
+
+def test_cancelled_attempt_still_leaves_a_record(store: Store):
+    """Nox: zrušení během běhu smaže lease token, záznam ale vznikl už před startem."""
+    mid = store.send("michal", "codex", "ukol", kind="task")
+
+    def run(_prompt):
+        store.cancel(mid, "codex")
+        return RunResult(False, "stopped: the task lease was lost or cancelled", aborted=True)
+    assert Bridge(store, "codex", "unused {prompt}", runner=run, read_only=True,
+                  lease_seconds=10).step()
+    assert store.usage_summary()["attempts"] == 1
 
 
 @pytest.mark.parametrize("result", [

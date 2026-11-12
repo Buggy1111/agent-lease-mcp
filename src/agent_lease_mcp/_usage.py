@@ -38,9 +38,10 @@ class UsageMixin:
         Spotřeba právě běžícího pokusu; zapisuje jen držitel platného lease.
 
         Lease ale nedokazuje, že čísla změřil bridge: agent s vlastním lease může
-        zapsat první. Proto hodnoty pokusu jen rostou (žádné přepsání ani snížení) –
-        podvržený zápis může stropy C3b jen zpřísnit, pravdivý zápis bridge nikdy
-        nezablokuje. Vrací False bez platného lease.
+        zapsat dřív. Proto platí: první měřený zápis nahradí založení ("unreported"),
+        každý další už jen zhorší – neznámá hodnota vyhraje, známé jen rostou. Podvrh
+        tak stropy C3b může jen zpřísnit, ne obejít (review #15 F1, Nox).
+        Vrací False bez platného lease.
         """
         if not isinstance(usage, dict) or usage.get("source") not in _SOURCES:
             raise ValueError("unknown usage source")
@@ -70,8 +71,9 @@ class UsageMixin:
                 "INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, "
                 "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(message_id, recipient, attempt) DO UPDATE SET "
-                + ", ".join(f"{c} = CASE WHEN excluded.{c} IS NULL THEN {c} WHEN {c} IS NULL "
-                            f"THEN excluded.{c} ELSE MAX({c}, excluded.{c}) END"
+                + ", ".join(f"{c} = CASE WHEN task_usage.source = 'unreported' THEN excluded.{c} "
+                            f"WHEN excluded.{c} IS NULL OR task_usage.{c} IS NULL THEN NULL "
+                            f"ELSE MAX(task_usage.{c}, excluded.{c}) END"
                             for c in (*_COUNTS, "cost_usd"))
                 + ", source = CASE WHEN excluded.source = 'unreported' THEN source "
                   "ELSE excluded.source END, model = COALESCE(excluded.model, model)",

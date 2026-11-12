@@ -708,6 +708,10 @@ class Bridge:
                                     f"Task #{mid} not started: emergency stop.",
                                     error="emergency stop")
             return True
+        try:  # založit záznam pokusu, dokud lease držíme – i zrušený pokus je vidět (C3a)
+            self.store.record_usage(mid, self.agent, token, {"source": "unreported"})
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
@@ -743,9 +747,8 @@ class Bridge:
                     self._run_fence.release()
                 except OSError:
                     result = dataclasses.replace(result, ok=False, cleanup_failed=True)
-        try:  # záznam o každém pokusu, i bez čísel; evidence nesmí změnit výsledek (C3a)
-            if not self.store.record_usage(mid, self.agent, token,
-                                           result.usage or {"source": "unreported"}):
+        try:  # evidence nesmí změnit výsledek úkolu (C3a)
+            if result.usage and not self.store.record_usage(mid, self.agent, token, result.usage):
                 print(f"[agent-lease-bridge] usage of task #{mid} not recorded: lease lost",
                       file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
