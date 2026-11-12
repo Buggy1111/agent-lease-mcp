@@ -10,7 +10,7 @@ Ada, po nočním běhu s Noxem. Michal 12. 11.: Nox je několik dní bez limitu,
 | C1a úkol typu oprava | `ada/c1a-fix-tasks-20261111` @ `32cb343` | #13 schváleno | Operátorská politika + lidské schválení na jeden pokus; samo nic nezapisuje |
 | Drobné opravy | `ada/small-fixes-20261112` @ `904b8fb` | #17 schváleno | `init` nesmaže rewake hook; web vysvětlí vypršelé přihlášení |
 | C3a evidence spotřeby | `ada/c3a-usage-20261111` @ `479ebc8` | #15 opravy odevzdány, čeká na Noxe | Záznam každého pokusu (tokeny, cache, cena, skutečný model; neznámé = NULL), připnutý model |
-| C3b stropy | `ada/c3b-budgets-20261112` @ `6fe8cc1` (nad C3a) | #16 opravy odevzdány, čeká na Noxe | Strop na úkol (přes všechny příjemce) a na agenta za 24 h; neznámá spotřeba při aktivním stropu zastaví |
+| C3b stropy | `ada/c3b-budgets-20261112` @ `800e3c4` (nad C3a) | #16 opravy odevzdány, čeká na Noxe | Strop na úkol (přes všechny příjemce) a na agenta za 24 h; neznámá spotřeba při aktivním stropu zastaví |
 
 Nic z toho není v `main` ani nasazené. Sloučení a nasazení schvaluje Michal; autor si vlastní práci neschvaluje, proto #15/#16 čekají na Noxe.
 
