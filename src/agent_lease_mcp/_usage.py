@@ -36,35 +36,50 @@ _TOKENS = ("COALESCE(input_tokens,0)+COALESCE(output_tokens,0)"
            "+COALESCE(cache_read_tokens,0)+COALESCE(cache_creation_tokens,0)")
 
 
+_NO_TOKENS = ("(input_tokens IS NULL AND output_tokens IS NULL AND cache_read_tokens IS NULL "
+              "AND cache_creation_tokens IS NULL)")
+
+
 class UsageMixin:
-    def _budget_spent(self, con, where: str, args: tuple) -> tuple[int, float]:
-        row = con.execute(f"SELECT COALESCE(SUM({_TOKENS}),0), COALESCE(SUM(cost_usd),0) "
-                          f"FROM task_usage WHERE {where}", args).fetchone()
-        return int(row[0]), float(row[1])
+    def _over(self, con, where: str, args: tuple, cap_tokens: int, cap_usd: float,
+              label: str) -> str | None:
+        """
+        Důvod zastavení podle stropu, nebo None. Fail-closed: pokus, jehož metrika
+        hlídaná stropem je neznámá (timeout, klient bez čísel, Codex bez ceny), se
+        nepočítá jako nula, ale zastaví – jinak by neznámá spotřeba strop obešla
+        (review #16 F1). Codex cenu nehlásí, takže s USD stropem po pokusu stojí.
+        """
+        if not (cap_tokens or cap_usd):
+            return None
+        row = con.execute(
+            f"SELECT COALESCE(SUM({_TOKENS}),0), COALESCE(SUM(cost_usd),0), "
+            f"SUM({_NO_TOKENS}), SUM(cost_usd IS NULL) FROM task_usage WHERE {where}", args,
+        ).fetchone()
+        tokens, usd, no_tokens, no_cost = int(row[0]), float(row[1]), row[2] or 0, row[3] or 0
+        if cap_tokens and no_tokens:
+            return f"budget: {label} has {no_tokens} attempt(s) with unknown token usage"
+        if cap_usd and no_cost:
+            return f"budget: {label} has {no_cost} attempt(s) with unknown cost"
+        if cap_tokens and tokens >= cap_tokens:
+            return f"budget: {label} used {tokens} tokens (cap {cap_tokens})"
+        if cap_usd and usd >= cap_usd:
+            return f"budget: {label} used {usd:.2f} USD (cap {cap_usd:.2f})"
+        return None
 
     def _daily_over(self, con, recipient: str, now: float) -> str | None:
-        """Důvod, proč agent dnes už nic nového nezačne (C3b), nebo None."""
+        """Důvod, proč agent teď nic nového nezačne (okno 24 h, C3b), nebo None."""
         s = self.settings
-        if not (s.daily_budget_tokens or s.daily_budget_usd):
-            return None
-        tokens, usd = self._budget_spent(con, "recipient=? AND at>=?", (recipient, now - 86400))
-        if s.daily_budget_tokens and tokens >= s.daily_budget_tokens:
-            return f"budget: {recipient} used {tokens} tokens in 24 h (cap {s.daily_budget_tokens})"
-        if s.daily_budget_usd and usd >= s.daily_budget_usd:
-            return f"budget: {recipient} used {usd:.2f} USD in 24 h (cap {s.daily_budget_usd:.2f})"
-        return None
+        return self._over(con, "recipient=? AND at>=?", (recipient, now - 86400),
+                          s.daily_budget_tokens, s.daily_budget_usd, f"{recipient} in 24 h")
 
     def _task_over(self, con, message_id: int, recipient: str) -> str | None:
-        """Důvod, proč úkol nesmí dostat další pokus (součet všech jeho pokusů), nebo None."""
+        """
+        Důvod, proč úkol nesmí dostat další pokus, nebo None. Sčítají se pokusy všech
+        příjemců: převzetí jiným agentem (failover) strop nevynuluje (review #16 F4).
+        """
         s = self.settings
-        if not (s.task_budget_tokens or s.task_budget_usd):
-            return None
-        tokens, usd = self._budget_spent(con, "message_id=? AND recipient=?", (message_id, recipient))
-        if s.task_budget_tokens and tokens >= s.task_budget_tokens:
-            return f"budget: task used {tokens} tokens (cap {s.task_budget_tokens})"
-        if s.task_budget_usd and usd >= s.task_budget_usd:
-            return f"budget: task used {usd:.2f} USD (cap {s.task_budget_usd:.2f})"
-        return None
+        return self._over(con, "message_id=?", (message_id,),
+                          s.task_budget_tokens, s.task_budget_usd, "task")
 
     def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict) -> bool:
         """

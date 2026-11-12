@@ -189,7 +189,7 @@ def test_daily_cap_stops_new_starts_but_keeps_tasks_queued(tmp_path: Path):
     assert store.lease_next("codex").message_id == second
 
 
-def test_no_caps_and_unknown_usage_never_block(tmp_path: Path):
+def test_no_caps_never_block(tmp_path: Path):
     store = capped(tmp_path)
     mid = store.send("michal", "codex", "ukol", kind="task")
     d = store.lease_next("codex")
@@ -197,13 +197,33 @@ def test_no_caps_and_unknown_usage_never_block(tmp_path: Path):
     store.complete(mid, "codex", d.lease_token, "needs_review", "x")
     assert store.retry(mid, "codex")
     assert store.lease_next("codex").message_id == mid
-    capped_store = capped(tmp_path / "b", daily_budget_usd=1.0)
-    other = capped_store.send("michal", "codex", "ukol", kind="task")
-    d = capped_store.lease_next("codex")
-    use(capped_store, other, d.lease_token, 5)              # cena neznámá → do USD stropu se nepočítá
-    capped_store.complete(other, "codex", d.lease_token, "succeeded", "ok")
-    nxt = capped_store.send("michal", "codex", "dalsi", kind="task")
-    assert capped_store.lease_next("codex").message_id == nxt
+
+
+@pytest.mark.parametrize("caps, usage", [
+    ({"daily_budget_usd": 1.0}, {"source": "codex-jsonl", "input_tokens": 50000}),  # cena neznámá
+    ({"daily_budget_tokens": 10**6}, {"source": "unreported"}),                    # timeout apod.
+])
+def test_unknown_usage_under_an_active_cap_fails_closed(tmp_path: Path, caps, usage):
+    """Review #16 F1: neznámá spotřeba se nesmí počítat jako nula."""
+    store = capped(tmp_path, **caps)
+    mid = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, usage)
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex") is None
+    with store._connect() as con:
+        assert "unknown" in store._daily_over(con, "codex", __import__("time").time())
+
+
+def test_task_cap_counts_attempts_of_every_recipient(tmp_path: Path):
+    """Review #16 F4: převzetí úkolu jiným agentem strop nevynuluje."""
+    store = capped(tmp_path, task_budget_tokens=100)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 120)
+    with store._connect() as con:
+        assert store._task_over(con, mid, "claude-code").startswith("budget: task used 120")
 
 
 def test_budget_env_is_read_by_the_broker_process(monkeypatch, tmp_path: Path):
