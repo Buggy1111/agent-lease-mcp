@@ -159,8 +159,9 @@ def capped(tmp_path: Path, **caps) -> Store:
 
 
 def use(store: Store, mid: int, token: str, tokens: int, usd: float | None = None):
-    assert store.record_usage(mid, "codex", token, {"source": "claude-json",
-                                                    "input_tokens": tokens, "cost_usd": usd})
+    assert store.record_usage(mid, "codex", token, {
+        "source": "claude-json", "input_tokens": tokens, "output_tokens": 0,
+        "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": usd})
 
 
 def test_task_over_its_token_cap_is_not_started_again(tmp_path: Path):
@@ -202,6 +203,7 @@ def test_no_caps_never_block(tmp_path: Path):
 @pytest.mark.parametrize("caps, usage", [
     ({"daily_budget_usd": 1.0}, {"source": "codex-jsonl", "input_tokens": 50000}),  # cena neznámá
     ({"daily_budget_tokens": 10**6}, {"source": "unreported"}),                    # timeout apod.
+    ({"daily_budget_tokens": 10**6}, {"source": "claude-json", "input_tokens": 1}),  # částečné
 ])
 def test_unknown_usage_under_an_active_cap_fails_closed(tmp_path: Path, caps, usage):
     """Review #16 F1: neznámá spotřeba se nesmí počítat jako nula."""
@@ -245,3 +247,17 @@ def test_cap_reached_after_lease_blocks_the_start(tmp_path: Path):
     use(store, first, d.lease_token, 120)
     store.complete(first, "codex", d.lease_token, "succeeded", "ok")
     assert not store.ack(e.message_id, "codex", "started", lease_token=e.lease_token)
+
+
+def test_complete_codex_usage_counts_as_known(tmp_path: Path):
+    """Codex nehlásí zápis do cache; jeho úplný report tokenový strop nezastaví."""
+    store = capped(tmp_path, daily_budget_tokens=10**6)
+    mid = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    _, usage = extract_usage(DEFAULT_COMMANDS["codex"], json.dumps(
+        {"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 90,
+                                             "output_tokens": 10}}))
+    assert store.record_usage(mid, "codex", d.lease_token, usage)
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    nxt = store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex").message_id == nxt

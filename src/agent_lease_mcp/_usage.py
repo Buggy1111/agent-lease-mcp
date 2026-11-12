@@ -36,8 +36,11 @@ _TOKENS = ("COALESCE(input_tokens,0)+COALESCE(output_tokens,0)"
            "+COALESCE(cache_read_tokens,0)+COALESCE(cache_creation_tokens,0)")
 
 
-_NO_TOKENS = ("(input_tokens IS NULL AND output_tokens IS NULL AND cache_read_tokens IS NULL "
-              "AND cache_creation_tokens IS NULL)")
+# Tokeny pokusu jsou neznámé, chybí-li kterékoli pole, které jeho zdroj hlásí (částečný
+# údaj by jinak tiše počítal chybějící část jako nulu – review #16, Nox). Codex zápis
+# do cache nehlásí vůbec, proto se u něj cache_creation nevyžaduje.
+_NO_TOKENS = ("(input_tokens IS NULL OR output_tokens IS NULL OR cache_read_tokens IS NULL "
+              "OR (cache_creation_tokens IS NULL AND source <> 'codex-jsonl'))")
 
 
 class UsageMixin:
