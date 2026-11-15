@@ -782,7 +782,12 @@ class Bridge:
         if not command:
             fix_runner.cleanup(workdir)
             return hold("no command", f"no write-mode command is configured for {self.agent}.")
-        cli_state = fix_runner.cli_state_for(self.agent)
+        real_home = Path.home()
+        try:
+            run_home = fix_runner.prepare_home(workdir, real_home, fix_runner.cli_files_for(self.agent))
+        except OSError as exc:
+            fix_runner.cleanup(workdir)
+            return hold("home failed", f"could not prepare the run's HOME: {str(exc)[:200]}")
         try:
             self._run_fence.acquire(mid, cgroup=self.use_cgroup)
         except OSError as exc:
@@ -797,10 +802,15 @@ class Bridge:
                                  use_cgroup=self.use_cgroup, on_cgroup_created=self._run_fence.record_cgroup,
                                  idle_timeout=self.timeout if self.max_runtime else None,
                                  wrap=lambda argv, tmp: fix_runner.sandbox_argv(
-                                     clone, argv, cli_state=cli_state, extra_rw=(tmp,)))
+                                     clone, argv, home=real_home, run_home=run_home, extra_rw=(tmp,),
+                                     hide_abs=(str(self.store.db_path.parent),)))
         except BaseException:
             self._cleanup_blocked = True
             raise
+        try:  # jen obnovené přihlášení zpět (rotující refresh token), nikdy konfigurace CLI
+            fix_runner.sync_credentials(run_home, real_home, fix_runner.CRED_SYNC.get(self.agent, ()))
+        except OSError as exc:
+            print(f"[agent-lease-bridge] credential sync failed: {exc}", file=sys.stderr)
         if result.cleanup_failed:
             self._cleanup_blocked = True
             return hold("process cleanup not confirmed", f"stopped, end of process unconfirmed; clone kept at {workdir}.")

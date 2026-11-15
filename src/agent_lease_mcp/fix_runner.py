@@ -9,9 +9,11 @@ repo, závislost na sdíleném `.git`). Proto vlastní obal z OS prostředků:
 2. **bwrap** (`sandbox_argv`): celý systém jen pro čtení, zapisovat jde JEN do
    pracovních souborů klonu. `.git` klonu je pro agenta jen pro čtení (žádná změna
    config/hooks/refs → žádné spuštění kódu v důvěryhodném procesu přes git config),
-   `/tmp` je soukromý tmpfs, stav agent-lease (`webui.token`, `room.db`) a běžná
-   úložiště tajemství jsou překrytá prázdným tmpfs. Zápis do vlastního stavu CLI
-   (přihlášení, relace) je jediná výslovná výjimka (`cli_state`).
+   `/tmp` je soukromý tmpfs, stav agent-lease (adresář DB s `webui.token`, `room.db`)
+   a běžná úložiště tajemství jsou překrytá, sokety hostitele (session bus, docker)
+   schované a prostředí je prázdné kromě krátkého seznamu (`ENV_PASS`). HOME je
+   jednorázová kopie jen přihlašovacích souborů CLI; zpět se vrací jen obnovené
+   přihlášení, nikdy konfigurace (agent tak nezmění MCP servery ani hooky CLI).
 3. **Vyhodnocení** (`collect`): důvěryhodný proces po skončení agenta zkontroluje
    změny (jen povolené cesty, žádné symlinky ani speciální soubory, limity velikosti,
    kritické soubory CI vždy zamítne), projde diff secret scanem a teprve pak sám
@@ -24,6 +26,7 @@ Síť zůstává (CLI potřebuje API modelu). Sloučení větve schvaluje člov�
 
 from __future__ import annotations
 
+import os
 import shutil
 import stat
 import subprocess
@@ -35,9 +38,6 @@ BWRAP = "/usr/bin/bwrap"
 MAX_FILES = 200
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_DIFF_BYTES = 8 * 1024 * 1024
-# Soubory, které mění chování CI, gitu nebo dodavatelského řetězce — oprava je nesmí měnit.
-CRITICAL = (".github/", ".gitlab-ci.yml", ".gitmodules", ".gitattributes", ".pre-commit-config.yaml",
-            ".git/", "deploy/")
 # Co se agentovi vždy schová (stav místnosti, klíče, přihlášení k jiným službám).
 DEFAULT_HIDE = (".agent-lease", ".ssh", ".gnupg", ".config/gh", ".aws", ".docker", ".kube",
                 ".git-credentials", ".netrc", ".pypirc")
@@ -67,29 +67,84 @@ def prepare(repo: Path, base_commit: str, workdir: Path) -> Path:
     return clone
 
 
-def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None,
-                 cli_state: tuple[str, ...] = (), hide: tuple[str, ...] = DEFAULT_HIDE,
-                 extra_rw: tuple[str, ...] = ()) -> list[str]:
-    """Příkaz, který spustí `argv` v izolaci: zapisovat smí jen do pracovních souborů klonu."""
+# Proměnné, které smí projít do běhu (přihlášení CLI přes API klíč, jazyk); nic z AGENT_LEASE_*.
+ENV_PASS = ("LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+            "CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+
+
+def prepare_home(workdir: Path, real_home: Path, files: tuple[str, ...]) -> Path:
+    """Jednorázový HOME běhu: jen kopie přihlašovacích souborů CLI (skutečná konfigurace zůstane netknutá)."""
+    run_home = Path(workdir) / "home"
+    run_home.mkdir(mode=0o700)
+    for rel in files:
+        src = Path(real_home) / rel
+        if src.is_file() and not src.is_symlink():
+            dst = run_home / rel
+            dst.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            dst.chmod(0o600)
+    return run_home
+
+
+def sync_credentials(run_home: Path, real_home: Path, files: tuple[str, ...]) -> list[str]:
+    """Vrátí zpět JEN obnovené přihlašovací soubory (rotující refresh token), a jen platný JSON objekt."""
+    import json
+    synced = []
+    for rel in files:
+        src, dst = Path(run_home) / rel, Path(real_home) / rel
+        if not src.is_file() or src.is_symlink() or src.stat().st_size > 256 * 1024:
+            continue
+        data = src.read_bytes()
+        try:
+            if not isinstance(json.loads(data), dict):
+                continue
+        except ValueError:
+            continue
+        if dst.exists() and dst.read_bytes() == data:
+            continue
+        tmp = dst.with_name(dst.name + ".agent-lease-tmp")
+        tmp.write_bytes(data)
+        tmp.chmod(0o600)
+        tmp.replace(dst)
+        synced.append(rel)
+    return synced
+
+
+def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None, run_home: Path | None = None,
+                 hide: tuple[str, ...] = DEFAULT_HIDE, hide_abs: tuple[str, ...] = (),
+                 extra_rw: tuple[str, ...] = (), env: dict[str, str] | None = None) -> list[str]:
+    """Příkaz, který spustí `argv` v izolaci: zapisovat smí jen do pracovních souborů klonu a do HOME běhu."""
     clone = Path(clone).resolve()
     home = Path(home or Path.home())
+    env = os.environ if env is None else env
     args = [BWRAP, "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc",
-            "--unshare-uts", "--unshare-cgroup-try",
+            "--unshare-uts", "--unshare-cgroup-try", "--clearenv",
             "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"]
-    for rel in hide:
-        target = home / rel
+    # Sokety hostitele (session bus, gpg/ssh agent, docker) nejsou pro opravu potřeba.
+    for path in (f"/run/user/{os.getuid()}", "/run/dbus"):
+        if Path(path).is_dir():
+            args += ["--tmpfs", path]
+    socks = {str(Path(p).resolve()) for p in ("/var/run/docker.sock", "/run/docker.sock",
+                                                "/run/podman/podman.sock") if Path(p).exists()}
+    for sock in sorted(socks):  # cíl symlinku (/var/run → /run, Docker Desktop → /mnt/wsl/…)
+        args += ["--ro-bind", "/dev/null", sock]
+    targets = [home / rel for rel in hide] + [Path(p) for p in hide_abs]
+    for target in targets:
         if target.is_dir():
             args += ["--tmpfs", str(target)]
         elif target.exists():
             args += ["--ro-bind", "/dev/null", str(target)]
-    for rel in cli_state:  # výslovná výjimka: CLI si musí zapsat vlastní relaci/přihlášení
-        target = home / rel
-        if target.exists():
-            args += ["--bind", str(target), str(target)]
-    for path in extra_rw:  # např. soubor pro poslední odpověď CLI, který čte bridge
+    for path in extra_rw:  # např. adresář s poslední odpovědí CLI, který čte bridge
         args += ["--bind", str(path), str(path)]
+    if run_home is not None:
+        args += ["--bind", str(run_home), str(run_home)]
     args += ["--bind", str(clone), str(clone), "--ro-bind", str(clone / ".git"), str(clone / ".git"),
-             "--chdir", str(clone), "--setenv", "HOME", str(home), "--"]
+             "--chdir", str(clone)]
+    for key in ENV_PASS:
+        if env.get(key):
+            args += ["--setenv", key, env[key]]
+    args += ["--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--setenv", "TMPDIR", "/tmp",
+             "--setenv", "HOME", str(run_home or home), "--"]
     return args + list(argv)
 
 
@@ -103,8 +158,16 @@ def _allowed(path: str, allowed: list[str]) -> bool:
     return not allowed or any(path == a or path.startswith(a.rstrip("/") + "/") for a in allowed)
 
 
+_CRITICAL_DIRS = {".git", ".github", ".gitlab", ".circleci", "deploy"}
+_CRITICAL_NAMES = {".gitattributes", ".gitmodules", ".gitlab-ci.yml", ".pre-commit-config.yaml",
+                   ".gitconfig", ".mailmap"}
+
+
 def _critical(path: str) -> bool:
-    return any(path == c.rstrip("/") or path.startswith(c) for c in CRITICAL)
+    """Kritický soubor kdekoli ve stromu (i vnořený .gitattributes), nezávisle na velikosti písmen."""
+    parts = [p.lower() for p in PurePosixPath(path).parts]
+    return bool(set(parts[:-1]) & _CRITICAL_DIRS) or (parts and (parts[-1] in _CRITICAL_NAMES
+                                                                 or parts[-1] in _CRITICAL_DIRS))
 
 
 def collect(clone: Path, base_commit: str, allowed: list[str], message: str) -> dict:
@@ -140,6 +203,12 @@ def collect(clone: Path, base_commit: str, allowed: list[str], message: str) -> 
             result["rejected"] = [{"path": "*", "reason": "no changes"}]
         return result
     _git("add", "--all", "--", *files, cwd=clone)
+    numstat = _git("diff", "--cached", "--numstat", "--no-renames", "-z", base_commit, cwd=clone).stdout
+    binary = [e.split(b"\t", 2)[2].decode("utf-8", "replace") for e in numstat.split(b"\0")
+              if e.startswith(b"-\t-\t")]
+    if binary:
+        result["rejected"] = [{"path": b, "reason": "binary file (cannot be secret-scanned)"} for b in binary]
+        return result
     diff = _git("diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", base_commit, cwd=clone).stdout
     if len(diff) > MAX_DIFF_BYTES:
         result["rejected"] = [{"path": "*", "reason": f"diff larger than {MAX_DIFF_BYTES} bytes"}]
@@ -173,16 +242,19 @@ FIX_COMMANDS = {
              "--output-last-message {last_message} {prompt}",
     "claude-code": "claude -p {prompt} --output-format text --permission-mode acceptEdits",
 }
-# Vlastní stav CLI (přihlášení, relace) — jediný povolený zápis mimo klon.
-CLI_STATE = {"codex": (".codex",), "claude-code": (".claude", ".claude.json")}
+# Přihlašovací soubory CLI, které se zkopírují do jednorázového HOME běhu; zpět se vrací jen
+# obnovené přihlášení (CRED_SYNC), nikdy konfigurace — agent tak nezmění config/MCP/hooky CLI.
+CLI_FILES = {"codex": (".codex/auth.json", ".codex/config.toml"),
+             "claude-code": (".claude/.credentials.json", ".claude.json", ".claude/settings.json")}
+CRED_SYNC = {"codex": (".codex/auth.json",), "claude-code": (".claude/.credentials.json",)}
 
 
-def cli_state_for(agent: str) -> tuple[str, ...]:
-    import os
-    env = os.environ.get("AGENT_LEASE_FIX_CLI_STATE")
+def cli_files_for(agent: str) -> tuple[str, ...]:
+    env = os.environ.get("AGENT_LEASE_FIX_CLI_FILES")
     if env is not None:
         return tuple(p for p in env.split(":") if p)
-    return CLI_STATE.get(agent, ())
+    return CLI_FILES.get(agent, ())
 
 
-__all__ = ["CRITICAL", "DEFAULT_HIDE", "cleanup", "collect", "prepare", "publish", "run_sandboxed", "sandbox_argv"]
+__all__ = ["DEFAULT_HIDE", "cleanup", "collect", "prepare", "prepare_home", "publish", "run_sandboxed",
+           "sandbox_argv", "sync_credentials"]

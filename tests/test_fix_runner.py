@@ -37,7 +37,12 @@ def env(tmp_path: Path):
     (home / ".agent-lease" / "webui.token").write_text("TOKEN-SYNTHETIC")
     (home / ".ssh").mkdir()
     (home / ".ssh" / "id_test").write_text("KEY-SYNTHETIC")
-    (home / ".cli").mkdir()                     # stav CLI — výslovná výjimka
+    (home / ".codex").mkdir()
+    (home / ".codex" / "auth.json").write_text('{"token": "old"}')
+    (home / ".codex" / "config.toml").write_text("model = 'x'\n")
+    state = tmp_path / "state"                  # stav místnosti mimo HOME (AGENT_LEASE_DB)
+    state.mkdir()
+    (state / "webui.token").write_text("STATE-SYNTHETIC")
     repo = tmp_path / "repo"
     repo.mkdir()
     git("init", "-q", "-b", "main", cwd=repo)
@@ -48,7 +53,7 @@ def env(tmp_path: Path):
     git("commit", "-q", "-m", "base", cwd=repo)
     base = git("rev-parse", "HEAD", cwd=repo)
     outside = Path("/tmp") / f"agent-lease-host-marker-{uuid.uuid4().hex}"
-    yield {"tmp": tmp_path, "home": home, "repo": repo, "base": base, "outside": outside}
+    yield {"tmp": tmp_path, "home": home, "repo": repo, "base": base, "outside": outside, "state": state}
     shutil.rmtree(root, ignore_errors=True)
     outside.unlink(missing_ok=True)
 
@@ -62,13 +67,16 @@ echo "{"
 try legit_write   "printf 'print(\"fixed\")\n' > src/app.py"
 try host_tmp      "echo x > $OUTSIDE"
 try private_tmp   "echo x > /tmp/scratch"
-try home_write    "echo x > $HOME/evil"
+try home_write    "echo x > $REALHOME/evil"
 try main_repo     "echo x > $REPO/README.md"
 try git_config    "echo '[core]' >> .git/config"
 try git_hook      "echo 'exit 0' > .git/hooks/post-commit"
 try read_token    "cat $HOME/.agent-lease/webui.token | grep -q SYNTHETIC"
 try read_ssh      "cat $HOME/.ssh/id_test | grep -q SYNTHETIC"
-try cli_state     "echo session > $HOME/.cli/session"
+try cli_config    "echo 'mcp = evil' >> $REALHOME/.codex/config.toml"
+try run_home_auth "grep -q old $HOME/.codex/auth.json && echo '{\"token\": \"new\"}' > $HOME/.codex/auth.json"
+try read_state    "cat $STATE/webui.token | grep -q SYNTHETIC"
+try env_leak      "env | grep -q AGENT_LEASE_SECRET"
 echo "\"end\": true}"
 } > /dev/shm/probe.json 2>/dev/null || true
 cat /dev/shm/probe.json 2>/dev/null
@@ -77,8 +85,14 @@ cat /dev/shm/probe.json 2>/dev/null
 
 def run_agent(env, clone, script=HOSTILE):
     argv = ["/bin/sh", "-c", script]
-    e = {"OUTSIDE": str(env["outside"]), "REPO": str(env["repo"])}
-    full = fix_runner.sandbox_argv(clone, argv, home=env["home"], cli_state=(".cli",))
+    e = {"OUTSIDE": str(env["outside"]), "REPO": str(env["repo"]), "REALHOME": str(env["home"]),
+         "STATE": str(env["state"])}
+    run_home = clone.parent / "home"
+    if not run_home.exists():
+        fix_runner.prepare_home(clone.parent, env["home"], (".codex/auth.json", ".codex/config.toml"))
+    host_env = {"AGENT_LEASE_SECRET": "x", "LANG": "C.UTF-8"}
+    full = fix_runner.sandbox_argv(clone, argv, home=env["home"], run_home=run_home,
+                                   hide_abs=(str(env["state"]),), env=host_env)
     # proměnné předáme přes --setenv před příkazem
     i = full.index("--")
     for k, v in e.items():
@@ -98,7 +112,11 @@ def test_hostile_agent_is_contained(env):
     assert probe["main_repo"] is False and (env["repo"] / "README.md").read_text() == "readme\n"
     assert probe["git_config"] is False and probe["git_hook"] is False   # .git klonu jen pro čtení
     assert probe["read_token"] is False and probe["read_ssh"] is False   # stav místnosti a klíče skryté
-    assert probe["cli_state"] is True and (env["home"] / ".cli" / "session").exists()  # výslovná výjimka
+    assert probe["cli_config"] is False and "evil" not in (env["home"] / ".codex" / "config.toml").read_text()
+    assert probe["run_home_auth"] is True                    # CLI si obnoví přihlášení v kopii…
+    assert fix_runner.sync_credentials(clone.parent / "home", env["home"], (".codex/auth.json",)) == [".codex/auth.json"]
+    assert "new" in (env["home"] / ".codex" / "auth.json").read_text()   # …a zpět jde jen auth.json
+    assert probe["read_state"] is False and probe["env_leak"] is False
     assert git("rev-parse", "HEAD", cwd=env["repo"]) == env["base"]
 
 
@@ -117,6 +135,9 @@ def test_collect_commits_allowed_change_and_publishes_branch(env):
 @pytest.mark.parametrize("script,reason", [
     ("echo x > README.md", "outside allowed paths"),
     ("mkdir -p .github/workflows && echo x > .github/workflows/ci.yml", "critical file"),
+    ("echo '* filter=evil' > src/.gitattributes", "critical file"),
+    ("mkdir -p src/.GitHub && echo x > src/.GitHub/x.yml", "critical file"),
+    ("printf 'a\\000b' > src/blob.bin", "binary file"),
     ("ln -s /etc/passwd src/link", "symlink"),
 ])
 def test_collect_rejects(env, script, reason):
@@ -166,13 +187,21 @@ def test_hooks_never_run_in_trusted_process(env):
 
 
 # ── C1c: bridge spustí opravu v izolovaném klonu a předá větev ─────────────────
+def test_sync_credentials_ignores_invalid(env, tmp_path=None):
+    run_home = env["tmp"] / "rh"
+    (run_home / ".codex").mkdir(parents=True)
+    (run_home / ".codex" / "auth.json").write_text("not json")
+    assert fix_runner.sync_credentials(run_home, env["home"], (".codex/auth.json",)) == []
+    assert "old" in (env["home"] / ".codex" / "auth.json").read_text()
+
+
 def _bridge_env(env, monkeypatch, body: str):
     import stat as st
     import sys
 
     from agent_lease_mcp.config import Settings
     from agent_lease_mcp.store import Store
-    db = env["tmp"] / "state" / "room.db"
+    db = env["tmp"] / "bridge-state" / "room.db"
     db.parent.mkdir()
     store = Store(db, settings=Settings(db, "codex", 1800))
     pol = db.parent / "fix-runner.toml"
@@ -182,7 +211,7 @@ def _bridge_env(env, monkeypatch, body: str):
     script.write_text(body)
     script.chmod(script.stat().st_mode | st.S_IEXEC)
     monkeypatch.setenv("AGENT_LEASE_FIX_DIR", str(env["tmp"] / "fixes"))
-    monkeypatch.setenv("AGENT_LEASE_FIX_CLI_STATE", "")
+    monkeypatch.setenv("AGENT_LEASE_FIX_CLI_FILES", "")
     mid = store.send("michal", "codex", "oprav app.py", kind="task", fix_repo=str(env["repo"]),
                      fix_base=env["base"], fix_allowed=["src"])
     assert store.approve_fix(mid, "codex", "michal", "test")
