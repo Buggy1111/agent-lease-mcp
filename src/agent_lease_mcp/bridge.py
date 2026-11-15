@@ -774,8 +774,9 @@ class Bridge:
         allowed = scope["allowed"]
         prompt += (f"\n\n--- WRITE-MODE FIX (isolated clone) ---\nYou work in an isolated copy of the "
                    f"repository at {clone}. Edit only: {', '.join(allowed) or 'any project file'}. "
-                   "CI, deploy and git files are off limits. Do not commit or push; your changes are "
-                   "checked and committed after you finish.")
+                   "CI, deploy and git files are off limits. First add a regression test that fails "
+                   "without the fix, then fix the bug and run the tests. Do not commit or push; your "
+                   "changes are checked and committed after you finish.")
         command = (os.environ.get("AGENT_LEASE_FIX_COMMAND")
                    or fix_runner.FIX_COMMANDS.get(self.agent) if self.command in DEFAULT_COMMANDS.values()
                    else self.command)
@@ -837,7 +838,14 @@ class Bridge:
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             return hold("publish failed", f"commit {res['commit']} ready in {workdir}, publishing failed: {str(exc)[:200]}")
         fix_runner.cleanup(workdir)
-        body = (f"Fix #{mid} done in an isolated clone. Branch {branch} @ {res['commit']} "
+        review_note = ""
+        try:  # C2: oprava od agenta jde k review zadavateli; další kola přes připomínky
+            rid = self.store.fix_record_result(self.agent, mid, res["commit"])
+            if rid:
+                review_note = f" Review #{rid} waits for the requester."
+        except (PermissionError, ValueError, KeyError) as exc:
+            review_note = f" Review not opened: {str(exc)[:200]}"
+        body = (f"Fix #{mid} done in an isolated clone.{review_note} Branch {branch} @ {res['commit']} "
                 f"({len(res['files'])} file(s): {', '.join(res['files'][:10])}). Nothing merged — "
                 f"review and merge is up to the human.\n{redact(result.output)[-2000:]}")
         self.store.complete(mid, self.agent, token, DeliveryState.SUCCEEDED, body)

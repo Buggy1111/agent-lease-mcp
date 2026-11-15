@@ -42,7 +42,7 @@ METHODS = frozenset({
     "checkpoint", "get_checkpoint", "backup_now",
     # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
     "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
-    "review_approved",
+    "review_approved", "fix_record_result",
     "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
     "quality_autorun_enabled",
     # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.

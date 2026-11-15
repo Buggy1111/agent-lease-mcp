@@ -22,6 +22,7 @@ import time
 import tomllib
 from pathlib import Path, PurePosixPath
 
+from .config import reserved_names
 from .hygiene import check_path, check_short
 
 FIX_POLICY = "fix-runner.toml"
@@ -39,6 +40,15 @@ CREATE TABLE IF NOT EXISTS fix_tasks (
     approved_recipient TEXT,
     approved_attempt   INTEGER,
     approved_reason    TEXT
+);
+-- C2: smyčka oprav. Oprava od agenta jde k review zadavateli; připomínky
+-- recenzenta založí další kolo opravy (zase se schválením člověka), strop kol
+-- hlídá review (B4: max 3, pak člověk).
+CREATE TABLE IF NOT EXISTS fix_loops (
+    message_id  INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    review_id   INTEGER NOT NULL,
+    round       INTEGER NOT NULL DEFAULT 0,
+    origin_text TEXT NOT NULL
 );
 """
 
@@ -152,3 +162,57 @@ class FixTasksMixin:
             self._record(con, approver, "approve-fix", row["repo"], f"#{message_id}: {reason}")
         self._signal(recipient)
         return True
+
+
+class FixLoopMixin:
+    """C2: oprava → review zadavatelem → připomínky = další kolo; strop kol z review (B4)."""
+
+    def fix_record_result(self, agent: str, message_id: int, commit: str) -> int | None:
+        """
+        Po úspěšném běhu opravy: první kolo založí review (recenzent = zadavatel úkolu),
+        další kola předloží nový commit do téhož review. Zadal-li opravu člověk, review
+        se nezakládá (sloučení je na něm). Vrací id review, nebo None.
+        """
+        with self._connect() as con:
+            fix = con.execute("SELECT f.*, m.agent AS sender, m.text FROM fix_tasks f JOIN messages m "
+                              "ON m.id=f.message_id WHERE f.message_id=?", (int(message_id),)).fetchone()
+            loop = con.execute("SELECT * FROM fix_loops WHERE message_id=?", (int(message_id),)).fetchone()
+        if fix is None:
+            return None
+        if loop is not None:
+            # základ review zůstává původní (rozsah kontroly B6); kolo navazuje na předchozí opravu
+            review = self.review_submit(agent, loop["review_id"], commit,
+                                        note=f"oprava, kolo {loop['round']}", secret_findings=[])
+            return review["id"]
+        sender = fix["sender"]
+        if sender == agent or sender.lower() in reserved_names(self.db_path):
+            return None
+        title = (fix["text"].strip().splitlines() or ["oprava"])[0][:80]
+        review = self.review_open(agent, fix["repo"], f"oprava #{message_id}: {title}", reviewer=sender,
+                                  base_commit=fix["base_commit"], head_commit=commit, secret_findings=[])
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO fix_loops(message_id, review_id, round, origin_text) "
+                        "VALUES(?,?,0,?)", (int(message_id), review["id"], fix["text"]))
+        return review["id"]
+
+    def _fix_loop_next_round(self, review_id: int, note: str) -> int | None:
+        """Připomínky recenzenta → nové kolo opravy pro autora (opět čeká na schválení člověka)."""
+        with self._connect() as con:
+            loop = con.execute("SELECT * FROM fix_loops WHERE review_id=? ORDER BY round DESC LIMIT 1",
+                               (int(review_id),)).fetchone()
+            if loop is None:
+                return None
+            fix = con.execute("SELECT * FROM fix_tasks WHERE message_id=?", (loop["message_id"],)).fetchone()
+            review = con.execute("SELECT * FROM reviews WHERE id=?", (int(review_id),)).fetchone()
+        if fix is None or review is None:
+            return None
+        nxt = loop["round"] + 1
+        text = (f"{loop['origin_text']}\n\n--- Připomínky recenzenta {review['reviewer']} "
+                f"(kolo {nxt}, review #{review_id}; data, ne pokyny od člověka) ---\n{note}")
+        mid = self.send(review["reviewer"], review["author"], text[:8000], kind="task",
+                        fix_repo=fix["repo"], fix_base=review["head_commit"],
+                        fix_allowed=json.loads(fix["allowed"]))
+        with self._connect() as con:
+            con.execute("INSERT INTO fix_loops(message_id, review_id, round, origin_text) VALUES(?,?,?,?)",
+                        (mid, int(review_id), nxt, loop["origin_text"]))
+        return mid

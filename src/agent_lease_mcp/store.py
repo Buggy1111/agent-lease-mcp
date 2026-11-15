@@ -25,7 +25,7 @@ from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
 from ._fix_tasks import SCHEMA as FIX_SCHEMA
-from ._fix_tasks import FixTasksMixin
+from ._fix_tasks import FixLoopMixin, FixTasksMixin
 from ._messaging import MessagingMixin
 from ._quality_queue import QualityQueueMixin
 from ._quality_runs import QualityRunsMixin
@@ -287,7 +287,7 @@ CREATE TABLE IF NOT EXISTS quality_policy_approvals (
 
 
 class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
-            QualityRunsMixin, QualityQueueMixin, FixTasksMixin):
+            QualityRunsMixin, QualityQueueMixin, FixTasksMixin, FixLoopMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i

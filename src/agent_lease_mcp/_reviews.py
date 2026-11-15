@@ -277,6 +277,8 @@ class ReviewsMixin:
             ESCALATED: f"Review #{review_id} ESKALOVÁNO na člověka: vyčerpána {row['max_fix_cycles']} opravná kola. Poslední výhrady: {note[:300]}",
         }
         self._review_notify(reviewer, row["author"], texts[new_state])
+        if new_state == CHANGES and hasattr(self, "_fix_loop_next_round"):
+            self._fix_loop_next_round(review_id, note)  # C2: další kolo opravy (schvaluje člověk)
         if new_state == ESCALATED:
             self._review_notify(reviewer, human, texts[ESCALATED])
         return self._review_dict(row)
