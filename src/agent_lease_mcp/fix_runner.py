@@ -27,6 +27,7 @@ Síť zůstává (CLI potřebuje API modelu). Sloučení větve schvaluje člov�
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -110,30 +111,74 @@ def sync_credentials(run_home: Path, real_home: Path, files: tuple[str, ...]) ->
     return synced
 
 
+# Allowlist: jen systémové adresáře (programy, knihovny, /etc kvůli certifikátům a DNS).
+# HOME hostitele, jiné projekty, /run (sokety, broker) ani /mnt se vůbec nepřipojí (review #20 F1).
+SYSTEM_RO = ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/lib32", "/etc", "/opt")
+
+
+def runtime_paths(argv: list[str]) -> tuple[list[str], list[str]]:
+    """Spustitelný soubor jako absolutní cesta + co z hostitele musí být čitelné, aby šel spustit.
+
+    Program mimo systémové adresáře (CLI v ~/.local, interpret z uv/nvm) se připojí jen pro čtení:
+    instalace `…/bin/x` celým kořenem instalace, samostatný binární soubor sám. Stejně tak
+    interpret ze shebangu a absolutní cesty v argumentech (např. skript).
+    """
+    if not argv:
+        return [], []
+    exe = shutil.which(argv[0]) or argv[0]
+    real = Path(exe).resolve()
+    ro: list[str] = []
+
+    def add(path: Path) -> None:
+        if not any(str(path).startswith(root + "/") or str(path) == root for root in SYSTEM_RO):
+            ro.append(str(path.parent.parent if path.parent.name == "bin" else path))
+    add(real)
+    try:
+        head = real.read_bytes()[:256]
+        if head.startswith(b"#!"):
+            interp = head[2:].split(b"\n", 1)[0].split()
+            if interp and interp[0].endswith(b"/env") and len(interp) > 1:
+                found = shutil.which(interp[1].decode())
+                if found:
+                    add(Path(found).resolve())
+            elif interp:
+                add(Path(interp[0].decode()).resolve())
+    except OSError:
+        pass
+    for arg in argv[1:]:
+        if arg.startswith("/") and len(arg) < 4096 and Path(arg).exists():
+            add(Path(arg).resolve())
+    return [str(real), *argv[1:]], sorted(set(ro))
+
+
 def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None, run_home: Path | None = None,
-                 hide: tuple[str, ...] = DEFAULT_HIDE, hide_abs: tuple[str, ...] = (),
-                 extra_rw: tuple[str, ...] = (), env: dict[str, str] | None = None) -> list[str]:
-    """Příkaz, který spustí `argv` v izolaci: zapisovat smí jen do pracovních souborů klonu a do HOME běhu."""
+                 ro_paths: tuple[str, ...] | list[str] = (), hide_abs: tuple[str, ...] = (),
+                 extra_rw: tuple[str, ...] = (), env: dict[str, str] | None = None,
+                 hide: tuple[str, ...] = DEFAULT_HIDE) -> list[str]:
+    """Příkaz, který spustí `argv` v izolaci: vidí jen systémové adresáře, program, klon a HOME běhu."""
     clone = Path(clone).resolve()
     home = Path(home or Path.home())
     env = os.environ if env is None else env
+    argv, needed = runtime_paths(list(argv))
     args = [BWRAP, "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc",
-            "--unshare-uts", "--unshare-cgroup-try", "--clearenv",
-            "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"]
-    # Sokety hostitele (session bus, gpg/ssh agent, docker) nejsou pro opravu potřeba.
-    for path in (f"/run/user/{os.getuid()}", "/run/dbus"):
-        if Path(path).is_dir():
-            args += ["--tmpfs", path]
-    socks = {str(Path(p).resolve()) for p in ("/var/run/docker.sock", "/run/docker.sock",
-                                                "/run/podman/podman.sock") if Path(p).exists()}
-    for sock in sorted(socks):  # cíl symlinku (/var/run → /run, Docker Desktop → /mnt/wsl/…)
-        args += ["--ro-bind", "/dev/null", sock]
-    targets = [home / rel for rel in hide] + [Path(p) for p in hide_abs]
-    for target in targets:
-        if target.is_dir():
-            args += ["--tmpfs", str(target)]
-        elif target.exists():
-            args += ["--ro-bind", "/dev/null", str(target)]
+            "--unshare-uts", "--unshare-cgroup-try", "--clearenv"]
+    for root in SYSTEM_RO:
+        p = Path(root)
+        if p.is_symlink():
+            args += ["--symlink", os.readlink(p), root]
+        elif p.is_dir():
+            args += ["--ro-bind", root, root]
+    resolv = Path("/etc/resolv.conf").resolve()   # WSL / systemd-resolved: cíl mimo /etc
+    if resolv.exists() and not str(resolv).startswith("/etc/"):
+        args += ["--ro-bind", str(resolv), str(resolv)]
+    args += ["--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"]
+    for path in [*needed, *ro_paths]:
+        args += ["--ro-bind", str(path), str(path)]
+    # Pojistka: kdyby připojená cesta obsahovala stav místnosti nebo tajemství, překrýt je.
+    bound = [*needed, *[str(p) for p in ro_paths]]
+    for target in [home / rel for rel in hide] + [Path(p) for p in hide_abs]:
+        if any(str(target).startswith(b.rstrip("/") + "/") or str(target) == b for b in bound):
+            args += ["--tmpfs", str(target)] if target.is_dir() else ["--ro-bind", "/dev/null", str(target)]
     for path in extra_rw:  # např. adresář s poslední odpovědí CLI, který čte bridge
         args += ["--bind", str(path), str(path)]
     if run_home is not None:
@@ -145,7 +190,7 @@ def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None, run_
             args += ["--setenv", key, env[key]]
     args += ["--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin", "--setenv", "TMPDIR", "/tmp",
              "--setenv", "HOME", str(run_home or home), "--"]
-    return args + list(argv)
+    return args + argv
 
 
 def run_sandboxed(clone: Path, argv: list[str], *, timeout: int = 1800, **kw) -> subprocess.CompletedProcess:
@@ -224,6 +269,35 @@ def collect(clone: Path, base_commit: str, allowed: list[str], message: str) -> 
     return result
 
 
+_TEST_FILE = re.compile(r"(^|/)(tests?/|test_[^/]*\.py$|[^/]*_test\.(py|go|ts|js|rs)$|[^/]*\.(test|spec)\.[cm]?[jt]sx?$)")
+
+
+def verify_regression(clone: Path, base_commit: str, files: list[str], test_argv: list[str], workdir: Path,
+                      *, timeout: int = 900, **sandbox_kw) -> dict:
+    """
+    Důvěryhodné ověření C2a: oprava musí přinést regresní test, který na ZÁKLADU selže
+    (nový test bez opravy) a s opravou projde i s celou sadou. Testy běží ve stejném bwrap.
+    Vrací {ok, reason, tests}.
+    """
+    tests = [f for f in files if _TEST_FILE.search(f)]
+    if not tests:
+        return {"ok": False, "reason": "no regression test in the change", "tests": []}
+    head = run_sandboxed(clone, test_argv, timeout=timeout, **sandbox_kw)
+    if head.returncode != 0:
+        return {"ok": False, "reason": f"tests fail with the fix (exit {head.returncode})", "tests": tests}
+    base = prepare(clone, base_commit, Path(workdir) / "base-check")
+    for rel in tests:  # jen nové/změněné testy na původní kód
+        src = Path(clone) / rel
+        if src.is_file():
+            dst = base / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+    old = run_sandboxed(base, test_argv, timeout=timeout, **sandbox_kw)
+    if old.returncode == 0:
+        return {"ok": False, "reason": "the new test passes without the fix (not a regression test)", "tests": tests}
+    return {"ok": True, "reason": "", "tests": tests}
+
+
 def publish(repo: Path, clone: Path, commit: str, branch: str) -> str:
     """Stáhne ověřený commit z klonu do větve `branch` hlavního repa; nic neslučuje."""
     if not branch.startswith("agent-fix/") or ".." in branch or any(c in branch for c in " ~^:?*[\\"):
@@ -257,4 +331,4 @@ def cli_files_for(agent: str) -> tuple[str, ...]:
 
 
 __all__ = ["DEFAULT_HIDE", "cleanup", "collect", "prepare", "prepare_home", "publish", "run_sandboxed",
-           "sandbox_argv", "sync_credentials"]
+           "runtime_paths", "sandbox_argv", "sync_credentials", "verify_regression"]

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,12 @@ def env(tmp_path: Path):
     (home / ".codex").mkdir()
     (home / ".codex" / "auth.json").write_text('{"token": "old"}')
     (home / ".codex" / "config.toml").write_text("model = 'x'\n")
+    other = tmp_path / "other-project"         # jiný projekt / soukromá data mimo klon
+    other.mkdir()
+    (other / "secret.txt").write_text("OTHER-SYNTHETIC")
+    import socket as _s
+    sock = _s.socket(_s.AF_UNIX)
+    sock.bind(str(other / "broker.sock"))            # nestandardní soket (broker mimo ~/.agent-lease)
     state = tmp_path / "state"                  # stav místnosti mimo HOME (AGENT_LEASE_DB)
     state.mkdir()
     (state / "webui.token").write_text("STATE-SYNTHETIC")
@@ -53,7 +60,9 @@ def env(tmp_path: Path):
     git("commit", "-q", "-m", "base", cwd=repo)
     base = git("rev-parse", "HEAD", cwd=repo)
     outside = Path("/tmp") / f"agent-lease-host-marker-{uuid.uuid4().hex}"
-    yield {"tmp": tmp_path, "home": home, "repo": repo, "base": base, "outside": outside, "state": state}
+    yield {"tmp": tmp_path, "home": home, "repo": repo, "base": base, "outside": outside, "state": state,
+           "other": other}
+    sock.close()
     shutil.rmtree(root, ignore_errors=True)
     outside.unlink(missing_ok=True)
 
@@ -77,6 +86,9 @@ try cli_config    "echo 'mcp = evil' >> $REALHOME/.codex/config.toml"
 try run_home_auth "grep -q old $HOME/.codex/auth.json && echo '{\"token\": \"new\"}' > $HOME/.codex/auth.json"
 try read_state    "cat $STATE/webui.token | grep -q SYNTHETIC"
 try env_leak      "env | grep -q AGENT_LEASE_SECRET"
+try read_other    "cat $OTHER/secret.txt | grep -q SYNTHETIC"
+try see_socket    "test -e $OTHER/broker.sock"
+try read_main     "test -r $REPO/README.md"
 echo "\"end\": true}"
 } > /dev/shm/probe.json 2>/dev/null || true
 cat /dev/shm/probe.json 2>/dev/null
@@ -86,7 +98,7 @@ cat /dev/shm/probe.json 2>/dev/null
 def run_agent(env, clone, script=HOSTILE):
     argv = ["/bin/sh", "-c", script]
     e = {"OUTSIDE": str(env["outside"]), "REPO": str(env["repo"]), "REALHOME": str(env["home"]),
-         "STATE": str(env["state"])}
+         "STATE": str(env["state"]), "OTHER": str(env["other"])}
     run_home = clone.parent / "home"
     if not run_home.exists():
         fix_runner.prepare_home(clone.parent, env["home"], (".codex/auth.json", ".codex/config.toml"))
@@ -117,6 +129,8 @@ def test_hostile_agent_is_contained(env):
     assert fix_runner.sync_credentials(clone.parent / "home", env["home"], (".codex/auth.json",)) == [".codex/auth.json"]
     assert "new" in (env["home"] / ".codex" / "auth.json").read_text()   # …a zpět jde jen auth.json
     assert probe["read_state"] is False and probe["env_leak"] is False
+    assert probe["read_other"] is False and probe["see_socket"] is False     # review #20 F1
+    assert probe["read_main"] is False                       # ani hlavní repo není vidět
     assert git("rev-parse", "HEAD", cwd=env["repo"]) == env["base"]
 
 
@@ -195,9 +209,8 @@ def test_sync_credentials_ignores_invalid(env, tmp_path=None):
     assert "old" in (env["home"] / ".codex" / "auth.json").read_text()
 
 
-def _bridge_env(env, monkeypatch, body: str):
+def _bridge_env(env, monkeypatch, body: str, with_tests: bool = True):
     import stat as st
-    import sys
 
     from agent_lease_mcp.config import Settings
     from agent_lease_mcp.store import Store
@@ -205,7 +218,9 @@ def _bridge_env(env, monkeypatch, body: str):
     db.parent.mkdir()
     store = Store(db, settings=Settings(db, "codex", 1800))
     pol = db.parent / "fix-runner.toml"
-    pol.write_text(f'version = 1\nenabled = true\nrepositories = ["{env["repo"]}"]\nagents = ["codex"]\n')
+    tests = json.dumps([sys.executable, "src/test_app.py"]) if with_tests else None
+    pol.write_text(f'version = 1\nenabled = true\nrepositories = ["{env["repo"]}"]\nagents = ["codex"]\n'
+                   + (f'[tests]\n"{env["repo"]}" = {tests}\n' if tests else ""))
     os.chmod(pol, 0o600)
     script = env["tmp"] / "agent.py"
     script.write_text(body)
@@ -223,6 +238,8 @@ def test_bridge_runs_fix_in_sandbox_and_publishes_branch(env, monkeypatch):
     store, mid, cmd = _bridge_env(env, monkeypatch, (
         "import pathlib\n"
         "pathlib.Path('src/app.py').write_text('print(\"fixed\")\\n')\n"
+        "pathlib.Path('src/test_app.py').write_text("
+        "'import pathlib,sys\\nsys.exit(0 if \"fixed\" in pathlib.Path(\"src/app.py\").read_text() else 1)\\n')\n"
         "try:\n    pathlib.Path('" + str(env["repo"]) + "/README.md').write_text('pwned')\nexcept OSError:\n    pass\n"
         "print('hotovo')\n"))
     assert Bridge(store, "codex", cmd, lease_seconds=30).step()
@@ -245,3 +262,27 @@ def test_bridge_rejected_change_goes_to_review(env, monkeypatch):
     assert any("outside allowed paths" in m["text"] for m in store.inbox(since_id=0) if m.get("reply_to") == mid
                or f"#{mid}" in m["text"])
     assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
+
+
+@pytest.mark.parametrize("body,reason", [
+    ("import pathlib\npathlib.Path('src/app.py').write_text('print(1)\\n')\n", "no regression test"),
+    (("import pathlib\npathlib.Path('src/app.py').write_text('print(\"fixed\")\\n')\n"
+      "pathlib.Path('src/test_app.py').write_text('import sys\\nsys.exit(0)\\n')\n"), "passes without the fix"),
+])
+def test_bridge_requires_verified_regression_test(env, monkeypatch, body, reason):
+    from agent_lease_mcp.bridge import Bridge
+    store, mid, cmd = _bridge_env(env, monkeypatch, body)
+    assert Bridge(store, "codex", cmd, lease_seconds=30).step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"] == "fix: tests not verified"
+    assert any(reason in m["text"] for m in store.inbox(since_id=0))
+
+
+def test_bridge_without_test_command_needs_review(env, monkeypatch):
+    from agent_lease_mcp.bridge import Bridge
+    store, mid, cmd = _bridge_env(env, monkeypatch,
+                                  "import pathlib\npathlib.Path('src/app.py').write_text('x\\n')\n",
+                                  with_tests=False)
+    assert Bridge(store, "codex", cmd, lease_seconds=30).step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"] == "fix: tests not verified"

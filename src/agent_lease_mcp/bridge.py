@@ -445,6 +445,11 @@ def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPE
     return RunResult(True, str(text).strip()[-4000:])
 
 
+def fix_ro_paths() -> tuple[str, ...]:
+    """Další cesty jen pro čtení pro zápisové běhy (např. toolchain mimo systém), z AGENT_LEASE_FIX_RO_PATHS."""
+    return tuple(p for p in os.environ.get("AGENT_LEASE_FIX_RO_PATHS", "").split(":") if p)
+
+
 class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
@@ -804,7 +809,7 @@ class Bridge:
                                  idle_timeout=self.timeout if self.max_runtime else None,
                                  wrap=lambda argv, tmp: fix_runner.sandbox_argv(
                                      clone, argv, home=real_home, run_home=run_home, extra_rw=(tmp,),
-                                     hide_abs=(str(self.store.db_path.parent),)))
+                                     ro_paths=fix_ro_paths(), hide_abs=(str(self.store.db_path.parent),)))
         except BaseException:
             self._cleanup_blocked = True
             raise
@@ -832,11 +837,26 @@ class Bridge:
             if res["findings"]:
                 why = f"secret scan found {len(res['findings'])} finding(s)"
             return hold("changes rejected", f"changes were NOT committed ({why}); clone kept at {workdir} for review.")
+        # C2a: regresní test ověří důvěryhodný proces (na základu FAIL, s opravou PASS i celá sada)
+        verdict = {"ok": False, "reason": "no test command for this repository in fix-runner.toml", "tests": []}
+        if scope.get("test_command"):
+            try:
+                verdict = fix_runner.verify_regression(
+                    clone, scope["base_commit"], res["files"], scope["test_command"], workdir,
+                    timeout=int(os.environ.get("AGENT_LEASE_FIX_TEST_TIMEOUT", "900")),
+                    home=real_home, run_home=run_home, ro_paths=fix_ro_paths(),
+                    hide_abs=(str(self.store.db_path.parent),))
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                verdict = {"ok": False, "reason": f"test run failed: {str(exc)[:200]}", "tests": []}
         branch = f"agent-fix/{mid}-{res['commit'][:8]}"
         try:
             fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             return hold("publish failed", f"commit {res['commit']} ready in {workdir}, publishing failed: {str(exc)[:200]}")
+        if not verdict["ok"]:
+            # větev je k dispozici člověku, ale bez ověřeného testu se nic nehlásí jako hotové
+            return hold("tests not verified", f"branch {branch} @ {res['commit']} published, but "
+                        f"{verdict['reason']}; waiting for the human. Clone kept at {workdir}.")
         fix_runner.cleanup(workdir)
         review_note = ""
         try:  # C2: oprava od agenta jde k review zadavateli; další kola přes připomínky

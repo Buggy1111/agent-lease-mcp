@@ -77,14 +77,21 @@ def fix_policy(db_path: Path) -> dict | None:
         data = tomllib.loads(policy_bytes(db_path, FIX_POLICY).decode())
     except (OSError, ValueError, UnicodeError):
         return None
-    repos, agents = data.get("repositories"), data.get("agents")
-    if (set(data) - {"version", "enabled", "repositories", "agents"} or data.get("version") != 1
+    repos, agents, tests = data.get("repositories"), data.get("agents"), data.get("tests", {})
+    # C2a: [tests] "/abs/repo" = ["uv", "run", "pytest", "-q"] — příkaz, kterým důvěryhodný proces
+    # ověří regresní test (na základu selže, s opravou projde). Bez něj oprava končí v needs_review.
+    if (not isinstance(tests, dict) or not all(
+            isinstance(k, str) and Path(k).is_absolute() and isinstance(v, list) and v
+            and all(isinstance(x, str) and x for x in v) for k, v in tests.items())):
+        return None
+    if (set(data) - {"version", "enabled", "repositories", "agents", "tests"} or data.get("version") != 1
             or type(data.get("version")) is not int or data.get("enabled") is not True
             or not isinstance(repos, list) or not isinstance(agents, list)
             or not all(isinstance(r, str) and Path(r).is_absolute() for r in repos)
             or not all(isinstance(a, str) and a for a in agents)):
         return None
-    return {"repositories": {str(Path(r).resolve()) for r in repos}, "agents": set(agents)}
+    return {"repositories": {str(Path(r).resolve()) for r in repos}, "agents": set(agents),
+            "tests": {str(Path(k).resolve()): list(v) for k, v in tests.items()}}
 
 
 class FixTasksMixin:
@@ -122,8 +129,10 @@ class FixTasksMixin:
                               (int(message_id),)).fetchone()
         if row is None:
             return None
+        policy = fix_policy(self.db_path) or {}
         return {"repo": row["repo"], "base_commit": row["base_commit"],
-                "allowed": json.loads(row["allowed"])}
+                "allowed": json.loads(row["allowed"]),
+                "test_command": (policy.get("tests") or {}).get(row["repo"])}
 
     def approve_fix(self, message_id: int, recipient: str, approver: str, reason: str) -> bool:
         """
