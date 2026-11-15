@@ -34,13 +34,14 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import jev, workspace
+from . import fix_runner, jev, workspace
 from .broker import database_busy, open_store
 from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
@@ -124,7 +125,7 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 gate=None, can_launch=None, use_cgroup: bool = False,
                 on_cgroup_created=None, idle_timeout: float | None = None,
-                progress=None) -> RunResult:
+                progress=None, wrap=None) -> RunResult:
     """
     `timeout` je absolutní strop běhu. S `idle_timeout` (B5) se běh ukončí i dřív,
     když tak dlouho nevykázal žádný postup: výstup, `progress()` (např. nový
@@ -144,7 +145,7 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 watchdog = CgroupWatchdog(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
                           gate=gate, can_launch=can_launch, group=group, watchdog=watchdog,
-                          idle_timeout=idle_timeout, progress=progress)
+                          idle_timeout=idle_timeout, progress=progress, wrap=wrap)
         except BaseException:
             try:
                 if watchdog is not None:
@@ -194,9 +195,11 @@ def _cgroup_cpu_usec(group: CommandCgroup | None) -> int | None:
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
          gate=None, can_launch=None, group: CommandCgroup | None = None,
          watchdog: CgroupWatchdog | None = None, idle_timeout: float | None = None,
-         progress=None) -> RunResult:
+         progress=None, wrap=None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
+    if wrap is not None:  # C1b: zápisový běh opravy v bwrap (adresář s odpovědí CLI zůstane zapisovatelný)
+        argv = wrap(argv, os.path.dirname(last))
     if _PRCTL is None:
         return RunResult(False, "cannot start: Linux parent-death supervision unavailable")
     proc = None
@@ -638,6 +641,9 @@ class Bridge:
                                     f"Task #{mid} not started: emergency stop.",
                                     error="emergency stop")
             return True
+        scope = self.store.fix_task(mid)
+        if scope is not None:
+            return self._run_fix(mid, token, delivery, prompt, scope, tick)
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
@@ -745,6 +751,86 @@ class Bridge:
         else:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                 f"Task #{mid} selhal:\n{body}", error=body[:300])
+        return True
+
+    def _run_fix(self, mid: int, token: str, delivery, prompt: str, scope: dict, tick) -> bool:
+        """C1b: oprava ve vlastním klonu pod bwrap; commit a předání větve dělá důvěryhodný proces."""
+        def hold(reason: str, body: str) -> bool:
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Fix #{mid}: {body}", error=f"fix: {reason}")
+            return True
+        if self.runner is not None:
+            return hold("needs a subprocess bridge", "a callable runner cannot run write-mode fixes.")
+        if not Path(fix_runner.BWRAP).exists():
+            return hold("bubblewrap missing", "bubblewrap is not installed; nothing was started.")
+        base_dir = Path(os.environ.get("AGENT_LEASE_FIX_DIR") or Path.home() / ".cache" / "agent-lease-fix")
+        workdir = base_dir / f"{mid}-{uuid.uuid4().hex[:8]}"
+        try:
+            base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            clone = fix_runner.prepare(Path(scope["repo"]), scope["base_commit"], workdir)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            fix_runner.cleanup(workdir)
+            return hold("clone failed", f"could not prepare an isolated clone: {str(exc)[:300]}")
+        allowed = scope["allowed"]
+        prompt += (f"\n\n--- WRITE-MODE FIX (isolated clone) ---\nYou work in an isolated copy of the "
+                   f"repository at {clone}. Edit only: {', '.join(allowed) or 'any project file'}. "
+                   "CI, deploy and git files are off limits. Do not commit or push; your changes are "
+                   "checked and committed after you finish.")
+        command = (os.environ.get("AGENT_LEASE_FIX_COMMAND")
+                   or fix_runner.FIX_COMMANDS.get(self.agent) if self.command in DEFAULT_COMMANDS.values()
+                   else self.command)
+        if not command:
+            fix_runner.cleanup(workdir)
+            return hold("no command", f"no write-mode command is configured for {self.agent}.")
+        cli_state = fix_runner.cli_state_for(self.agent)
+        try:
+            self._run_fence.acquire(mid, cgroup=self.use_cgroup)
+        except OSError as exc:
+            if not isinstance(exc, FileExistsError):
+                self._cleanup_blocked = True
+            fix_runner.cleanup(workdir)
+            return hold("command fence unavailable", "not started: command fence unavailable.")
+        try:
+            result = run_command(command, prompt, timeout=self.max_runtime or self.timeout, on_tick=tick,
+                                 gate=lambda: launch_gate(self.store.db_path),
+                                 can_launch=lambda: self.store.holds(mid, self.agent, token),
+                                 use_cgroup=self.use_cgroup, on_cgroup_created=self._run_fence.record_cgroup,
+                                 idle_timeout=self.timeout if self.max_runtime else None,
+                                 wrap=lambda argv, tmp: fix_runner.sandbox_argv(
+                                     clone, argv, cli_state=cli_state, extra_rw=(tmp,)))
+        except BaseException:
+            self._cleanup_blocked = True
+            raise
+        if result.cleanup_failed:
+            self._cleanup_blocked = True
+            return hold("process cleanup not confirmed", f"stopped, end of process unconfirmed; clone kept at {workdir}.")
+        self._run_fence.release()
+        if result.aborted:
+            fix_runner.cleanup(workdir)
+            self.store.heartbeat(self.worker_identity, status=f"bridge: fix #{mid} stopped (lease lost)")
+            return True
+        if not result.ok:
+            return hold("run failed", f"the agent run failed; clone kept at {workdir} for review.\n{redact(result.output)[-1500:]}")
+        title = delivery.text.strip().splitlines()[0][:72] if delivery.text.strip() else "oprava"
+        try:
+            res = fix_runner.collect(clone, scope["base_commit"], allowed, f"fix(#{mid}): {title}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            return hold("collect failed", f"checking the changes failed ({str(exc)[:200]}); clone kept at {workdir}.")
+        if not res["ok"]:
+            why = "; ".join(f"{r['path']}: {r['reason']}" for r in res["rejected"][:10])
+            if res["findings"]:
+                why = f"secret scan found {len(res['findings'])} finding(s)"
+            return hold("changes rejected", f"changes were NOT committed ({why}); clone kept at {workdir} for review.")
+        branch = f"agent-fix/{mid}-{res['commit'][:8]}"
+        try:
+            fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return hold("publish failed", f"commit {res['commit']} ready in {workdir}, publishing failed: {str(exc)[:200]}")
+        fix_runner.cleanup(workdir)
+        body = (f"Fix #{mid} done in an isolated clone. Branch {branch} @ {res['commit']} "
+                f"({len(res['files'])} file(s): {', '.join(res['files'][:10])}). Nothing merged — "
+                f"review and merge is up to the human.\n{redact(result.output)[-2000:]}")
+        self.store.complete(mid, self.agent, token, DeliveryState.SUCCEEDED, body)
         return True
 
     def _checkpoint_progress(self, mid: int):
