@@ -518,8 +518,10 @@ class Bridge:
                  after_message_id: int = 0, provider_probe=None,
                  provider_probe_interval: float = 60, worker_identity: str | None = None,
                  interactive_grace: float = 300, read_only: bool | None = None,
-                 use_cgroup: bool = False, max_runtime: float | None = None) -> None:
+                 use_cgroup: bool = False, max_runtime: float | None = None,
+                 requested_model: str | None = None) -> None:
         self.store, self.agent, self.command = store, agent, command
+        self.requested_model = requested_model or None  # připnutý model; skutečný hlásí CLI
         # Read-only běh nic nemění, takže ho po limitu jde bezpečně spustit znovu.
         # Vlastní příkaz může zapisovat → po limitu needs_review (audit #535 bod 2c).
         # Callable runner nejde spolehlivě zastavit (vlákno nezabiješ) → zapisující
@@ -710,7 +712,7 @@ class Bridge:
             return True
         report_key = None
         try:  # Separate report authority stays in the bridge, never in the task prompt.
-            report_key = self.store.begin_usage(mid, self.agent, token)
+            report_key = self.store.begin_usage(mid, self.agent, token, self.requested_model)
         except Exception as exc:  # noqa: BLE001
             print(f"[agent-lease-bridge] usage reservation failed: {exc}", file=sys.stderr)
         if not report_key:
@@ -968,6 +970,7 @@ def main(argv: list[str] | None = None) -> int:
                     after_message_id=after_message_id,
                     interactive_grace=args.interactive_grace,
                     use_cgroup=args.cgroup, max_runtime=args.max_runtime or None,
+                    requested_model=args.model or None,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()

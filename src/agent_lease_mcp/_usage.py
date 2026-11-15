@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS task_usage (
     cache_creation_tokens INTEGER,
     cost_usd              REAL,
     report_key_hash       TEXT,
+    requested_model       TEXT,
     PRIMARY KEY(message_id, recipient, attempt)
 );
 """
@@ -49,15 +50,23 @@ _NO_TOKENS = ("(input_tokens IS NULL OR output_tokens IS NULL OR cache_read_toke
 class UsageMixin:
     @staticmethod
     def _migrate_usage(con) -> None:
-        if "report_key_hash" not in {r["name"] for r in con.execute("PRAGMA table_info(task_usage)")}:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(task_usage)")}
+        if "report_key_hash" not in cols:
             con.execute("ALTER TABLE task_usage ADD COLUMN report_key_hash TEXT")
+        if "requested_model" not in cols:
+            con.execute("ALTER TABLE task_usage ADD COLUMN requested_model TEXT")
 
-    def begin_usage(self, message_id: int, recipient: str, lease_token: str) -> str | None:
+    def begin_usage(self, message_id: int, recipient: str, lease_token: str,
+                    requested_model: str | None = None) -> str | None:
         """Reserve metering before launch; return a key once, never to the child.
 
         A lease permits task execution, not replacement of the bridge's report.
         An existing row cannot be adopted or reset with the lease token alone.
         """
+        # Požadovaný (připnutý) model se ukládá zvlášť od skutečně použitého (`model` z výstupu
+        # CLI) — rozdíl ukáže tichý fallback poskytovatele (oponentura fáze C, Nox).
+        if requested_model is not None and (not isinstance(requested_model, str) or len(requested_model) > 200):
+            raise ValueError("invalid requested_model")
         key = secrets.token_urlsafe(32)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -70,10 +79,10 @@ class UsageMixin:
             if held is None:
                 return None
             cur = con.execute(
-                "INSERT INTO task_usage(message_id, recipient, attempt, at, source, report_key_hash) "
-                "VALUES(?,?,?,?,'unreported',?) ON CONFLICT DO NOTHING",
+                "INSERT INTO task_usage(message_id, recipient, attempt, at, source, report_key_hash, "
+                "requested_model) VALUES(?,?,?,?,'unreported',?,?) ON CONFLICT DO NOTHING",
                 (int(message_id), recipient, held["attempts"], now,
-                 hashlib.sha256(key.encode()).hexdigest()),
+                 hashlib.sha256(key.encode()).hexdigest(), requested_model or None),
             )
             return key if cur.rowcount else None
 

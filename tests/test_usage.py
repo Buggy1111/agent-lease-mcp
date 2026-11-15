@@ -350,3 +350,30 @@ def test_complete_codex_usage_counts_as_known(tmp_path: Path):
     store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
     nxt = store.send("michal", "codex", "druhy", kind="task")
     assert store.lease_next("codex").message_id == nxt
+
+
+def test_requested_model_is_kept_separately_from_the_actual_one(store):
+    """Oponentura fáze C: připnutý model zvlášť od skutečného — tichý fallback je pak vidět."""
+    import sqlite3
+    mid = store.send("michal", "codex", "task", kind="task")
+    d = store.lease_next("codex")
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = store.begin_usage(mid, "codex", d.lease_token, "gpt-5.5")
+    usage = {"source": "codex-jsonl", "model": "gpt-5.5-mini", "input_tokens": 10, "output_tokens": 1,
+             "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": None}
+    assert store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+    con = sqlite3.connect(store.db_path)
+    row = con.execute("SELECT requested_model, model FROM task_usage WHERE message_id=?", (mid,)).fetchone()
+    assert row == ("gpt-5.5", "gpt-5.5-mini")
+    with pytest.raises(ValueError):
+        store.begin_usage(mid, "codex", d.lease_token, "x" * 201)
+
+
+def test_bridge_passes_pinned_model_to_the_reservation(store, tmp_path):
+    import sqlite3
+    script = tmp_path / "ok.py"
+    script.write_text("print('ok')\n")
+    mid = store.send("michal", "codex", "task", kind="task")
+    Bridge(store, "codex", f"{sys.executable} {script} {{prompt}}", requested_model="gpt-5.5").step()
+    con = sqlite3.connect(store.db_path)
+    assert con.execute("SELECT requested_model FROM task_usage WHERE message_id=?", (mid,)).fetchone()[0] == "gpt-5.5"
