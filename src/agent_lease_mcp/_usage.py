@@ -8,6 +8,8 @@ stejný uživatel jako agenti.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import time
 
 SCHEMA = """
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS task_usage (
     cache_read_tokens     INTEGER,
     cache_creation_tokens INTEGER,
     cost_usd              REAL,
+    report_key_hash       TEXT,
     PRIMARY KEY(message_id, recipient, attempt)
 );
 """
@@ -44,6 +47,36 @@ _NO_TOKENS = ("(input_tokens IS NULL OR output_tokens IS NULL OR cache_read_toke
 
 
 class UsageMixin:
+    @staticmethod
+    def _migrate_usage(con) -> None:
+        if "report_key_hash" not in {r["name"] for r in con.execute("PRAGMA table_info(task_usage)")}:
+            con.execute("ALTER TABLE task_usage ADD COLUMN report_key_hash TEXT")
+
+    def begin_usage(self, message_id: int, recipient: str, lease_token: str) -> str | None:
+        """Reserve metering before launch; return a key once, never to the child.
+
+        A lease permits task execution, not replacement of the bridge's report.
+        An existing row cannot be adopted or reset with the lease token alone.
+        """
+        key = secrets.token_urlsafe(32)
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            now = time.time()
+            held = con.execute(
+                "SELECT attempts FROM deliveries WHERE message_id=? AND recipient=? "
+                "AND lease_token=? AND state='started' AND lease_until>?",
+                (int(message_id), recipient, lease_token or "", now),
+            ).fetchone()
+            if held is None:
+                return None
+            cur = con.execute(
+                "INSERT INTO task_usage(message_id, recipient, attempt, at, source, report_key_hash) "
+                "VALUES(?,?,?,?,'unreported',?) ON CONFLICT DO NOTHING",
+                (int(message_id), recipient, held["attempts"], now,
+                 hashlib.sha256(key.encode()).hexdigest()),
+            )
+            return key if cur.rowcount else None
+
     def _over(self, con, where: str, args: tuple, cap_tokens: int, cap_usd: float,
               label: str) -> str | None:
         """
@@ -84,14 +117,15 @@ class UsageMixin:
         return self._over(con, "message_id=?", (message_id,),
                           s.task_budget_tokens, s.task_budget_usd, "task")
 
-    def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict) -> bool:
+    def record_usage(self, message_id: int, recipient: str, lease_token: str, usage: dict, *,
+                     report_key: str | None = None) -> bool:
         """
         Spotřeba právě běžícího pokusu; zapisuje jen držitel platného lease.
 
-        Lease ale nedokazuje, že čísla změřil bridge: agent s vlastním lease může
-        zapsat dřív. Proto platí: první měřený zápis nahradí založení ("unreported"),
-        každý další už jen zhorší – neznámá hodnota vyhraje, známé jen rostou. Podvrh
-        tak stropy C3b může jen zpřísnit, ne obejít (review #15 F1, Nox).
+        Bridge rezervuje řádek přes begin_usage a drží samostatný report_key mimo
+        potomka. Samotný lease pak nedovolí změnit ani resetovat jeho neznámou
+        spotřebu. Starší, nerezervované zápisy zachovávají původní rozhraní.
+        Další reporty jen zhorší: neznámá vyhraje, známé hodnoty rostou.
         Vrací False bez platného lease.
         """
         if not isinstance(usage, dict) or usage.get("source") not in _SOURCES:
@@ -117,6 +151,17 @@ class UsageMixin:
                 (int(message_id), recipient, lease_token or "", now),
             ).fetchone()
             if held is None:
+                return False
+            row = con.execute(
+                "SELECT report_key_hash FROM task_usage WHERE message_id=? AND recipient=? "
+                "AND attempt=?", (int(message_id), recipient, held["attempts"]),
+            ).fetchone()
+            key_hash = row["report_key_hash"] if row else None
+            if key_hash is not None:
+                if not isinstance(report_key, str) or not secrets.compare_digest(
+                        key_hash, hashlib.sha256(report_key.encode()).hexdigest()):
+                    return False
+            elif report_key is not None:
                 return False
             cur = con.execute(
                 "INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, "

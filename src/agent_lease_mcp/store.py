@@ -324,6 +324,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
             self._migrate_checkpoints(con)
             self._migrate_reviews(con)
             self._migrate_claims(con)
+            self._migrate_usage(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
 

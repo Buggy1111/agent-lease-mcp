@@ -140,7 +140,96 @@ def test_every_attempt_leaves_a_record_even_without_numbers(store: Store, result
 
 
 def test_usage_methods_are_on_the_broker():
-    assert {"record_usage", "usage_summary"} <= METHODS
+    assert {"begin_usage", "record_usage", "usage_summary"} <= METHODS
+
+
+def test_report_key_is_once_only_and_cannot_be_replaced_with_the_lease(store):
+    mid = store.send("michal", "codex", "task", kind="task")
+    d = store.lease_next("codex")
+    assert store.begin_usage(mid, "codex", d.lease_token) is None  # not started
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = store.begin_usage(mid, "codex", d.lease_token)
+    assert key and store.begin_usage(mid, "codex", d.lease_token) is None
+    usage = {"source": "claude-json", "input_tokens": 20, "output_tokens": 1,
+             "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.1}
+    for wrong_key in (None, "wrong", d.lease_token):
+        assert not store.record_usage(mid, "codex", d.lease_token, usage, report_key=wrong_key)
+    assert store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+    assert not store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.usage_summary()["input_tokens"] == 20
+    assert key not in json.dumps(store.usage_summary())
+    store.cancel(mid, "codex")
+    assert not store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+
+
+@pytest.mark.parametrize("failure", ["conflict", "broker_error"])
+def test_usage_reservation_failure_prevents_launch(store, monkeypatch, failure):
+    mid = store.send("michal", "codex", "task", kind="task")
+    launched = []
+
+    def begin(*args):
+        if failure == "broker_error":
+            raise OSError("synthetic broker failure")
+        # A caller using its own lease cannot make the bridge adopt its row.
+        assert store.record_usage(*args, {"source": "codex-jsonl", "cost_usd": 0})
+        return original(*args)
+
+    original = store.begin_usage
+    monkeypatch.setattr(store, "begin_usage", begin)
+    assert Bridge(store, "codex", "unused {prompt}", read_only=True,
+                  runner=lambda p: launched.append(p)).step()
+    assert not launched
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review"
+    assert job["last_error"] == "usage reservation unavailable"
+
+
+def test_usage_migration_preserves_old_rows_and_is_repeatable(store):
+    mid = store.send("michal", "codex", "old task", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    with store._connect() as con:
+        con.execute("ALTER TABLE task_usage DROP COLUMN report_key_hash")
+    for _ in range(2):
+        reopened = Store(store.db_path, settings=store.settings)
+        assert reopened.usage_summary()["attempts"] == 1
+        assert reopened.usage_summary()["cost_unknown"] == 1
+        with reopened._connect() as con:
+            assert con.execute("SELECT report_key_hash FROM task_usage").fetchone()[0] is None
+
+
+@pytest.mark.parametrize("ending", ["no_usage", "cancel", "crash"])
+@pytest.mark.parametrize("cap", [{"daily_budget_tokens": 100}, {"daily_budget_usd": 1.0}])
+def test_runner_cannot_replace_bridge_unknown_with_forged_zeros(tmp_path, monkeypatch, ending, cap):
+    store = capped(tmp_path, **cap)
+    mid = store.send("michal", "codex", "first", kind="task")
+    rejected = []
+
+    def run(_prompt):
+        with store._connect() as con:
+            token = con.execute("SELECT lease_token FROM deliveries WHERE message_id=?",
+                                (mid,)).fetchone()[0]
+        rejected.append(not store.record_usage(mid, "codex", token, {
+            "source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0}))
+        if ending == "crash":
+            raise RuntimeError("synthetic crash")
+        if ending == "cancel":
+            store.cancel(mid, "codex")
+        return RunResult(True, "no usage", aborted=ending == "cancel")
+
+    bridge = Bridge(store, "codex", "unused {prompt}", runner=run, read_only=True)
+    if ending == "crash":
+        monkeypatch.setattr(bridge, "_supervised_runner", lambda prompt, tick: run(prompt))
+        with pytest.raises(RuntimeError, match="synthetic crash"):
+            bridge.step()
+    else:
+        assert bridge.step()
+    assert rejected == [True]
+    assert store.usage_summary()["cost_unknown"] == 1
+    assert store.usage_summary()["input_tokens"] is None
+    store.send("michal", "codex", "second", kind="task")
+    assert store.lease_next("codex") is None
 
 
 @pytest.mark.parametrize("agent, flag", [("claude-code", "--model"), ("codex", "-m")])
