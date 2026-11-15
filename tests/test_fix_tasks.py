@@ -47,7 +47,7 @@ def repo(tmp_path: Path) -> Path:
 def test_fix_is_stored_with_normalized_allowed_paths(store: Store, repo: Path):
     mid = fix(store, repo, allowed=["./src/x.py", "src/x.py", "docs"])
     assert store.fix_task(mid) == {"repo": str(repo.resolve()), "base_commit": BASE,
-                                   "allowed": ["docs", "src/x.py"]}
+                                   "allowed": ["docs", "src/x.py"], "test_command": None}
     assert store.fix_task(store.send("michal", "codex", "běžný", kind="task")) is None
 
 

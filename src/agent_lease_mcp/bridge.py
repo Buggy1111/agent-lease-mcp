@@ -842,7 +842,7 @@ class Bridge:
         if scope.get("test_command"):
             try:
                 verdict = fix_runner.verify_regression(
-                    clone, scope["base_commit"], res["files"], scope["test_command"], workdir,
+                    clone, scope["base_commit"], res["commit"], res["files"], scope["test_command"], workdir,
                     timeout=int(os.environ.get("AGENT_LEASE_FIX_TEST_TIMEOUT", "900")),
                     home=real_home, run_home=run_home, ro_paths=fix_ro_paths(),
                     hide_abs=(str(self.store.db_path.parent),))

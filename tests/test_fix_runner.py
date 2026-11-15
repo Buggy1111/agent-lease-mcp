@@ -286,3 +286,38 @@ def test_bridge_without_test_command_needs_review(env, monkeypatch):
     assert Bridge(store, "codex", cmd, lease_seconds=30).step()
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
     assert job["state"] == "needs_review" and job["last_error"] == "fix: tests not verified"
+
+
+def test_runtime_paths_never_mount_home_or_its_children(tmp_path, monkeypatch):
+    home = Path.home().resolve()
+    tool = home / ".cache" / f"al-tool-{os.getpid()}"
+    (tool / "bin").mkdir(parents=True, exist_ok=True)
+    try:
+        exe = tool / "bin" / "x"
+        exe.write_text("#!/bin/sh\n")
+        _, ro = fix_runner.runtime_paths([str(exe)])
+        assert str(tool) in ro and str(home) not in ro and str(home / ".cache") not in ro
+        lone = home / ".cache" / f"al-lone-{os.getpid()}"
+        lone.write_text("#!/bin/sh\n")
+        _, ro = fix_runner.runtime_paths([str(lone)])
+        assert ro == [str(lone)]                          # samotný soubor, ne ~/.cache
+    finally:
+        import shutil
+        shutil.rmtree(tool, ignore_errors=True)
+        (home / ".cache" / f"al-lone-{os.getpid()}").unlink(missing_ok=True)
+
+
+def test_verification_uses_commit_not_worktree(env):
+    """Agent po commitu podvrhne soubory v pracovní složce — ověření je nesmí vidět."""
+    clone = fix_runner.prepare(env["repo"], env["base"], env["tmp"] / "rv")
+    (clone / "src" / "app.py").write_text('print("fixed")\n')
+    (clone / "src" / "test_app.py").write_text(
+        'import pathlib,sys\nsys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n')
+    res = fix_runner.collect(clone, env["base"], [], "fix")
+    assert res["ok"]
+    # po commitu: test v pracovní složce „vždy projde“ a ignorovaný podvržený soubor
+    (clone / "src" / "test_app.py").write_text("import sys\nsys.exit(0)\n")
+    test = [sys.executable, "src/test_app.py"]
+    v = fix_runner.verify_regression(clone, env["base"], res["commit"], res["files"], test, env["tmp"] / "rv",
+                                     home=env["home"], run_home=None)
+    assert v["ok"], v                                   # rozhodl obsah commitu, ne podvrh

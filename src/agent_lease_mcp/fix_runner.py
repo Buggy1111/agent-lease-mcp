@@ -129,9 +129,18 @@ def runtime_paths(argv: list[str]) -> tuple[list[str], list[str]]:
     real = Path(exe).resolve()
     ro: list[str] = []
 
+    home = Path.home().resolve()
+
     def add(path: Path) -> None:
-        if not any(str(path).startswith(root + "/") or str(path) == root for root in SYSTEM_RO):
-            ro.append(str(path.parent.parent if path.parent.name == "bin" else path))
+        if any(str(path).startswith(root + "/") or str(path) == root for root in SYSTEM_RO):
+            return
+        root = path.parent.parent if path.parent.name == "bin" else path
+        # kořen instalace nesmí být HOME, jeho předek ani přímý podadresář (~/.local, ~/.cache…)
+        if root == home or root in home.parents or root.parent == home:
+            root = path
+        if root == home or root in home.parents:
+            return  # ani samotný soubor nesmí být HOME nebo jeho předek
+        ro.append(str(root))
     add(real)
     try:
         head = real.read_bytes()[:256]
@@ -272,27 +281,32 @@ def collect(clone: Path, base_commit: str, allowed: list[str], message: str) -> 
 _TEST_FILE = re.compile(r"(^|/)(tests?/|test_[^/]*\.py$|[^/]*_test\.(py|go|ts|js|rs)$|[^/]*\.(test|spec)\.[cm]?[jt]sx?$)")
 
 
-def verify_regression(clone: Path, base_commit: str, files: list[str], test_argv: list[str], workdir: Path,
-                      *, timeout: int = 900, **sandbox_kw) -> dict:
+def _checkout(src: Path, commit: str, dest: Path) -> Path:
+    """Čistý checkout `commit` z důvěryhodného klonu (žádné neverzované/ignorované soubory agenta)."""
+    _git("clone", "--quiet", "--no-hardlinks", "--no-checkout", str(Path(src).resolve()), str(dest), cwd=dest.parent)
+    _git("config", "core.hooksPath", "/dev/null", cwd=dest)
+    _git("checkout", "--quiet", "--detach", commit, cwd=dest)
+    return dest
+
+
+def verify_regression(clone: Path, base_commit: str, commit: str, files: list[str], test_argv: list[str],
+                      workdir: Path, *, timeout: int = 900, **sandbox_kw) -> dict:
     """
-    Důvěryhodné ověření C2a: oprava musí přinést regresní test, který na ZÁKLADU selže
-    (nový test bez opravy) a s opravou projde i s celou sadou. Testy běží ve stejném bwrap.
+    Důvěryhodné ověření C2a na čistých checkoutech z commitu (nikdy z pracovní složky agenta):
+    - head: commit opravy → celá sada musí projít;
+    - base: původní kód + jen nové/změněné testy z commitu (`git checkout <commit> -- testy`) → musí selhat.
     Vrací {ok, reason, tests}.
     """
     tests = [f for f in files if _TEST_FILE.search(f)]
     if not tests:
         return {"ok": False, "reason": "no regression test in the change", "tests": []}
-    head = run_sandboxed(clone, test_argv, timeout=timeout, **sandbox_kw)
+    head_dir = _checkout(clone, commit, Path(workdir) / "head-check")
+    head = run_sandboxed(head_dir, test_argv, timeout=timeout, **sandbox_kw)
     if head.returncode != 0:
         return {"ok": False, "reason": f"tests fail with the fix (exit {head.returncode})", "tests": tests}
-    base = prepare(clone, base_commit, Path(workdir) / "base-check")
-    for rel in tests:  # jen nové/změněné testy na původní kód
-        src = Path(clone) / rel
-        if src.is_file():
-            dst = base / rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(src.read_bytes())
-    old = run_sandboxed(base, test_argv, timeout=timeout, **sandbox_kw)
+    base_dir = _checkout(clone, base_commit, Path(workdir) / "base-check")
+    _git("checkout", "--quiet", commit, "--", *tests, cwd=base_dir)   # obsah z objektu commitu
+    old = run_sandboxed(base_dir, test_argv, timeout=timeout, **sandbox_kw)
     if old.returncode == 0:
         return {"ok": False, "reason": "the new test passes without the fix (not a regression test)", "tests": tests}
     return {"ok": True, "reason": "", "tests": tests}
