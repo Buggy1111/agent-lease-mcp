@@ -24,6 +24,8 @@ from pathlib import Path
 from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
+from ._fix_tasks import SCHEMA as FIX_SCHEMA
+from ._fix_tasks import FixLoopMixin, FixTasksMixin
 from ._messaging import MessagingMixin
 from ._quality_queue import QualityQueueMixin
 from ._quality_runs import QualityRunsMixin
@@ -287,7 +289,7 @@ CREATE TABLE IF NOT EXISTS quality_policy_approvals (
 
 
 class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
-            QualityRunsMixin, QualityQueueMixin, UsageMixin):
+            QualityRunsMixin, QualityQueueMixin, UsageMixin, FixTasksMixin, FixLoopMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i
@@ -313,6 +315,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
         with self._connect() as con:
             con.executescript(SCHEMA)
             con.executescript(USAGE_SCHEMA)
+            con.executescript(FIX_SCHEMA)
             # Migrace = PRAGMA + ALTER. Souběžné Store() by jinak oba viděli chybějící
             # sloupec a druhý ALTER by spadl (duplicate column). Zámek až po
             # executescript, ten otevřenou transakci sám commitne.

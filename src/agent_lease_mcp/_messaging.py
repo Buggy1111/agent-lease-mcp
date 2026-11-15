@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import time
@@ -61,8 +62,15 @@ class MessagingMixin:
         reply_to: int | None = None,
         paths: list[str] | None = None,
         priority: int = 0,
+        fix_repo: str = "",
+        fix_base: str = "",
+        fix_allowed: list[str] | None = None,
     ) -> int:
-        """Atomicky uloží adresovanou zprávu a její doručení."""
+        """Atomicky uloží adresovanou zprávu a její doručení.
+
+        `fix_repo` + `fix_base` udělají z úkolu opravu se zápisem (C1a): spustí se jen
+        s operátorskou politikou a lidským schválením (viz `_fix_tasks`).
+        """
         kind_value = MessageKind(kind).value
         _check_agent(agent)
         recipient = check_name("recipient", recipient.strip())
@@ -83,6 +91,17 @@ class MessagingMixin:
             raise ValueError("priority must be between -100 and 100")
         if kind_value != MessageKind.TASK.value and (task_paths or priority):
             raise ValueError("paths and priority are only valid for tasks")
+        fix = None
+        if fix_repo or fix_base or fix_allowed:
+            from ._fix_tasks import check_allowed
+            from ._reviews import check_commit
+            if kind_value != MessageKind.TASK.value or task_paths:
+                # cesty opravy jsou relativní k jejímu worktree, ne rezervace v hlavní kopii
+                raise ValueError("a fix is a task with fix_allowed paths, not task paths")
+            if not fix_repo or not fix_repo.startswith("/"):
+                raise ValueError("fix_repo must be an absolute repository path")
+            fix = (normalize_path(check_path(fix_repo)), check_commit("fix_base", fix_base),
+                   json.dumps(check_allowed(fix_allowed)))
         if kind_value in (MessageKind.TASK.value, MessageKind.CONTROL.value) and (
             not self.settings.may_send_task(agent)
         ):
@@ -114,6 +133,9 @@ class MessagingMixin:
                     "INSERT INTO task_paths(message_id, path) VALUES(?,?)",
                     [(message_id, path) for path in task_paths],
                 )
+                if fix:
+                    con.execute("INSERT INTO fix_tasks(message_id, repo, base_commit, allowed) "
+                                "VALUES(?,?,?,?)", (message_id, *fix))
             if recipient != "*" and kind_value != MessageKind.RESULT.value:
                 con.execute(
                     "INSERT INTO deliveries(message_id, recipient, updated_at) VALUES(?,?,?)",
@@ -227,6 +249,9 @@ class MessagingMixin:
                 # karanténa platí pro VŠECHNY cesty převzetí, ne jen bridge (Nox #555/3)
                 # držený lease = pokus už započítaný; jinak se počítá příští pokus
                 if self._quarantined(con, message_id, recipient, next_attempt=not held):
+                    return False
+                # oprava se zápisem: politika + lidské schválení pro tento pokus (C1a)
+                if self._fix_hold(con, message_id, recipient, next_attempt=not held):
                     return False
                 # Bez lease jde převzít jen úkol, který ještě čeká; hotový, zrušený
                 # ani vypršený už ne (audit #535 bod 2a).
