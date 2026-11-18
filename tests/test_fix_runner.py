@@ -230,6 +230,8 @@ def _bridge_env(env, monkeypatch, body: str, with_tests: bool = True):
     mid = store.send("michal", "codex", "oprav app.py", kind="task", fix_repo=str(env["repo"]),
                      fix_base=env["base"], fix_allowed=["src"])
     assert store.approve_fix(mid, "codex", "michal", "test")
+    with store._connect() as con:  # opravy běží jen v Autonomním (D2); v testu obejdeme zámek režimu
+        con.execute("INSERT INTO control(key, value, changed_by, changed_at) VALUES('mode','autonomous','michal',0)")
     return store, mid, f"{sys.executable} {script} {{prompt}}"
 
 
@@ -511,5 +513,22 @@ def test_switch_to_basic_after_start_never_launches_the_fix_agent(env, monkeypat
     assert Bridge(store, "codex", cmd, lease_seconds=30).step()
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
     assert not marker.exists()
-    assert job["state"] == "needs_review" and job["last_error"] == "fix: basic mode", job
+    assert job["state"] == "needs_review" and job["last_error"] == "fix: mode", job
     assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
+
+
+@pytest.mark.parametrize("mode", ["intelligent", "basic"])
+def test_fix_agent_never_launches_outside_the_autonomous_mode(env, monkeypatch, mode):
+    """Review #26: oprava se schválenou politikou se v Inteligentním (ani Základním) nespustí."""
+    from agent_lease_mcp.bridge import Bridge
+    marker = env["tmp"] / "agent-ran"
+    store, mid, cmd = _bridge_env(env, monkeypatch, f"open({str(marker)!r}, 'w').write('x')\n")
+    with store._connect() as con:
+        con.execute("UPDATE control SET value=? WHERE key='mode'", (mode,))
+    Bridge(store, "codex", cmd, lease_seconds=30).step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert not marker.exists()
+    if mode == "basic":
+        assert job["state"] == "pending", job  # Základní: bridge úkol vůbec nepřevezme
+    else:
+        assert job["state"] == "needs_review" and job["last_error"] == "fix: mode", job

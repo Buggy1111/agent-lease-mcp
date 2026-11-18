@@ -945,8 +945,8 @@ class Bridge:
         fix_blocked_by_mode: list[bool] = []
 
         def can_launch_fix() -> bool:
-            # D2: jako u běžného úkolu — Základní režim pod launch_gate nový běh nespustí
-            if self.store.mode()["mode"] == "basic":
+            # D2: zápisová oprava (bridge.repair) jen v Autonomním režimu, ověřeno pod launch_gate
+            if self.store.mode()["mode"] != "autonomous":
                 fix_blocked_by_mode.append(True)
                 return False
             return self.store.holds(mid, self.agent, token)
@@ -978,7 +978,7 @@ class Bridge:
         self._run_fence.release()
         if result.aborted and fix_blocked_by_mode:
             fix_runner.cleanup(workdir)
-            return hold("basic mode", "not started: switched to the basic mode before launch.")
+            return hold("mode", "not started: write-mode fixes run only in the autonomous mode.")
         if result.aborted or not owns_task():
             return stopped()
         if not result.ok:
