@@ -48,6 +48,8 @@ METHODS = frozenset({
     "quality_autorun_enabled",
     # D1. `knowledge_human_*` tu schválně nejsou: jako člověk zapisuje jen web.
     "knowledge_add", "knowledge_verdict", "knowledge_get", "knowledge_search", "knowledge_list",
+    # D2: režim smí agent jen číst; `set_mode` tu schválně není.
+    "mode",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})

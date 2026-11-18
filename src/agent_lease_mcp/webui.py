@@ -234,6 +234,17 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_pause(parts.path.endswith("pause"))
             if parts.path in ("/api/review-grant", "/api/review-close"):
                 return self._handle_review(parts.path.endswith("grant"))
+            if parts.path == "/api/mode":
+                data = self._read_json()
+                if data is None:
+                    return
+                try:
+                    result = store.set_mode(web_agent, str(data.get("mode", "")), str(data.get("reason", ""))[:500])
+                except PermissionError as exc:
+                    return self._reject(409, str(exc))
+                except ValueError as exc:
+                    return self._reject(400, str(exc))
+                return self._json_response(result)
             if parts.path in ("/api/knowledge-add", "/api/knowledge-verdict"):
                 return self._handle_knowledge_write(parts.path.endswith("add"))
             self._reject(404, "not found")
@@ -293,6 +304,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "claims": [c.as_dict() for c in store.claims()],
                 "board": store.board(),
                 "paused": store.paused(),
+                "mode": store.mode(),
                 "reviews": store.reviews(limit=30),
                 "quality_runs": store.quality_runs(limit=30),
                 "quality_requests": store.quality_requests(limit=30),
@@ -845,6 +857,12 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 .primary-nav [data-view] { transition:background 200ms var(--ease),border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
 .primary-nav [data-view]:hover { border-color:var(--accent-text); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 12%,transparent); }
 .view-page { padding-top:20px; }
+.mode-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-bottom:12px; }
+.mode-card { text-align:left; border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--surface-2); display:flex; flex-direction:column; gap:8px; }
+.mode-card[aria-checked="true"] { border-color:var(--accent-text); box-shadow:0 0 0 1px var(--accent-text); }
+.mode-card[aria-disabled="true"] { opacity:.6; cursor:not-allowed; }
+.mode-card h3 { margin:0; font-size:16px; }
+.mode-card ul { margin:0; padding-left:18px; font-size:13px; color:var(--text-dim); }
 .kb-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; }
 @media (max-width:900px) { .kb-grid { grid-template-columns:1fr; } }
 .kb-tools { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
@@ -979,7 +997,8 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
   <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">◈ Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <div class="kb-grid"><section class="panel"><div class="panel-title"><h2>Záznamy</h2></div><div class="panel-body"><div class="kb-tools"><label class="search"><span class="sr-only">Hledat v paměti</span><input id="kbQuery" type="search" placeholder="Hledat příznak, chybu, příčinu…"></label><select id="kbStatus" aria-label="Stav"><option value="">Všechny stavy</option><option value="verified">Ověřené</option><option value="unverified">Neověřené</option><option value="rejected">Zamítnuté</option><option value="stale">Zastaralé</option></select></div><div id="kbList" role="status">Načítám…</div></div></section>
     <section class="panel"><div class="panel-title"><h2>Nový záznam</h2></div><div class="panel-body kb-form"><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000"></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200"></label><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><button class="btn detail" id="kbAdd" type="button">Uložit jako neověřené</button><p class="note">Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p></div></section></div></section>
-  <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
+  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><div class="view-header"><div><h2 id="settingsTitle" class="view-title" tabindex="-1">⚙ Provozní režim</h2><p class="view-subtitle">Jak samostatně Ada a Nox pracují. Přepnout smí jen člověk tady na webu. Základní bezpečnost a 🛑 nouzové zastavení platí vždy.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+    <div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></section>
 </div>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
@@ -1701,7 +1720,29 @@ document.getElementById("kbAdd").onclick = () => {
   post("/api/knowledge-add", {symptom: val("kbSymptom"), cause: val("kbCause"), solution: val("kbSolution"), project: val("kbProject"), evidence: val("kbEvidence")})
     .then(ok => { btn.disabled = false; if (ok) { ["kbSymptom","kbCause","kbSolution","kbEvidence"].forEach(i => document.getElementById(i).value = ""); loadKnowledge(); } });
 };
+const MODES = [
+  {id:"basic", name:"🟢 Základní", items:["Bridge sám nepřebírá žádné úkoly","Pracuje jen session, kterou spustíš","Sdílená paměť vypnutá pro agenty","Minimální spotřeba tokenů"]},
+  {id:"intelligent", name:"🔵 Inteligentní", items:["Bridge přebírá read-only úkoly","Review mezi agenty (max 3 kola)","Sdílená paměť zapnutá","Dnešní chování"]},
+  {id:"autonomous", name:"🟣 Autonomní", items:["Opravy v izolovaném worktree","Povinné review, rozpočtové stropy","Eskalace na tebe po 3 pokusech"]},
+];
+function renderMode(m) {
+  if (!m) return;
+  const grid = document.getElementById("modeGrid");
+  grid.innerHTML = MODES.map(x => { const lock = m.locked && m.locked[x.id]; const on = m.mode === x.id;
+    return `<button type="button" class="mode-card" role="radio" data-mode="${x.id}" aria-checked="${on}" aria-disabled="${!!lock}"><h3>${x.name}${on ? " · aktivní" : ""}</h3><ul>${x.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="note">🔒 ${esc(lock)}</p>` : ""}</button>`; }).join("");
+  document.getElementById("modeInfo").textContent = m.by ? `Naposledy přepnul ${m.by} · ${new Date(m.at * 1000).toLocaleString("cs-CZ")}${m.reason ? " · " + m.reason : ""}` : "Výchozí režim (zatím nikdo nepřepínal).";
+  grid.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+    if (b.getAttribute("aria-disabled") === "true" || b.getAttribute("aria-checked") === "true") return;
+    const reason = prompt("Proč přepínáš režim? (zapíše se do historie)");
+    if (reason === null) return;
+    fetch("/api/mode", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({mode:b.dataset.mode, reason})})
+      .then(r => r.ok ? r.json().then(renderMode) : r.text().then(t => alert(t)))
+      .catch(() => alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."));
+  });
+}
+function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => renderMode(s.mode)).catch(() => {}); }
 function showView(view,{focus=true}={}) {
+  if(view==="settings")loadMode();
   if(view==="memory")loadKnowledge();
   if(drawer.open){drawer.close();restorePanels();}
   currentView=view;

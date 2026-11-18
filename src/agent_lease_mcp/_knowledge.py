@@ -85,6 +85,8 @@ def _row(row: sqlite3.Row) -> dict:
 class KnowledgeMixin:
     def _check_knowledge_agent(self, agent: str) -> None:
         _check_agent(agent)
+        if not self.mode()["memory"]:  # type: ignore[attr-defined]
+            raise PermissionError("shared memory is off in the basic mode; the human can switch it in the web UI")
         if agent.lower() in reserved_names(self.db_path):  # type: ignore[attr-defined]
             raise PermissionError(f"{agent!r} is reserved; human actions go through the web UI")
 
