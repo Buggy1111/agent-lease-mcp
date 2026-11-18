@@ -699,9 +699,11 @@ class Bridge:
                                 error="emergency stop")
             return True
         if result.aborted and blocked_by_mode:
-            # Základní režim: proces nikdy nevznikl → úkol zpět do fronty, ne k review
-            self.store.requeue_unlaunched(mid, self.agent, token)
-            self.store.heartbeat(self.worker_identity, status=f"bridge: task #{mid} returned to queue (basic mode)")
+            # Základní režim přepnut mezi startem a spuštěním: proces nevznikl. Stejně jako u pauzy
+            # k člověku, ne zpět do fronty — agent nesmí umět vrátit „started“ práci (riziko opakování).
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Task #{mid} not started: switched to the basic mode before launch.",
+                                error="basic mode")
             return True
         if result.aborted:
             # Lease už není náš (zrušení, vypršení): žádné „Done“, žádný ack.

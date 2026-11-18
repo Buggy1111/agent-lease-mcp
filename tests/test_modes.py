@@ -129,17 +129,6 @@ def test_downgrade_after_start_before_spawn_launches_nothing_and_requeues(tmp_pa
     assert job["state"] == "pending"
 
 
-def test_requeue_unlaunched_only_in_basic_with_valid_token(store: Store):
-    mid = store.send("michal", "codex", "otestuj", kind="task")
-    leased = store.lease_next("codex", worker=True)
-    store.ack(mid, "codex", "started", lease_token=leased.lease_token)
-    assert store.requeue_unlaunched(mid, "codex", leased.lease_token) is False  # intelligent
-    with store._connect() as con:
-        con.execute("INSERT INTO control(key, value, changed_by, changed_at) VALUES('mode','basic','michal',0)")
-    assert store.requeue_unlaunched(mid, "codex", "forged") is False
-    assert store.requeue_unlaunched(mid, "codex", leased.lease_token) is True
-
-
 def test_downgrade_between_ack_started_and_spawn_is_caught_under_the_launch_gate(tmp_path: Path):
     from test_bridge import fake
 
@@ -163,4 +152,5 @@ def test_downgrade_between_ack_started_and_spawn_is_caught_under_the_launch_gate
     Bridge(store, "codex", cmd).step()
     assert switched and not marker.exists()
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
-    assert job["state"] == "pending"
+    assert job["state"] == "needs_review"
+    assert "requeue_unlaunched" not in METHODS

@@ -50,7 +50,7 @@ METHODS = frozenset({
     # `knowledge_list` jen pro web; agentí metody níže samy hlídají režim (D2).
     "knowledge_add", "knowledge_verdict", "knowledge_get", "knowledge_search",
     # D2: režim smí agent jen číst; `set_mode` tu schválně není.
-    "mode", "requeue_unlaunched",
+    "mode",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
