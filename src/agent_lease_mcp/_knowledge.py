@@ -91,6 +91,15 @@ class KnowledgeMixin:
     def knowledge_add(self, agent: str, symptom: str, cause: str = "", solution: str = "",
                       project: str = "", evidence: str = "") -> dict:
         self._check_knowledge_agent(agent)
+        return self._knowledge_insert(agent, symptom, cause, solution, project, evidence)
+
+    def knowledge_human_add(self, human: str, symptom: str, cause: str = "", solution: str = "",
+                            project: str = "", evidence: str = "") -> dict:
+        """Jen web (lidská session); schválně není v METHODS brokeru."""
+        return self._knowledge_insert(human, symptom, cause, solution, project, evidence)
+
+    def _knowledge_insert(self, agent: str, symptom: str, cause: str, solution: str,
+                          project: str, evidence: str) -> dict:
         now = time.time()
         fields = (_clean("symptom", symptom, required=True), _clean("cause", cause),
                   _clean("solution", solution), check_short("project", (project or "").strip()),
@@ -107,6 +116,18 @@ class KnowledgeMixin:
                           note: str = "") -> dict:
         """Ověřit / zamítnout / označit jako zastaralé — nikdy ne vlastní záznam, vždy s důkazem."""
         self._check_knowledge_agent(agent)
+        # Bezejmenná session by mohla potvrdit záznam, který sama napsala pod svým jménem.
+        if agent.startswith(("untrusted-", "unconfigured-")):
+            raise PermissionError("an unnamed session cannot judge knowledge; set AGENT_NAME")
+        return self._knowledge_judge(agent, knowledge_id, verdict, evidence, note, human=False)
+
+    def knowledge_human_verdict(self, human: str, knowledge_id: int, verdict: str, evidence: str,
+                                note: str = "") -> dict:
+        """Člověk z webu; schválně není v METHODS brokeru."""
+        return self._knowledge_judge(human, knowledge_id, verdict, evidence, note, human=True)
+
+    def _knowledge_judge(self, agent: str, knowledge_id: int, verdict: str, evidence: str,
+                         note: str, *, human: bool) -> dict:
         if verdict not in _VERDICTS:
             raise ValueError(f"verdict must be one of {', '.join(_VERDICTS)}")
         evidence = _clean("evidence", evidence, required=True)
@@ -118,11 +139,29 @@ class KnowledgeMixin:
                 raise KeyError(f"knowledge #{knowledge_id} does not exist")
             if row["author"] == agent:
                 raise PermissionError("the author cannot verify, reject or retire their own entry")
+            if not human and row["verified_by"].lower() in reserved_names(self.db_path):  # type: ignore[attr-defined]
+                raise PermissionError("the human already judged this entry; only the human can change it")
             con.execute(
                 "UPDATE knowledge SET status=?, verified_by=?, verdict_evidence=?, verdict_note=?, updated_at=?"
                 " WHERE id=?", (verdict, agent, evidence, note, time.time(), int(knowledge_id)))
             self._record(con, agent, f"knowledge_{verdict}", row["project"], f"#{knowledge_id}")  # type: ignore[attr-defined]
             return _row(con.execute("SELECT * FROM knowledge WHERE id=?", (int(knowledge_id),)).fetchone())
+
+    def knowledge_list(self, project: str = "", status: str = "", limit: int = 50) -> list[dict]:
+        """Nejnovější záznamy (pro web a přehled), volitelně jen jeden projekt / stav."""
+        if status and status not in KNOWLEDGE_STATES:
+            raise ValueError(f"status must be one of {', '.join(KNOWLEDGE_STATES)}")
+        sql, args = "SELECT * FROM knowledge WHERE 1=1", []
+        if project:
+            sql += " AND project=?"
+            args.append(project)
+        if status:
+            sql += " AND status=?"
+            args.append(status)
+        sql += " ORDER BY updated_at DESC, id DESC LIMIT ?"
+        args.append(max(1, min(int(limit), 200)))
+        with self._connect() as con:  # type: ignore[attr-defined]
+            return [_row(r) for r in con.execute(sql, args)]
 
     def knowledge_get(self, knowledge_id: int) -> dict:
         with self._connect() as con:  # type: ignore[attr-defined]

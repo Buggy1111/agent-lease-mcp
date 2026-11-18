@@ -46,6 +46,8 @@ METHODS = frozenset({
     "review_approved",
     "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
     "quality_autorun_enabled",
+    # D1. `knowledge_human_*` tu schválně nejsou: jako člověk zapisuje jen web.
+    "knowledge_add", "knowledge_verdict", "knowledge_get", "knowledge_search", "knowledge_list",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
