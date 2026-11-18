@@ -449,7 +449,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             q, project, status = (qs.get(k, [""])[0] for k in ("q", "project", "status"))
             try:
                 if q:
-                    entries = store.knowledge_search(q, project=project, include_retired=True, limit=50)
+                    entries = store.knowledge_search(q, project=project, include_retired=True, limit=50,
+                                                     status=status)
                 else:
                     entries = store.knowledge_list(project=project, status=status, limit=100)
             except ValueError as exc:
@@ -1672,9 +1673,9 @@ const KB_LABEL = {verified:"ověřeno",unverified:"neověřeno — jen tip",reje
 let kbTimer = null;
 function loadKnowledge() {
   const q = document.getElementById("kbQuery").value.trim(), st = document.getElementById("kbStatus").value;
-  const params = new URLSearchParams(q ? {q} : (st ? {status:st} : {}));
+  const params = new URLSearchParams({...(q ? {q} : {}), ...(st ? {status:st} : {})});
   fetch("/api/knowledge?" + params).then(r => r.ok ? r.json() : Promise.reject(r))
-    .then(d => renderKnowledge(q && st ? d.entries.filter(e => e.status === st) : d.entries))
+    .then(d => renderKnowledge(d.entries))
     .catch(() => { document.getElementById("kbList").textContent = "Paměť se nepodařilo načíst."; });
 }
 function renderKnowledge(entries) {

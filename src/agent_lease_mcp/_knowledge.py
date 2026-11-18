@@ -171,12 +171,18 @@ class KnowledgeMixin:
         return _row(row)
 
     def knowledge_search(self, query: str, project: str = "", include_unverified: bool = True,
-                         include_retired: bool = False, limit: int = 10) -> list[dict]:
-        """Ověřené první, pak podle relevance (bm25). Zamítnuté/zastaralé jen na vyžádání."""
+                         include_retired: bool = False, limit: int = 10, status: str = "") -> list[dict]:
+        """Ověřené první, pak podle relevance (bm25). Zamítnuté/zastaralé jen na vyžádání.
+
+        `status` omezí výsledky na jeden stav už v SQL (před LIMIT).
+        """
+        if status and status not in KNOWLEDGE_STATES:
+            raise ValueError(f"status must be one of {', '.join(KNOWLEDGE_STATES)}")
         q = _fts_query(check_len("query", query or "", MAX_FIELD_CHARS))
         if not q:
             return []
-        states = [VERIFIED] + ([UNVERIFIED] if include_unverified else []) + ([REJECTED, STALE] if include_retired else [])
+        states = [status] if status else (
+            [VERIFIED] + ([UNVERIFIED] if include_unverified else []) + ([REJECTED, STALE] if include_retired else []))
         sql = ("SELECT k.*, bm25(knowledge_fts) AS score FROM knowledge_fts JOIN knowledge k ON k.id=knowledge_fts.rowid"
                f" WHERE knowledge_fts MATCH ? AND k.status IN ({','.join('?' * len(states))})")
         args: list = [q, *states]

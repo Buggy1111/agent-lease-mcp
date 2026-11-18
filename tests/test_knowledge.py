@@ -118,3 +118,14 @@ def test_project_field_is_redacted_too(store: Store):
     entry = store.knowledge_add("claude-code", "leak via project", project=secret)
     assert "b" * 40 not in entry["project"]
     assert all("b" * 40 not in e["path"] for e in store.history(limit=5))
+
+
+def test_status_filter_applies_before_the_search_limit(store: Store):
+    for i in range(50):
+        e = store.knowledge_add("claude-code", f"disk full case {i}")
+        store.knowledge_verdict("codex", e["id"], "verified", "ok")
+    lone = store.knowledge_add("claude-code", "disk full unverified")
+    found = store.knowledge_search("disk full", status="unverified", limit=50)
+    assert [e["id"] for e in found] == [lone["id"]]
+    with pytest.raises(ValueError):
+        store.knowledge_search("disk", status="bogus")
