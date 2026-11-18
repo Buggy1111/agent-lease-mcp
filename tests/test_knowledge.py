@@ -111,3 +111,10 @@ def test_agent_cannot_override_human_verdict(store: Store):
     with pytest.raises(PermissionError):
         store.knowledge_verdict("claude-code", e["id"], "verified", "trust me")
     assert store.knowledge_get(e["id"])["status"] == "rejected"
+
+
+def test_project_field_is_redacted_too(store: Store):
+    secret = "sk-ant-api03-" + "b" * 40
+    entry = store.knowledge_add("claude-code", "leak via project", project=secret)
+    assert "b" * 40 not in entry["project"]
+    assert all("b" * 40 not in e["path"] for e in store.history(limit=5))

@@ -102,7 +102,7 @@ class KnowledgeMixin:
                           project: str, evidence: str) -> dict:
         now = time.time()
         fields = (_clean("symptom", symptom, required=True), _clean("cause", cause),
-                  _clean("solution", solution), check_short("project", (project or "").strip()),
+                  _clean("solution", solution), check_short("project", redact((project or "").strip())),
                   _clean("evidence", evidence))
         with self._connect() as con:  # type: ignore[attr-defined]
             cur = con.execute(
