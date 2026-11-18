@@ -158,6 +158,28 @@ def test_doctor_warns_when_codex_wake_targets_a_dead_session(tmp_path, monkeypat
     assert stale["status"] == "warning" and "not been written" in stale["message"]
     assert check(live)["status"] == "ok"
     assert check("nox")["status"] == "ok"  # jméno z /rename se nedá ověřit souborem
+    missing = check("01a1aaaa-0000-7000-8000-000000000000")
+    assert missing["status"] == "warning" and "no session file" in missing["message"]
+
+
+def test_doctor_survives_a_session_file_vanishing_during_the_check(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from agent_lease_mcp import doctor
+
+    uuid = "01a1b10b-6743-75c3-81e9-298d0f32f877"
+    day = tmp_path / ".codex" / "sessions" / "2026" / "11" / "06"
+    day.mkdir(parents=True)
+    (day / f"rollout-x-{uuid}.jsonl").write_text("{}\n")
+    real_stat = Path.stat
+
+    def vanishing(self, *a, **kw):
+        if self.name.startswith("rollout-"):
+            raise FileNotFoundError(self)
+        return real_stat(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "stat", vanishing)
+    assert doctor._codex_thread_idle_seconds(tmp_path, uuid) == float("inf")
 
 
 def test_doctor_reports_a_service_crash_loop(tmp_path, monkeypatch, capsys):

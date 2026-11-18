@@ -92,13 +92,22 @@ _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 
 def _codex_thread_idle_seconds(home: Path, thread: str) -> float | None:
-    """Jak dlouho Codex do vlákna nic nezapsal. None = nejde zjistit (jméno z /rename, chybí soubor)."""
+    """Jak dlouho Codex do vlákna (UUID) nic nezapsal.
+
+    None = jméno z /rename (souborem nejde ověřit); `inf` = UUID, ke kterému soubor session
+    není (nebo zmizel během čtení) — to se hlásí jako „nelze ověřit“, ne jako OK.
+    """
     if not thread or not _UUID.match(thread):
         return None
-    files = list((home / ".codex" / "sessions").glob(f"*/*/*/rollout-*-{thread}.jsonl"))
-    if not files:
-        return None
-    return max(0.0, time.time() - max(f.stat().st_mtime for f in files))
+    newest = None
+    for f in (home / ".codex" / "sessions").glob(f"*/*/*/rollout-*-{thread}.jsonl"):
+        try:
+            mtime = f.stat().st_mtime
+        except OSError:  # soubor se mezitím přesunul/smazal: doctor kvůli tomu nesmí spadnout
+            continue
+        newest = mtime if newest is None else max(newest, mtime)
+    return float("inf") if newest is None else max(0.0, time.time() - newest)
+
 
 def _service_env_value(path: Path, key: str) -> str:
     """Read one non-secret value from a systemd EnvironmentFile ("" if absent)."""
@@ -279,7 +288,12 @@ def run_doctor(*, json_output: bool = False) -> int:
               or _service_env_value(env_file, "AGENT_LEASE_CODEX_THREAD"))
     wake_active = _user_service_active("agent-lease-codex-wake.service")
     idle = _codex_thread_idle_seconds(home, thread)
-    if queue_supported and thread and wake_active and idle is not None and idle > _STALE_THREAD_SECONDS:
+    if queue_supported and thread and wake_active and idle == float("inf"):
+        line("codex_rewake", WARN,
+             f"Codex wake targets session {thread!r}, but no session file with that ID exists — "
+             "cannot verify it is live. Use the live session ID or a /rename name.",
+             configured_thread=thread, idle_seconds=None)
+    elif queue_supported and thread and wake_active and idle is not None and idle > _STALE_THREAD_SECONDS:
         # 18. 11.: služba 11 dní budila mrtvé vlákno a nikde to nehlásilo chybu
         line("codex_rewake", WARN,
              f"Codex wake targets session {thread!r}, which has not been written for "
