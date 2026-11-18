@@ -101,6 +101,8 @@ class RunResult:
     cleanup_failed: bool = False
     # C3a: spotřeba, jak ji hlásí klient; None = klient nic strojově čitelného nevrátil.
     usage: dict | None = None
+    # Only a normally completed command has an exit status: setup/timeout is not a failing test.
+    returncode: int | None = None
 
 
 def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
@@ -347,9 +349,9 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
     output, usage = extract_usage(template, output)  # z celého výstupu, před oříznutím
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
-                         cleanup_failed=not gone, usage=usage)
+                         cleanup_failed=not gone, usage=usage, returncode=proc.returncode)
     return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone,
-                     usage=usage)
+                     usage=usage, returncode=proc.returncode)
 
 
 def with_model(agent: str, command: str, model: str) -> str:
@@ -860,6 +862,37 @@ class Bridge:
             return hold("bubblewrap missing", "bubblewrap is not installed; nothing was started.")
         base_dir = Path(os.environ.get("AGENT_LEASE_FIX_DIR") or Path.home() / ".cache" / "agent-lease-fix")
         workdir = base_dir / f"{mid}-{uuid.uuid4().hex[:8]}"
+
+        def stopped() -> bool:
+            if self._cleanup_blocked:
+                return hold("process cleanup not confirmed", f"verification stopped; clone kept at {workdir}.")
+            fix_runner.cleanup(workdir)
+            self.store.heartbeat(self.worker_identity, status=f"bridge: fix #{mid} stopped (lease lost)")
+            return True
+
+        def owns_task() -> bool:
+            return self.store.holds(mid, self.agent, token)
+
+        def supervise_test(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
+            try:
+                self._run_fence.acquire(mid, cgroup=self.use_cgroup)
+                result = run_command("", "", timeout=timeout, on_tick=tick,
+                                     gate=lambda: launch_gate(self.store.db_path), can_launch=owns_task,
+                                     use_cgroup=self.use_cgroup,
+                                     on_cgroup_created=self._run_fence.record_cgroup,
+                                     wrap=lambda _argv, _tmp: argv)
+                if result.cleanup_failed:
+                    raise fix_runner.VerificationStopped("test process cleanup not confirmed")
+                self._run_fence.release()
+            except BaseException:
+                self._cleanup_blocked = True
+                raise
+            if result.aborted:
+                raise fix_runner.VerificationStopped("task ownership lost during test")
+            if result.returncode is None:
+                raise subprocess.SubprocessError(result.output)
+            return subprocess.CompletedProcess(argv, result.returncode, result.output.encode(), b"")
+
         try:
             base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             clone = fix_runner.prepare(Path(scope["repo"]), scope["base_commit"], workdir)
@@ -918,10 +951,8 @@ class Bridge:
             self._cleanup_blocked = True
             return hold("process cleanup not confirmed", f"stopped, end of process unconfirmed; clone kept at {workdir}.")
         self._run_fence.release()
-        if result.aborted:
-            fix_runner.cleanup(workdir)
-            self.store.heartbeat(self.worker_identity, status=f"bridge: fix #{mid} stopped (lease lost)")
-            return True
+        if result.aborted or not owns_task():
+            return stopped()
         if not result.ok:
             return hold("run failed", f"the agent run failed; clone kept at {workdir} for review.\n{redact(result.output)[-1500:]}")
         title = delivery.text.strip().splitlines()[0][:72] if delivery.text.strip() else "oprava"
@@ -941,13 +972,23 @@ class Bridge:
                 verdict = fix_runner.verify_regression(
                     clone, scope["base_commit"], res["commit"], res["files"], scope["test_command"], workdir,
                     timeout=int(os.environ.get("AGENT_LEASE_FIX_TEST_TIMEOUT", "900")),
+                    supervisor=supervise_test, can_continue=owns_task,
                     home=real_home, run_home=run_home, ro_paths=fix_ro_paths(),
                     hide_abs=(str(self.store.db_path.parent),))
+            except fix_runner.VerificationStopped:
+                return stopped()
             except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 verdict = {"ok": False, "reason": f"test run failed: {str(exc)[:200]}", "tests": []}
+        if self._cleanup_blocked:
+            return stopped()
         branch = f"agent-fix/{mid}-{res['commit'][:8]}"
         try:
-            fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
+            with launch_gate(self.store.db_path):
+                if not owns_task():
+                    raise fix_runner.VerificationStopped("task ownership lost before publishing")
+                fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
+        except fix_runner.VerificationStopped:
+            return stopped()
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             return hold("publish failed", f"commit {res['commit']} ready in {workdir}, publishing failed: {str(exc)[:200]}")
         if not verdict["ok"]:

@@ -233,6 +233,13 @@ def _bridge_env(env, monkeypatch, body: str, with_tests: bool = True):
     return store, mid, f"{sys.executable} {script} {{prompt}}"
 
 
+def _regression_body(test_code: str) -> str:
+    return ("import pathlib\n"
+            "pathlib.Path('src/app.py').write_text('print(\"fixed\")\\n')\n"
+            f"pathlib.Path('src/test_app.py').write_text({test_code!r})\n"
+            "print('synthetic result')\n")
+
+
 def test_bridge_runs_fix_in_sandbox_and_publishes_branch(env, monkeypatch):
     from agent_lease_mcp.bridge import Bridge
     store, mid, cmd = _bridge_env(env, monkeypatch, (
@@ -250,6 +257,170 @@ def test_bridge_runs_fix_in_sandbox_and_publishes_branch(env, monkeypatch):
     assert (env["repo"] / "README.md").read_text() == "readme\n"          # hlavní repo nedotčené
     assert git("rev-parse", "main", cwd=env["repo"]) == env["base"]
     assert not list((env["tmp"] / "fixes").iterdir())                    # klon po úspěchu uklizen
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_cancel_during_verification_prevents_base_test_and_publication(env, monkeypatch, cancel):
+    """Review #20/#22: real bwrap reproduction plus the same legitimate control."""
+    import threading
+
+    from agent_lease_mcp.bridge import Bridge
+    test_code = ('import pathlib,sys,time\ntime.sleep(1)\n'
+                 'sys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n')
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(test_code))
+    real_verify, real_run = fix_runner.verify_regression, fix_runner.run_sandboxed
+    observed, executions = [], []
+
+    def run(clone, *args, **kwargs):
+        executions.append(Path(clone).name)
+        return real_run(clone, *args, **kwargs)
+
+    def verify(*args, **kwargs):
+        if cancel:
+            timer = threading.Timer(0.2, lambda: observed.append(store.cancel(mid, "codex")))
+            timer.start()
+        try:
+            return real_verify(*args, **kwargs)
+        finally:
+            if cancel:
+                timer.join()
+
+    monkeypatch.setattr(fix_runner, "verify_regression", verify)
+    monkeypatch.setattr(fix_runner, "run_sandboxed", run)
+    assert Bridge(store, "codex", command, lease_seconds=30, read_only=False).step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    branches = git("branch", "--list", "agent-fix/*", cwd=env["repo"])
+    if cancel:
+        assert observed == [True]
+        assert job["state"] == "cancelled"
+        assert "base-check" not in executions
+        assert not branches
+    else:
+        assert job["state"] == "succeeded"
+        assert executions == ["head-check", "base-check"]
+        assert branches
+
+
+@pytest.mark.parametrize("stop", ["cancel", "pause"])
+def test_verification_interrupts_running_test(env, monkeypatch, stop):
+    import threading
+    import time
+
+    from agent_lease_mcp.bridge import Bridge
+    code = ('import pathlib,sys,time\n'
+            'pathlib.Path("started").write_text("ready")\ntime.sleep(20)\n'
+            'pathlib.Path("finished").write_text("done")\n'
+            'sys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n')
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    real_verify, real_cleanup = fix_runner.verify_regression, fix_runner.cleanup
+    observed, snapshots = [], []
+
+    def verify(*args, **kwargs):
+        workdir = Path(args[5])
+
+        def revoke():
+            deadline = time.monotonic() + 5
+            while not (workdir / "head-check" / "started").exists():
+                if time.monotonic() > deadline:
+                    observed.append("head did not start")
+                    return
+                time.sleep(0.01)
+            if stop == "cancel":
+                observed.append(store.cancel(mid, "codex"))
+            else:
+                store.pause("michal")
+                observed.append(bool(store.paused()))
+
+        thread = threading.Thread(target=revoke, daemon=True)
+        thread.start()
+        try:
+            return real_verify(*args, **kwargs)
+        finally:
+            thread.join(8)
+            assert not thread.is_alive()
+
+    def cleanup(workdir):
+        snapshots.append(((workdir / "head-check" / "finished").exists(),
+                          (workdir / "base-check").exists()))
+        real_cleanup(workdir)
+
+    monkeypatch.setattr(fix_runner, "verify_regression", verify)
+    monkeypatch.setattr(fix_runner, "cleanup", cleanup)
+    bridge = Bridge(store, "codex", command, lease_seconds=30, read_only=False)
+    started = time.monotonic()
+    assert bridge.step()
+    assert time.monotonic() - started < 10, "must interrupt the 20-second test"
+    assert observed == [True]
+    assert snapshots == [(False, False)], "neither finished head nor any base checkout"
+    assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
+    assert not bridge._run_fence.present() and not bridge._cleanup_blocked
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] != "succeeded"
+
+
+@pytest.mark.parametrize("after", ["head", "verification"])
+def test_late_cancellation_never_launches_next_phase(env, monkeypatch, after):
+    from agent_lease_mcp.bridge import Bridge
+    code = 'import pathlib,sys\nsys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n'
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    real_run, real_verify = fix_runner.run_sandboxed, fix_runner.verify_regression
+    executions = []
+
+    def run(clone, *args, **kwargs):
+        executions.append(Path(clone).name)
+        result = real_run(clone, *args, **kwargs)
+        if after == "head" and Path(clone).name == "head-check":
+            assert store.cancel(mid, "codex")
+        return result
+
+    def verify(*args, **kwargs):
+        result = real_verify(*args, **kwargs)
+        if after == "verification":
+            assert result["ok"]
+            assert store.cancel(mid, "codex")
+        return result
+
+    monkeypatch.setattr(fix_runner, "run_sandboxed", run)
+    monkeypatch.setattr(fix_runner, "verify_regression", verify)
+    assert Bridge(store, "codex", command, lease_seconds=30, read_only=False).step()
+    assert executions == (["head-check"] if after == "head" else ["head-check", "base-check"])
+    assert next(j for j in store.jobs("codex") if j["id"] == mid)["state"] == "cancelled"
+    assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
+
+
+def test_base_timeout_is_not_a_failing_regression_test(env, monkeypatch):
+    from agent_lease_mcp.bridge import Bridge
+    code = ('import pathlib,sys,time\n'
+            'fixed = "fixed" in pathlib.Path("src/app.py").read_text()\n'
+            'time.sleep(0 if fixed else 20)\nsys.exit(0 if fixed else 1)\n')
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    monkeypatch.setenv("AGENT_LEASE_FIX_TEST_TIMEOUT", "1")
+    bridge = Bridge(store, "codex", command, lease_seconds=30, read_only=False)
+    assert bridge.step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"] == "fix: tests not verified"
+    assert git("branch", "--list", "agent-fix/*", cwd=env["repo"]), "keep the patch for human review"
+    assert not bridge._run_fence.present() and not bridge._cleanup_blocked
+
+
+def test_verification_cleanup_failure_blocks_publication(env, monkeypatch):
+    from agent_lease_mcp import bridge as bridge_mod
+    code = 'import pathlib,sys\nsys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n'
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    real_run = bridge_mod.run_command
+
+    def run(template, *args, **kwargs):
+        if not template:  # verification command: simulate an unconfirmed process cleanup
+            return bridge_mod.RunResult(False, "cleanup unconfirmed", cleanup_failed=True)
+        return real_run(template, *args, **kwargs)
+
+    monkeypatch.setattr(bridge_mod, "run_command", run)
+    bridge = bridge_mod.Bridge(store, "codex", command, lease_seconds=30, read_only=False)
+    assert bridge.step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"] == "fix: process cleanup not confirmed"
+    assert bridge._cleanup_blocked and bridge._run_fence.present()
+    assert list((env["tmp"] / "fixes").iterdir()), "retain clone until cleanup is confirmed"
+    assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
 
 
 def test_bridge_rejected_change_goes_to_review(env, monkeypatch):

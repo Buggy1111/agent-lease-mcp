@@ -202,10 +202,18 @@ def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None, run_
     return args + argv
 
 
-def run_sandboxed(clone: Path, argv: list[str], *, timeout: int = 1800, **kw) -> subprocess.CompletedProcess:
+class VerificationStopped(RuntimeError):
+    """Verification lost its authority; never publish its result."""
+
+
+def run_sandboxed(clone: Path, argv: list[str], *, timeout: int = 1800,
+                  supervisor=None, **kw) -> subprocess.CompletedProcess:
     if not Path(BWRAP).exists():
         raise RuntimeError("bubblewrap is required for write-mode fixes (fail closed)")
-    return subprocess.run(sandbox_argv(clone, argv, **kw), capture_output=True, timeout=timeout, check=False)
+    command = sandbox_argv(clone, argv, **kw)
+    if supervisor is not None:
+        return supervisor(command, timeout=timeout)
+    return subprocess.run(command, capture_output=True, timeout=timeout, check=False)
 
 
 def _allowed(path: str, allowed: list[str]) -> bool:
@@ -290,23 +298,31 @@ def _checkout(src: Path, commit: str, dest: Path) -> Path:
 
 
 def verify_regression(clone: Path, base_commit: str, commit: str, files: list[str], test_argv: list[str],
-                      workdir: Path, *, timeout: int = 900, **sandbox_kw) -> dict:
+                      workdir: Path, *, timeout: int = 900, supervisor=None,
+                      can_continue=None, **sandbox_kw) -> dict:
     """
     Důvěryhodné ověření C2a na čistých checkoutech z commitu (nikdy z pracovní složky agenta):
     - head: commit opravy → celá sada musí projít;
     - base: původní kód + jen nové/změněné testy z commitu (`git checkout <commit> -- testy`) → musí selhat.
     Vrací {ok, reason, tests}.
     """
+    def check_owner():
+        if can_continue is not None and not can_continue():
+            raise VerificationStopped("task ownership lost during verification")
+
+    check_owner()
     tests = [f for f in files if _TEST_FILE.search(f)]
     if not tests:
         return {"ok": False, "reason": "no regression test in the change", "tests": []}
     head_dir = _checkout(clone, commit, Path(workdir) / "head-check")
-    head = run_sandboxed(head_dir, test_argv, timeout=timeout, **sandbox_kw)
+    head = run_sandboxed(head_dir, test_argv, timeout=timeout, supervisor=supervisor, **sandbox_kw)
+    check_owner()
     if head.returncode != 0:
         return {"ok": False, "reason": f"tests fail with the fix (exit {head.returncode})", "tests": tests}
     base_dir = _checkout(clone, base_commit, Path(workdir) / "base-check")
     _git("checkout", "--quiet", commit, "--", *tests, cwd=base_dir)   # obsah z objektu commitu
-    old = run_sandboxed(base_dir, test_argv, timeout=timeout, **sandbox_kw)
+    old = run_sandboxed(base_dir, test_argv, timeout=timeout, supervisor=supervisor, **sandbox_kw)
+    check_owner()
     if old.returncode == 0:
         return {"ok": False, "reason": "the new test passes without the fix (not a regression test)", "tests": tests}
     return {"ok": True, "reason": "", "tests": tests}
@@ -345,5 +361,5 @@ def cli_files_for(agent: str) -> tuple[str, ...]:
     return CLI_FILES.get(agent, ())
 
 
-__all__ = ["DEFAULT_HIDE", "cleanup", "collect", "prepare", "prepare_home", "publish", "run_sandboxed",
+__all__ = ["DEFAULT_HIDE", "VerificationStopped", "cleanup", "collect", "prepare", "prepare_home", "publish", "run_sandboxed",
            "runtime_paths", "sandbox_argv", "sync_credentials", "verify_regression"]
