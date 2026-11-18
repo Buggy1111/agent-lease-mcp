@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from pathlib import Path
 
@@ -83,6 +84,29 @@ def _codex_queue_supported(binary: str | None) -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return probe.returncode == 0
+
+
+
+_STALE_THREAD_SECONDS = 24 * 3600
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _codex_thread_idle_seconds(home: Path, thread: str) -> float | None:
+    """Jak dlouho Codex do vlákna (UUID) nic nezapsal.
+
+    None = jméno z /rename (souborem nejde ověřit); `inf` = UUID, ke kterému soubor session
+    není (nebo zmizel během čtení) — to se hlásí jako „nelze ověřit“, ne jako OK.
+    """
+    if not thread or not _UUID.match(thread):
+        return None
+    newest = None
+    for f in (home / ".codex" / "sessions").glob(f"*/*/*/rollout-*-{thread}.jsonl"):
+        try:
+            mtime = f.stat().st_mtime
+        except OSError:  # soubor se mezitím přesunul/smazal: doctor kvůli tomu nesmí spadnout
+            continue
+        newest = mtime if newest is None else max(newest, mtime)
+    return float("inf") if newest is None else max(0.0, time.time() - newest)
 
 
 def _service_env_value(path: Path, key: str) -> str:
@@ -263,7 +287,20 @@ def run_doctor(*, json_output: bool = False) -> int:
     thread = (os.environ.get("AGENT_LEASE_CODEX_THREAD", "").strip()
               or _service_env_value(env_file, "AGENT_LEASE_CODEX_THREAD"))
     wake_active = _user_service_active("agent-lease-codex-wake.service")
-    if queue_supported and thread and wake_active:
+    idle = _codex_thread_idle_seconds(home, thread)
+    if queue_supported and thread and wake_active and idle == float("inf"):
+        line("codex_rewake", WARN,
+             f"Codex wake targets session {thread!r}, but no session file with that ID exists — "
+             "cannot verify it is live. Use the live session ID or a /rename name.",
+             configured_thread=thread, idle_seconds=None)
+    elif queue_supported and thread and wake_active and idle is not None and idle > _STALE_THREAD_SECONDS:
+        # 18. 11.: služba 11 dní budila mrtvé vlákno a nikde to nehlásilo chybu
+        line("codex_rewake", WARN,
+             f"Codex wake targets session {thread!r}, which has not been written for "
+             f"{idle / 3600:.0f} h — likely an old session. Set AGENT_LEASE_CODEX_THREAD in "
+             f"{env_file} to the live session (or a /rename name) and restart agent-lease-codex-wake.",
+             configured_thread=thread, idle_seconds=int(idle))
+    elif queue_supported and thread and wake_active:
         line("codex_rewake", OK, f"Codex wake service active for named session {thread!r}",
              configured_thread=thread, service_active=True)
     else:
