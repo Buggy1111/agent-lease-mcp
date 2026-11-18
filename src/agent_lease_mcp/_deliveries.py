@@ -455,6 +455,23 @@ class DeliveriesMixin:
                 pass
         return self.mode()
 
+    def requeue_unlaunched(self, message_id: int, recipient: str, lease_token: str) -> bool:
+        """D2: bridge úkol převzal (started), ale proces kvůli Základnímu režimu nespustil → zpět do fronty.
+
+        Jen s platným tokenem a jen v Základním režimu; jinak by šlo podvrhnout „nic neběželo“.
+        """
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            if not con.execute("SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
+                return False
+            cur = con.execute(
+                "UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, updated_at=? "
+                "WHERE message_id=? AND recipient=? AND lease_token=? AND state='started'",
+                (time.time(), message_id, recipient, lease_token))
+            if cur.rowcount:
+                self._record(con, recipient, "requeue_basic", "", f"#{message_id}")
+            return bool(cur.rowcount)
+
     # ── checkpoint (fáze A6) ─────────────────────────────────────────────────
 
     def _checkpoint_hold(self, con: sqlite3.Connection, message_id: int, recipient: str,

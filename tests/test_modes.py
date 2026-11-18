@@ -104,3 +104,63 @@ def test_web_switches_mode_only_with_session(tmp_path: Path):
     status, _ = call_handler(store, settings, "secret", "POST", "/api/mode", headers=cookie,
                              body={"mode": "autonomous"}, handler_type=handler)
     assert status == 409 and store.mode()["mode"] == "basic"
+
+
+def test_downgrade_after_start_before_spawn_launches_nothing_and_requeues(tmp_path: Path):
+    from test_bridge import fake
+
+    from agent_lease_mcp.bridge import Bridge
+
+    store = Store(tmp_path / "room.db", settings=Settings(tmp_path / "room.db", "codex", 1800))
+    marker = tmp_path / "ran"
+    cmd = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    real_accept = store.accept
+
+    def accept_then_basic(*a, **kw):
+        ok = real_accept(*a, **kw)
+        store.set_mode("michal", "basic", "noc")
+        return ok
+
+    store.accept = accept_then_basic
+    Bridge(store, "codex", cmd).step()
+    assert not marker.exists()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "pending"
+
+
+def test_requeue_unlaunched_only_in_basic_with_valid_token(store: Store):
+    mid = store.send("michal", "codex", "otestuj", kind="task")
+    leased = store.lease_next("codex", worker=True)
+    store.ack(mid, "codex", "started", lease_token=leased.lease_token)
+    assert store.requeue_unlaunched(mid, "codex", leased.lease_token) is False  # intelligent
+    with store._connect() as con:
+        con.execute("INSERT INTO control(key, value, changed_by, changed_at) VALUES('mode','basic','michal',0)")
+    assert store.requeue_unlaunched(mid, "codex", "forged") is False
+    assert store.requeue_unlaunched(mid, "codex", leased.lease_token) is True
+
+
+def test_downgrade_between_ack_started_and_spawn_is_caught_under_the_launch_gate(tmp_path: Path):
+    from test_bridge import fake
+
+    from agent_lease_mcp.bridge import Bridge
+
+    store = Store(tmp_path / "room.db", settings=Settings(tmp_path / "room.db", "codex", 1800))
+    marker = tmp_path / "ran"
+    cmd = fake(tmp_path, f"open({str(marker)!r}, 'w').write('x')")
+    mid = store.send("michal", "codex", "úkol", kind="task")
+    real_ack = store.ack
+    switched = []
+
+    def ack_then_basic(*a, **kw):
+        ok = real_ack(*a, **kw)
+        if ok and str(a[2] if len(a) > 2 else kw.get("state")).lower().endswith("started"):
+            store.set_mode("michal", "basic", "noc")
+            switched.append(True)
+        return ok
+
+    store.ack = ack_then_basic
+    Bridge(store, "codex", cmd).step()
+    assert switched and not marker.exists()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "pending"
