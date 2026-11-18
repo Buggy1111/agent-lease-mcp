@@ -19,7 +19,7 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = [
-    "fastmcp>=3.4.10,<4",
+    "fastmcp>=3.4.10,<5",
     "authlib>=1.9.1,<2",
     "certifi>=2026.10.19",
     "dnspython>=2.9,<3",
