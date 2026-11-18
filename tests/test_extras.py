@@ -128,6 +128,38 @@ def test_doctor_codex_wake_reports_named_session_and_service(tmp_path, monkeypat
     assert check["status"] == "warning" and "enable --now" in check["message"]
 
 
+def test_doctor_warns_when_codex_wake_targets_a_dead_session(tmp_path, monkeypatch, capsys):
+    """Regrese 18. 11.: codex-wake 11 dní budil vlákno, do kterého už nikdo nepsal."""
+    import json
+    import os
+    import time
+
+    from agent_lease_mcp import doctor
+
+    old, live = "01a1b10b-6743-75c3-81e9-298d0f32f877", "01a1dbbd-39a1-7453-82a2-96fc719dbc8d"
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(doctor, "_codex_queue_supported", lambda _bin: True)
+    monkeypatch.setattr(doctor, "_user_service_active", lambda _name: True)
+    day = tmp_path / ".codex" / "sessions" / "2026" / "11" / "06"
+    day.mkdir(parents=True)
+    for uuid, age in ((old, 11 * 86400), (live, 60)):
+        f = day / f"rollout-2026-11-06T14-27-57-{uuid}.jsonl"
+        f.write_text("{}\n")
+        os.utime(f, (time.time() - age, time.time() - age))
+
+    def check(thread):
+        monkeypatch.setenv("AGENT_LEASE_CODEX_THREAD", thread)
+        doctor.run_doctor(json_output=True)
+        return {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
+
+    stale = check(old)
+    assert stale["status"] == "warning" and "not been written" in stale["message"]
+    assert check(live)["status"] == "ok"
+    assert check("nox")["status"] == "ok"  # jméno z /rename se nedá ověřit souborem
+
+
 def test_doctor_reports_a_service_crash_loop(tmp_path, monkeypatch, capsys):
     """Regrese 21. 10.: codex-wake padal ve smyčce, doctor hlásil jen „active“."""
     import json
