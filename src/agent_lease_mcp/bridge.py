@@ -34,13 +34,14 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import jev, workspace
+from . import fix_runner, jev, workspace
 from .broker import database_busy, open_store
 from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
@@ -58,10 +59,14 @@ DEFAULT_COMMANDS = {
     # `{last_message}`: Codex zapíše jen svou finální odpověď do souboru. Bez toho
     # by výsledek byl celý přepis běhu (výpisy nástrojů, hooky, tokeny) oříznutý
     # na konec — odpověď zahrabaná v šumu (živý test 20. 10., task #288).
-    "codex": "codex exec --sandbox read-only --skip-git-repo-check "
+    # C3a: `--json` / `--output-format json` hlásí spotřebu tokenů a skutečný model.
+    "codex": "codex exec --sandbox read-only --skip-git-repo-check --json "
              "--output-last-message {last_message} {prompt}",
-    "claude-code": "claude -p {prompt} --output-format text --permission-mode plan",
+    "claude-code": "claude -p {prompt} --output-format json --permission-mode plan",
 }
+# Kam vložit připnutý model (C3a). Bez něj běží výchozí model účtu, který se mění
+# s nastavením člověka (11. 11. přepnutí na jiný model změnilo i bezobslužné běhy).
+_MODEL_FLAG = {"codex": "-m", "claude-code": "--model"}
 _RATE_LIMIT = re.compile(
     r"rate.?limit|usage limit|weekly limit|too many requests|\b429\b|quota", re.IGNORECASE,
 )
@@ -94,6 +99,10 @@ class RunResult:
     aborted: bool = False
     # Ukončení skupiny procesů se nepodařilo potvrdit → nikdy nehlásit „hotovo“.
     cleanup_failed: bool = False
+    # C3a: spotřeba, jak ji hlásí klient; None = klient nic strojově čitelného nevrátil.
+    usage: dict | None = None
+    # Only a normally completed command has an exit status: setup/timeout is not a failing test.
+    returncode: int | None = None
 
 
 def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
@@ -124,7 +133,7 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 gate=None, can_launch=None, use_cgroup: bool = False,
                 on_cgroup_created=None, idle_timeout: float | None = None,
-                progress=None) -> RunResult:
+                progress=None, wrap=None) -> RunResult:
     """
     `timeout` je absolutní strop běhu. S `idle_timeout` (B5) se běh ukončí i dřív,
     když tak dlouho nevykázal žádný postup: výstup, `progress()` (např. nový
@@ -144,7 +153,7 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 watchdog = CgroupWatchdog(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
                           gate=gate, can_launch=can_launch, group=group, watchdog=watchdog,
-                          idle_timeout=idle_timeout, progress=progress)
+                          idle_timeout=idle_timeout, progress=progress, wrap=wrap)
         except BaseException:
             try:
                 if watchdog is not None:
@@ -194,9 +203,11 @@ def _cgroup_cpu_usec(group: CommandCgroup | None) -> int | None:
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
          gate=None, can_launch=None, group: CommandCgroup | None = None,
          watchdog: CgroupWatchdog | None = None, idle_timeout: float | None = None,
-         progress=None) -> RunResult:
+         progress=None, wrap=None) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
+    if wrap is not None:  # C1b: zápisový běh opravy v bwrap (adresář s odpovědí CLI zůstane zapisovatelný)
+        argv = wrap(argv, os.path.dirname(last))
     if _PRCTL is None:
         return RunResult(False, "cannot start: Linux parent-death supervision unavailable")
     proc = None
@@ -335,10 +346,74 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
                              aborted=True, cleanup_failed=True)
         raise tick_error
     output = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    output, usage = extract_usage(template, output)  # z celého výstupu, před oříznutím
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
-                         cleanup_failed=not gone)
-    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone)
+                         cleanup_failed=not gone, usage=usage, returncode=proc.returncode)
+    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone,
+                     usage=usage, returncode=proc.returncode)
+
+
+def with_model(agent: str, command: str, model: str) -> str:
+    """Příkaz s připnutým modelem (C3a); bez modelu nebo u neznámého klienta beze změny."""
+    if not model or agent not in _MODEL_FLAG or " {prompt}" not in command:
+        return command
+    return command.replace(" {prompt}", f" {_MODEL_FLAG[agent]} {shlex.quote(model)} {{prompt}}", 1)
+
+
+def _int(value) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def extract_usage(template: str, output: str) -> tuple[str, dict | None]:
+    """
+    Text výsledku a spotřeba ze strojového výstupu klienta (C3a).
+
+    Claude `--output-format json`: jeden objekt s `result`, `usage`, `modelUsage`
+    a `total_cost_usd`. Codex `--json`: řádky událostí; spotřebu nese událost s
+    `usage` (bere se poslední). Cokoli jiného: text beze změny, spotřeba None
+    („neznámo“, nikdy nula).
+    """
+    if "--output-format json" in template:
+        try:
+            data = json.loads(output)
+        except ValueError:
+            return output, None
+        if not isinstance(data, dict):
+            return output, None
+        raw = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        models = data.get("modelUsage") if isinstance(data.get("modelUsage"), dict) else {}
+        text = data.get("result") if isinstance(data.get("result"), str) else output
+        cost = data.get("total_cost_usd")
+        return text, {
+            "source": "claude-json", "model": ",".join(sorted(models)) or None,
+            "input_tokens": _int(raw.get("input_tokens")),
+            "output_tokens": _int(raw.get("output_tokens")),
+            "cache_read_tokens": _int(raw.get("cache_read_input_tokens")),
+            "cache_creation_tokens": _int(raw.get("cache_creation_input_tokens")),
+            "cost_usd": cost if isinstance(cost, (int, float)) and cost >= 0 else None,
+        }
+    if " --json" in template:
+        usage = None
+        for line in output.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and isinstance(event.get("usage"), dict):
+                raw = event["usage"]
+                total, cached = _int(raw.get("input_tokens")), _int(raw.get("cached_input_tokens"))
+                # Codex počítá cache do input_tokens (Claude zvlášť); sjednotit, ať se
+                # v součtech C3b nepočítá dvakrát (C0 Noxe 12. 11.).
+                fresh = total - cached if total is not None and cached is not None \
+                    and cached <= total else total
+                usage = {"source": "codex-jsonl", "model": None,
+                         "input_tokens": fresh,
+                         "output_tokens": _int(raw.get("output_tokens")),
+                         "cache_read_tokens": _int(raw.get("cached_input_tokens")),
+                         "cache_creation_tokens": None, "cost_usd": None}
+        return output, usage
+    return output, None
 
 
 def _resolve_prctl():
@@ -442,14 +517,21 @@ def run_openrouter(prompt: str, *, model: str, api_key: str, base_url: str = OPE
     return RunResult(True, str(text).strip()[-4000:])
 
 
+def fix_ro_paths() -> tuple[str, ...]:
+    """Další cesty jen pro čtení pro zápisové běhy (např. toolchain mimo systém), z AGENT_LEASE_FIX_RO_PATHS."""
+    return tuple(p for p in os.environ.get("AGENT_LEASE_FIX_RO_PATHS", "").split(":") if p)
+
+
 class Bridge:
     def __init__(self, store: Store, agent: str, command: str, *, lease_seconds: int = 120,
                  timeout: float = 1800, max_per_hour: int = 12, runner=None,
                  after_message_id: int = 0, provider_probe=None,
                  provider_probe_interval: float = 60, worker_identity: str | None = None,
                  interactive_grace: float = 300, read_only: bool | None = None,
-                 use_cgroup: bool = False, max_runtime: float | None = None) -> None:
+                 use_cgroup: bool = False, max_runtime: float | None = None,
+                 requested_model: str | None = None) -> None:
         self.store, self.agent, self.command = store, agent, command
+        self.requested_model = requested_model or None  # připnutý model; skutečný hlásí CLI
         # Read-only běh nic nemění, takže ho po limitu jde bezpečně spustit znovu.
         # Vlastní příkaz může zapisovat → po limitu needs_review (audit #535 bod 2c).
         # Callable runner nejde spolehlivě zastavit (vlákno nezabiješ) → zapisující
@@ -638,6 +720,19 @@ class Bridge:
                                     f"Task #{mid} not started: emergency stop.",
                                     error="emergency stop")
             return True
+        report_key = None
+        try:  # Separate report authority stays in the bridge, never in the task prompt.
+            report_key = self.store.begin_usage(mid, self.agent, token, self.requested_model)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agent-lease-bridge] usage reservation failed: {exc}", file=sys.stderr)
+        if not report_key:
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Task #{mid} not started: usage reservation unavailable.",
+                                error="usage reservation unavailable")
+            return True
+        scope = self.store.fix_task(mid)
+        if scope is not None:
+            return self._run_fix(mid, token, delivery, prompt, scope, tick, report_key)
         blocked_by_mode: list[bool] = []
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
@@ -682,6 +777,13 @@ class Bridge:
                     self._run_fence.release()
                 except OSError:
                     result = dataclasses.replace(result, ok=False, cleanup_failed=True)
+        try:  # evidence nesmí změnit výsledek úkolu (C3a)
+            if result.usage and not self.store.record_usage(mid, self.agent, token, result.usage,
+                                                          report_key=report_key):
+                print(f"[agent-lease-bridge] usage of task #{mid} not recorded: lease lost",
+                      file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
         if result.cleanup_failed:
             # proces možná pořád běží: výsledek nepublikovat, člověk musí ověřit (#545/7)
             self._cleanup_blocked = True
@@ -763,6 +865,178 @@ class Bridge:
                                 f"Task #{mid} selhal:\n{body}", error=body[:300])
         return True
 
+    def _run_fix(self, mid: int, token: str, delivery, prompt: str, scope: dict, tick,
+                 report_key: str | None = None) -> bool:
+        """C1b: oprava ve vlastním klonu pod bwrap; commit a předání větve dělá důvěryhodný proces."""
+        def hold(reason: str, body: str) -> bool:
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Fix #{mid}: {body}", error=f"fix: {reason}")
+            return True
+        if self.runner is not None:
+            return hold("needs a subprocess bridge", "a callable runner cannot run write-mode fixes.")
+        if not Path(fix_runner.BWRAP).exists():
+            return hold("bubblewrap missing", "bubblewrap is not installed; nothing was started.")
+        base_dir = Path(os.environ.get("AGENT_LEASE_FIX_DIR") or Path.home() / ".cache" / "agent-lease-fix")
+        workdir = base_dir / f"{mid}-{uuid.uuid4().hex[:8]}"
+
+        def stopped() -> bool:
+            if self._cleanup_blocked:
+                return hold("process cleanup not confirmed", f"verification stopped; clone kept at {workdir}.")
+            fix_runner.cleanup(workdir)
+            self.store.heartbeat(self.worker_identity, status=f"bridge: fix #{mid} stopped (lease lost)")
+            return True
+
+        def owns_task() -> bool:
+            return self.store.holds(mid, self.agent, token)
+
+        def supervise_test(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
+            try:
+                self._run_fence.acquire(mid, cgroup=self.use_cgroup)
+                result = run_command("", "", timeout=timeout, on_tick=tick,
+                                     gate=lambda: launch_gate(self.store.db_path), can_launch=owns_task,
+                                     use_cgroup=self.use_cgroup,
+                                     on_cgroup_created=self._run_fence.record_cgroup,
+                                     wrap=lambda _argv, _tmp: argv)
+                if result.cleanup_failed:
+                    raise fix_runner.VerificationStopped("test process cleanup not confirmed")
+                self._run_fence.release()
+            except BaseException:
+                self._cleanup_blocked = True
+                raise
+            if result.aborted:
+                raise fix_runner.VerificationStopped("task ownership lost during test")
+            if result.returncode is None:
+                raise subprocess.SubprocessError(result.output)
+            return subprocess.CompletedProcess(argv, result.returncode, result.output.encode(), b"")
+
+        try:
+            base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            clone = fix_runner.prepare(Path(scope["repo"]), scope["base_commit"], workdir)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            fix_runner.cleanup(workdir)
+            return hold("clone failed", f"could not prepare an isolated clone: {str(exc)[:300]}")
+        allowed = scope["allowed"]
+        prompt += (f"\n\n--- WRITE-MODE FIX (isolated clone) ---\nYou work in an isolated copy of the "
+                   f"repository at {clone}. Edit only: {', '.join(allowed) or 'any project file'}. "
+                   "CI, deploy and git files are off limits. First add a regression test that fails "
+                   "without the fix, then fix the bug and run the tests. Do not commit or push; your "
+                   "changes are checked and committed after you finish.")
+        # Výchozí CLI (read-only příkaz, i s připnutým modelem) → zápisová varianta téhož CLI
+        # se stejným modelem; vlastní příkaz operátora zůstává (integrace C3, review #20 Nox).
+        command = os.environ.get("AGENT_LEASE_FIX_COMMAND") or (
+            with_model(self.agent, fix_runner.FIX_COMMANDS.get(self.agent, ""), self.requested_model or "")
+            if self.read_only else self.command)
+        if not command:
+            fix_runner.cleanup(workdir)
+            return hold("no command", f"no write-mode command is configured for {self.agent}.")
+        real_home = Path.home()
+        try:
+            run_home = fix_runner.prepare_home(workdir, real_home, fix_runner.cli_files_for(self.agent))
+        except OSError as exc:
+            fix_runner.cleanup(workdir)
+            return hold("home failed", f"could not prepare the run's HOME: {str(exc)[:200]}")
+        try:
+            self._run_fence.acquire(mid, cgroup=self.use_cgroup)
+        except OSError as exc:
+            if not isinstance(exc, FileExistsError):
+                self._cleanup_blocked = True
+            fix_runner.cleanup(workdir)
+            return hold("command fence unavailable", "not started: command fence unavailable.")
+        fix_blocked_by_mode: list[bool] = []
+
+        def can_launch_fix() -> bool:
+            # D2: jako u běžného úkolu — Základní režim pod launch_gate nový běh nespustí
+            if self.store.mode()["mode"] == "basic":
+                fix_blocked_by_mode.append(True)
+                return False
+            return self.store.holds(mid, self.agent, token)
+
+        try:
+            result = run_command(command, prompt, timeout=self.max_runtime or self.timeout, on_tick=tick,
+                                 gate=lambda: launch_gate(self.store.db_path),
+                                 can_launch=can_launch_fix,
+                                 use_cgroup=self.use_cgroup, on_cgroup_created=self._run_fence.record_cgroup,
+                                 idle_timeout=self.timeout if self.max_runtime else None,
+                                 wrap=lambda argv, tmp: fix_runner.sandbox_argv(
+                                     clone, argv, home=real_home, run_home=run_home, extra_rw=(tmp,),
+                                     ro_paths=fix_ro_paths(), hide_abs=(str(self.store.db_path.parent),)))
+        except BaseException:
+            self._cleanup_blocked = True
+            raise
+        try:  # jen obnovené přihlášení zpět (rotující refresh token), nikdy konfigurace CLI
+            fix_runner.sync_credentials(run_home, real_home, fix_runner.CRED_SYNC.get(self.agent, ()))
+        except OSError as exc:
+            print(f"[agent-lease-bridge] credential sync failed: {exc}", file=sys.stderr)
+        try:  # spotřeba zápisového běhu jde do stejné evidence a stropů jako běžné úkoly (C3)
+            if result.usage and report_key:
+                self.store.record_usage(mid, self.agent, token, result.usage, report_key=report_key)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[agent-lease-bridge] usage not recorded: {exc}", file=sys.stderr)
+        if result.cleanup_failed:
+            self._cleanup_blocked = True
+            return hold("process cleanup not confirmed", f"stopped, end of process unconfirmed; clone kept at {workdir}.")
+        self._run_fence.release()
+        if result.aborted and fix_blocked_by_mode:
+            fix_runner.cleanup(workdir)
+            return hold("basic mode", "not started: switched to the basic mode before launch.")
+        if result.aborted or not owns_task():
+            return stopped()
+        if not result.ok:
+            return hold("run failed", f"the agent run failed; clone kept at {workdir} for review.\n{redact(result.output)[-1500:]}")
+        title = delivery.text.strip().splitlines()[0][:72] if delivery.text.strip() else "oprava"
+        try:
+            res = fix_runner.collect(clone, scope["base_commit"], allowed, f"fix(#{mid}): {title}")
+        except (OSError, subprocess.SubprocessError) as exc:
+            return hold("collect failed", f"checking the changes failed ({str(exc)[:200]}); clone kept at {workdir}.")
+        if not res["ok"]:
+            why = "; ".join(f"{r['path']}: {r['reason']}" for r in res["rejected"][:10])
+            if res["findings"]:
+                why = f"secret scan found {len(res['findings'])} finding(s)"
+            return hold("changes rejected", f"changes were NOT committed ({why}); clone kept at {workdir} for review.")
+        # C2a: regresní test ověří důvěryhodný proces (na základu FAIL, s opravou PASS i celá sada)
+        verdict = {"ok": False, "reason": "no test command for this repository in fix-runner.toml", "tests": []}
+        if scope.get("test_command"):
+            try:
+                verdict = fix_runner.verify_regression(
+                    clone, scope["base_commit"], res["commit"], res["files"], scope["test_command"], workdir,
+                    timeout=int(os.environ.get("AGENT_LEASE_FIX_TEST_TIMEOUT", "900")),
+                    supervisor=supervise_test, can_continue=owns_task,
+                    home=real_home, run_home=run_home, ro_paths=fix_ro_paths(),
+                    hide_abs=(str(self.store.db_path.parent),))
+            except fix_runner.VerificationStopped:
+                return stopped()
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                verdict = {"ok": False, "reason": f"test run failed: {str(exc)[:200]}", "tests": []}
+        if self._cleanup_blocked:
+            return stopped()
+        branch = f"agent-fix/{mid}-{res['commit'][:8]}"
+        try:
+            with launch_gate(self.store.db_path):
+                if not owns_task():
+                    raise fix_runner.VerificationStopped("task ownership lost before publishing")
+                fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
+        except fix_runner.VerificationStopped:
+            return stopped()
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return hold("publish failed", f"commit {res['commit']} ready in {workdir}, publishing failed: {str(exc)[:200]}")
+        if not verdict["ok"]:
+            # větev je k dispozici člověku, ale bez ověřeného testu se nic nehlásí jako hotové
+            return hold("tests not verified", f"branch {branch} @ {res['commit']} published, but "
+                        f"{verdict['reason']}; waiting for the human. Clone kept at {workdir}.")
+        fix_runner.cleanup(workdir)
+        review_note = ""
+        try:  # C2: oprava od agenta jde k review zadavateli; další kola přes připomínky
+            rid = self.store.fix_record_result(self.agent, mid, res["commit"])
+            if rid:
+                review_note = f" Review #{rid} waits for the requester."
+        except (PermissionError, ValueError, KeyError) as exc:
+            review_note = f" Review not opened: {str(exc)[:200]}"
+        body = (f"Fix #{mid} done in an isolated clone.{review_note} Branch {branch} @ {res['commit']} "
+                f"({len(res['files'])} file(s): {', '.join(res['files'][:10])}). Nothing merged — "
+                f"review and merge is up to the human.\n{redact(result.output)[-2000:]}")
+        self.store.complete(mid, self.agent, token, DeliveryState.SUCCEEDED, body)
+        return True
+
     def _checkpoint_progress(self, mid: int):
         """Nový checkpoint úkolu = postup (B5). Starší checkpoint ani chyba čtení se nepočítají."""
         def stamp():
@@ -842,8 +1116,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="command template with {prompt}; default per agent")
     p.add_argument("--provider", choices=["cli", "openrouter"], default="cli",
                    help="cli = codex/claude headless; openrouter = any model over the API")
-    p.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", ""),
-                   help="e.g. anthropic/claude-sonnet-4.5 (only for --provider openrouter)")
+    p.add_argument("--model", default="",
+                   help="pinned model; cli: passed to codex/claude (env AGENT_LEASE_MODEL), "
+                        "openrouter: e.g. anthropic/claude-sonnet-4.5 (env OPENROUTER_MODEL)")
     p.add_argument("--max-per-hour", type=int, default=12)
     p.add_argument("--lease-seconds", type=int, default=120,
                    help="task lease length; renewed while the command runs")
@@ -865,8 +1140,14 @@ def main(argv: list[str] | None = None) -> int:
         help="seconds a present interactive session gets before the bridge takes a task",
     )
     args = p.parse_args(argv)
+    args.model = args.model or os.environ.get(
+        "OPENROUTER_MODEL" if args.provider == "openrouter" else "AGENT_LEASE_MODEL", "")
     runner = None
     command = args.command or DEFAULT_COMMANDS.get(args.agent) or ""
+    read_only = True if args.provider == "openrouter" else (
+        True if command in DEFAULT_COMMANDS.values() else None)
+    if args.provider == "cli":
+        command = with_model(args.agent, command, args.model)  # read-only určeno výše
     if args.provider == "openrouter":
         key = os.environ.get("OPENROUTER_API_KEY", "")
         if not key or not args.model:
@@ -884,12 +1165,13 @@ def main(argv: list[str] | None = None) -> int:
         args.agent, include_existing=args.include_existing,
     )
     bridge = Bridge(store, args.agent, command, runner=runner,
-                    read_only=True if args.provider == "openrouter" else None,
+                    read_only=read_only,
                     timeout=args.timeout, max_per_hour=args.max_per_hour,
                     lease_seconds=args.lease_seconds,
                     after_message_id=after_message_id,
                     interactive_grace=args.interactive_grace,
                     use_cgroup=args.cgroup, max_runtime=args.max_runtime or None,
+                    requested_model=args.model or None,
                     provider_probe=probe_codex_rate_limits if args.agent == "codex" else None)
     if args.once:
         bridge.step()

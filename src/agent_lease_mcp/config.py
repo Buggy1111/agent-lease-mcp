@@ -87,6 +87,12 @@ class Settings:
     # Chat, který nikdo nevyřídil do N hodin, se uzavře (`expired`). Jinak visí navždy
     # a agent ho po dnech „převezme“ bez souvislosti (Baller #496–498, 29. 10. 2026).
     chat_expire_hours: int = 48
+    # C3b: stropy spotřeby (0 = bez stropu). Čte je broker ze svého prostředí, agent je
+    # nezmění. Tokeny = vstup + výstup + zápis a čtení cache, jak je hlásí klient.
+    task_budget_tokens: int = 0
+    task_budget_usd: float = 0.0
+    daily_budget_tokens: int = 0
+    daily_budget_usd: float = 0.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -106,6 +112,10 @@ class Settings:
             offline_grace=_int_env("AGENT_LEASE_OFFLINE_GRACE", 900),
             chat_expire_hours=_int_env("AGENT_LEASE_CHAT_EXPIRE_HOURS", 48),
             fail_closed=os.environ.get("AGENT_LEASE_FAIL_CLOSED", "") in ("1", "true", "yes"),
+            task_budget_tokens=max(0, _int_env("AGENT_LEASE_TASK_BUDGET_TOKENS", 0)),
+            task_budget_usd=_float_env("AGENT_LEASE_TASK_BUDGET_USD", 0.0),
+            daily_budget_tokens=max(0, _int_env("AGENT_LEASE_DAILY_BUDGET_TOKENS", 0)),
+            daily_budget_usd=_float_env("AGENT_LEASE_DAILY_BUDGET_USD", 0.0),
         )
 
     def may_send_task(self, sender: str) -> bool:
@@ -143,6 +153,14 @@ def parse_fallbacks(raw: str) -> dict[str, tuple[str, ...]]:
         if agent.strip() and names:
             out[agent.strip()] = names
     return out
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+    return value if value >= 0 else default
 
 
 def _int_env(name: str, default: int) -> int:

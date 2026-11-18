@@ -184,6 +184,10 @@ class DeliveriesMixin:
                 ).fetchone()
                 if seen and now - seen["seen_at"] <= STALE_PEER_SECONDS:
                     newest = now - float(defer_if_present)
+            # C3b: denní strop agenta – nic nového nezačne, úkoly počkají ve frontě.
+            # Běžící pokus se nezabíjí; strop se uplatní až před dalším startem.
+            if self._daily_over(con, recipient, now):
+                return None
             rows = con.execute(
                 "SELECT m.*, d.state, d.attempts, COALESCE(tm.priority, 0) AS priority "
                 "FROM deliveries d "
@@ -213,6 +217,18 @@ class DeliveriesMixin:
                 if paths and self._conflicts(con, paths, recipient, task_id=candidate["id"],
                                              held=held):
                     continue
+                over = self._task_over(con, candidate["id"], recipient)
+                if over:
+                    # C3b: úkol vyčerpal svůj strop – další pokus jen po rozhodnutí člověka
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (over, now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started again: {over}.",
+                                       candidate["id"], now)
+                    continue
                 risk = self._quarantined(con, candidate["id"], recipient)
                 if risk:
                     # karanténa: nespustit, rovnou k člověku (všechny cesty, Nox #555/3)
@@ -225,6 +241,18 @@ class DeliveriesMixin:
                     self._insert_event(con, "broker", candidate["agent"],
                                        f"Task #{candidate['id']} held back (risk {risk:.0%}); "
                                        "not started, waiting for the human to review.",
+                                       candidate["id"], now)
+                    continue
+                hold = self._fix_hold(con, candidate["id"], recipient)
+                if hold:
+                    # oprava se zápisem bez politiky nebo schválení: nespustit, k člověku (C1a)
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (hold, now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started: {hold}.",
                                        candidate["id"], now)
                     continue
                 if start and self._checkpoint_hold(con, candidate["id"], recipient,
@@ -304,12 +332,30 @@ class DeliveriesMixin:
                 return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
+            # C3b: strop dosažený mezi převzetím a startem – nespouštět (review #15, Nox).
+            # Lease propadne a lease_next pak úkol podrží stejným pravidlem.
+            if state_value == "started" and (self._daily_over(con, recipient, time.time())
+                                             or self._task_over(con, message_id, recipient)):
+                return False
             if state_value == "started":
                 att = con.execute("SELECT d.attempts, m.agent FROM deliveries d JOIN messages m "
                                   "ON m.id=d.message_id WHERE d.message_id=? AND d.recipient=?",
                                   (message_id, recipient)).fetchone()
                 if self._checkpoint_hold(con, message_id, recipient, att["attempts"], workspace,
                                          att["agent"], time.time(), held_state=current):
+                    return False
+                # C1a: politiku a schválení opravy ověřit znovu i těsně před startem;
+                # mezi převzetím a startem je mohl člověk odebrat (Nox, review #13)
+                hold = self._fix_hold(con, message_id, recipient, next_attempt=False)
+                if hold:
+                    now = time.time()
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, lease_token=NULL, "
+                        "lease_until=NULL, updated_at=? WHERE message_id=? AND recipient=? AND state=?",
+                        (hold, now, message_id, recipient, current),
+                    )
+                    self._insert_event(con, "broker", att["agent"],
+                                       f"Task #{message_id} not started: {hold}.", message_id, now)
                     return False
             clear_lease = state_value in terminal
             cur = con.execute(

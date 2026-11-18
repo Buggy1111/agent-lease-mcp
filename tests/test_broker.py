@@ -28,6 +28,22 @@ def test_socket_is_private_and_alive(broker):
     assert ping(sock)
 
 
+def test_bridge_metering_authority_roundtrips_without_lease_only_writes(broker):
+    settings, sock = broker
+    remote = RemoteStore(settings, sock)
+    mid = remote.send("michal", "codex", "task", kind="task")
+    d = remote.lease_next("codex")
+    assert remote.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = remote.begin_usage(mid, "codex", d.lease_token)
+    assert key and remote.begin_usage(mid, "codex", d.lease_token) is None
+    usage = {"source": "codex-jsonl", "input_tokens": 10, "output_tokens": 2,
+             "cache_read_tokens": 0}
+    assert not remote.record_usage(mid, "codex", d.lease_token, usage)
+    assert remote.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+    assert remote.usage_summary()["input_tokens"] == 10
+    assert remote.complete(mid, "codex", d.lease_token, "succeeded", "done")
+
+
 def test_quality_recovery_does_not_block_broker_start_when_database_is_locked(tmp_path):
     settings = Settings(tmp_path / "room.db", "codex", 1800)
     sock = tmp_path / "startup.sock"

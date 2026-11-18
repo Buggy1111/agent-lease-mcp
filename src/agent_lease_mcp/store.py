@@ -24,6 +24,8 @@ from pathlib import Path
 from ._availability import AvailabilityMixin
 from ._claims import ClaimsMixin
 from ._deliveries import DeliveriesMixin
+from ._fix_tasks import SCHEMA as FIX_SCHEMA
+from ._fix_tasks import FixLoopMixin, FixTasksMixin
 from ._knowledge import KNOWLEDGE_SCHEMA, KnowledgeMixin
 from ._messaging import MessagingMixin
 from ._quality_queue import QualityQueueMixin
@@ -33,6 +35,8 @@ from ._store_common import (
     BRIDGE_ACCEPT_NOTE,
     _limit,
 )
+from ._usage import SCHEMA as USAGE_SCHEMA
+from ._usage import UsageMixin
 from .config import (
     Settings,
 )
@@ -286,7 +290,7 @@ CREATE TABLE IF NOT EXISTS quality_policy_approvals (
 
 
 class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, ReviewsMixin,
-            QualityRunsMixin, QualityQueueMixin, KnowledgeMixin):
+            QualityRunsMixin, QualityQueueMixin, KnowledgeMixin, UsageMixin, FixTasksMixin, FixLoopMixin):
     def __init__(self, db_path: Path | None = None, *, settings: Settings | None = None) -> None:
         """
         `db_path` je poziční schválně — to je to, co chce volající z testu i
@@ -312,6 +316,8 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
         with self._connect() as con:
             con.executescript(SCHEMA)
             con.executescript(KNOWLEDGE_SCHEMA)
+            con.executescript(USAGE_SCHEMA)
+            con.executescript(FIX_SCHEMA)
             # Migrace = PRAGMA + ALTER. Souběžné Store() by jinak oba viděli chybějící
             # sloupec a druhý ALTER by spadl (duplicate column). Zámek až po
             # executescript, ten otevřenou transakci sám commitne.
@@ -323,6 +329,7 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
             self._migrate_checkpoints(con)
             self._migrate_reviews(con)
             self._migrate_claims(con)
+            self._migrate_usage(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
 
