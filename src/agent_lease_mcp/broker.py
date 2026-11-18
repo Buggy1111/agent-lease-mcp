@@ -46,6 +46,11 @@ METHODS = frozenset({
     "review_approved",
     "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
     "quality_autorun_enabled",
+    # D1. `knowledge_human_*` a `knowledge_list` tu schválně nejsou: jako člověk zapisuje jen web.
+    # `knowledge_list` jen pro web; agentí metody níže samy hlídají režim (D2).
+    "knowledge_add", "knowledge_verdict", "knowledge_get", "knowledge_search",
+    # D2: režim smí agent jen číst; `set_mode` tu schválně není.
+    "mode",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})

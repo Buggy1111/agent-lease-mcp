@@ -37,6 +37,13 @@ from .states import (
 )
 from .workspace import matches as workspace_matches
 
+# D2 – provozní režimy (docs/AGENT_LEASE_MODULAR_SYSTEM.md).
+MODES = ("basic", "intelligent", "autonomous")
+DEFAULT_MODE = "intelligent"
+MEMORY_MODES = ("intelligent", "autonomous")
+# shortcut: autonomní režim je zamčený napevno, dokud není nasazená fáze C (bridge.repair) a nemá
+# kontrolu předpokladů v `doctor`; pak zámek nahradit tou kontrolou.
+MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený: fáze C (opravy ve worktree, rozpočty) ještě není nasazená."}
 
 class DeliveriesMixin:
     @staticmethod
@@ -141,7 +148,7 @@ class DeliveriesMixin:
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
-        start: bool = False, workspace: Sequence[str] | None = None,
+        start: bool = False, workspace: Sequence[str] | None = None, worker: bool = False,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -166,6 +173,9 @@ class DeliveriesMixin:
             self._prune(con, now)  # B1: prošlý cizí nájem nesmí úkol blokovat
             # nouzové zastavení se kontroluje v TÉŽE transakci jako převzetí (A10)
             if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
+                return None
+            # D2: v Základním režimu bridge (`worker`) nic sám nepřebírá; interaktivní session ano
+            if worker and con.execute("SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
                 return None
             newest = None  # None = bez odkladu
             if defer_if_present > 0:
@@ -288,6 +298,10 @@ class DeliveriesMixin:
             if state_value == "started" and con.execute(
                     "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
                 return False
+            # D2: ack(STARTED) je start bridge; v Základním režimu nic nového nezačne
+            if state_value == "started" and con.execute(
+                    "SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
+                return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
             if state_value == "started":
@@ -404,6 +418,42 @@ class DeliveriesMixin:
                 "reason=excluded.reason", (by, now, reason),
             )
             self._record(con, by, "resume", "", reason)
+
+    # ── provozní režim (fáze D2) ─────────────────────────────────────────────
+
+    def mode(self) -> dict:
+        """Aktuální režim; bez záznamu `intelligent` = chování před D2 (bridge read-only, review, paměť)."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT value, changed_by, changed_at, reason FROM control WHERE key='mode'").fetchone()
+        current = row["value"] if row and row["value"] in MODES else DEFAULT_MODE
+        return {"mode": current, "by": row["changed_by"] if row else "", "at": row["changed_at"] if row else 0,
+                "reason": row["reason"] if row else "", "locked": dict(MODE_LOCKS),
+                "memory": current in MEMORY_MODES}
+
+    def set_mode(self, by: str, mode: str, reason: str = "") -> dict:
+        """Přepnout režim. NENÍ v METHODS brokeru: jen člověk z webu."""
+        if mode not in MODES:
+            raise ValueError(f"mode must be one of {', '.join(MODES)}")
+        if mode in MODE_LOCKS:
+            raise PermissionError(MODE_LOCKS[mode])
+        reason = check_short("reason", reason)
+        with self._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute(
+                "INSERT INTO control(key, value, changed_by, changed_at, reason) VALUES('mode',?,?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, changed_by=excluded.changed_by, "
+                "changed_at=excluded.changed_at, reason=excluded.reason", (mode, by, time.time(), reason))
+            if mode == "basic":
+                # Převzaté a nespuštěné (leased = jen bridge; interaktivní převzetí je rovnou started)
+                # vrátit do fronty. Běžící práce doběhne; okamžité zastavení = nouzové zastavení.
+                con.execute("UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                            "updated_at=? WHERE state='leased'", (time.time(),))
+            self._record(con, by, "mode", "", f"{mode}: {reason}"[:500])
+        if mode == "basic":
+            with launch_gate(self.db_path):  # počkat, až doběhne spouštění, které už bylo v letu
+                pass
+        return self.mode()
 
     # ── checkpoint (fáze A6) ─────────────────────────────────────────────────
 

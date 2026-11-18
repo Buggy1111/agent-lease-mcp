@@ -550,7 +550,7 @@ class Bridge:
         delivery = self.store.lease_next(
             self.agent, lease_seconds=self.lease_seconds,
             after_message_id=self.after_message_id,
-            skip_accepted=True, defer_if_present=self.interactive_grace,
+            skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
         if delivery is None:
             return False
@@ -638,6 +638,7 @@ class Bridge:
                                     f"Task #{mid} not started: emergency stop.",
                                     error="emergency stop")
             return True
+        blocked_by_mode: list[bool] = []
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
@@ -655,11 +656,19 @@ class Bridge:
                                     f"Task #{mid} not started: command fence unavailable.",
                                     error="command fence unavailable")
                 return True
+            def can_launch() -> bool:
+                # D2: volá se pod launch_gate těsně před spuštěním; set_mode(basic) na gate čeká,
+                # takže proces buď vznikl před přepnutím (doběhne), nebo nevznikne vůbec.
+                if self.store.mode()["mode"] == "basic":
+                    blocked_by_mode.append(True)
+                    return False
+                return self.store.holds(mid, self.agent, token)
+
             try:
                 result = run_command(self.command, prompt,
                                      timeout=self.max_runtime or self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
-                                     can_launch=lambda: self.store.holds(mid, self.agent, token),
+                                     can_launch=can_launch,
                                      use_cgroup=self.use_cgroup,
                                      on_cgroup_created=self._run_fence.record_cgroup,
                                      idle_timeout=self.timeout if self.max_runtime else None,
@@ -688,6 +697,13 @@ class Bridge:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                 f"Task #{mid} stopped by the emergency stop; waiting for review.",
                                 error="emergency stop")
+            return True
+        if result.aborted and blocked_by_mode:
+            # Základní režim přepnut mezi startem a spuštěním: proces nevznikl. Stejně jako u pauzy
+            # k člověku, ne zpět do fronty — agent nesmí umět vrátit „started“ práci (riziko opakování).
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Task #{mid} not started: switched to the basic mode before launch.",
+                                error="basic mode")
             return True
         if result.aborted:
             # Lease už není náš (zrušení, vypršení): žádné „Done“, žádný ack.

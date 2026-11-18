@@ -16,7 +16,7 @@ EXPECTED_TOOLS = {
     "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
     "cancel",
     "inbox", "room", "history", "wait", "checkpoint", "emergency_stop",
-    "review", "verdict",
+    "review", "verdict", "knowledge",
 }
 
 
@@ -435,3 +435,11 @@ def test_reviewer_refuses_a_base_that_is_not_an_ancestor(server, tmp_path, monke
         server.verdict(review["id"], "approved", head, security="pass")
     with pytest.raises(ValueError, match="cannot change"):
         server._store.review_submit("claude-code", review["id"], head, root)
+
+
+def test_knowledge_tool_add_search_and_no_self_verdict(server):
+    entry = server.knowledge("add", symptom="hook blocks edit", solution="release stale lease")["entry"]
+    assert entry["author"] == "test-agent" and entry["fact"] is False
+    assert server.knowledge("search", query="hook blocks")["results"][0]["id"] == entry["id"]
+    with pytest.raises(PermissionError):
+        server.knowledge("verdict", knowledge_id=entry["id"], verdict="verified", evidence="me")

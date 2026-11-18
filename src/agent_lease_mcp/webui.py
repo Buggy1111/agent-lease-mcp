@@ -180,6 +180,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_events(qs)
             if parts.path == "/api/snapshot":
                 return self._handle_snapshot(qs)
+            if parts.path == "/api/knowledge":
+                return self._handle_knowledge_list(qs)
             if parts.path == "/api/quality-log":
                 if not self._session_ok():
                     return self._reject(403, "bad token")
@@ -232,6 +234,19 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_pause(parts.path.endswith("pause"))
             if parts.path in ("/api/review-grant", "/api/review-close"):
                 return self._handle_review(parts.path.endswith("grant"))
+            if parts.path == "/api/mode":
+                data = self._read_json()
+                if data is None:
+                    return
+                try:
+                    result = store.set_mode(web_agent, str(data.get("mode", "")), str(data.get("reason", ""))[:500])
+                except PermissionError as exc:
+                    return self._reject(409, str(exc))
+                except ValueError as exc:
+                    return self._reject(400, str(exc))
+                return self._json_response(result)
+            if parts.path in ("/api/knowledge-add", "/api/knowledge-verdict"):
+                return self._handle_knowledge_write(parts.path.endswith("add"))
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
@@ -289,6 +304,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "claims": [c.as_dict() for c in store.claims()],
                 "board": store.board(),
                 "paused": store.paused(),
+                "mode": store.mode(),
                 "reviews": store.reviews(limit=30),
                 "quality_runs": store.quality_runs(limit=30),
                 "quality_requests": store.quality_requests(limit=30),
@@ -436,6 +452,44 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._reject(404, "no such review")
             except ValueError as exc:
                 return self._reject(409, str(exc))
+            self._json_response(result)
+
+        def _handle_knowledge_list(self, qs: dict[str, list[str]]) -> None:
+            """D1: hledání (`q`) nebo nejnovější záznamy sdílené paměti."""
+            if not self._session_ok():
+                return self._reject(403, "bad token")
+            q, project, status = (qs.get(k, [""])[0] for k in ("q", "project", "status"))
+            try:
+                if q:
+                    entries = store.knowledge_human_search(q, project=project, include_retired=True, limit=50,
+                                                     status=status)
+                else:
+                    entries = store.knowledge_list(project=project, status=status, limit=100)
+            except ValueError as exc:
+                return self._reject(400, str(exc))
+            self._json_response({"entries": entries})
+
+        def _handle_knowledge_write(self, add: bool) -> None:
+            """D1: člověk zapíše záznam, nebo ho ověří / zamítne / označí za zastaralý."""
+            data = self._read_json()
+            if data is None:
+                return
+            text = {k: str(data.get(k, "")) for k in
+                    ("symptom", "cause", "solution", "project", "evidence", "verdict", "note")}
+            try:
+                if add:
+                    result = store.knowledge_human_add(
+                        web_agent, text["symptom"], text["cause"], text["solution"],
+                        text["project"], text["evidence"])
+                else:
+                    result = store.knowledge_human_verdict(
+                        web_agent, int(data["id"]), text["verdict"], text["evidence"], text["note"])
+            except KeyError:
+                return self._reject(404, "no such entry")
+            except PermissionError as exc:
+                return self._reject(409, str(exc))
+            except (TypeError, ValueError) as exc:
+                return self._reject(400, str(exc))
             self._json_response(result)
 
         def _handle_pause(self, stop: bool) -> None:
@@ -803,6 +857,26 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 .primary-nav [data-view] { transition:background 200ms var(--ease),border-color 200ms var(--ease),box-shadow 200ms var(--ease); }
 .primary-nav [data-view]:hover { border-color:var(--accent-text); box-shadow:0 0 12px color-mix(in srgb,var(--accent-1) 12%,transparent); }
 .view-page { padding-top:20px; }
+.mode-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin-bottom:12px; }
+.mode-card { text-align:left; border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--surface-2); display:flex; flex-direction:column; gap:8px; }
+.mode-card[aria-checked="true"] { border-color:var(--accent-text); box-shadow:0 0 0 1px var(--accent-text); }
+.mode-card[aria-disabled="true"] { opacity:.6; cursor:not-allowed; }
+.mode-card h3 { margin:0; font-size:16px; }
+.mode-card ul { margin:0; padding-left:18px; font-size:13px; color:var(--text-dim); }
+.kb-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; }
+@media (max-width:900px) { .kb-grid { grid-template-columns:1fr; } }
+.kb-tools { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.kb-tools .search { flex:1; min-width:180px; }
+.kb-form { display:flex; flex-direction:column; gap:10px; }
+.kb-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text-dim); }
+.kb-entry { border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:10px; overflow-wrap:anywhere; }
+.kb-entry dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 10px; margin:8px 0; font-size:13px; }
+.kb-entry dt { color:var(--text-dim); }
+.kb-entry dd { margin:0; white-space:pre-wrap; }
+.kb-state { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); }
+.kb-state.verified { color:var(--green, #3fb950); border-color:currentColor; }
+.kb-state.rejected, .kb-state.stale { color:var(--text-dim); text-decoration:line-through; }
+.kb-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .view-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
 .view-title { font-size:22px; margin:0 0 6px; overflow-wrap:anywhere; }
 .view-subtitle { color:var(--text-dim); margin:0; font-size:13px; }
@@ -872,7 +946,7 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 <div id="shell">
   <header id="masthead">
     <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
-    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="settings">⚙ Nastavení</button></nav>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="memory">◈ Paměť</button><button data-view="settings">⚙ Nastavení</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
   <div id="overviewView" data-view-panel="overview">
@@ -920,7 +994,11 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 </div>
   <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
-  <section class="view-page" data-view-panel="settings" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Nastavení · připravuje se</h2><p>Tato stránka je vizuální návrh. Nemění oprávnění, konfiguraci ani bezpečnostní pravidla Agent Lease.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
+  <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">◈ Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+    <div class="kb-grid"><section class="panel"><div class="panel-title"><h2>Záznamy</h2></div><div class="panel-body"><div class="kb-tools"><label class="search"><span class="sr-only">Hledat v paměti</span><input id="kbQuery" type="search" placeholder="Hledat příznak, chybu, příčinu…"></label><select id="kbStatus" aria-label="Stav"><option value="">Všechny stavy</option><option value="verified">Ověřené</option><option value="unverified">Neověřené</option><option value="rejected">Zamítnuté</option><option value="stale">Zastaralé</option></select></div><div id="kbList" role="status">Načítám…</div></div></section>
+    <section class="panel"><div class="panel-title"><h2>Nový záznam</h2></div><div class="panel-body kb-form"><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000"></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200"></label><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><button class="btn detail" id="kbAdd" type="button">Uložit jako neověřené</button><p class="note">Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p></div></section></div></section>
+  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><div class="view-header"><div><h2 id="settingsTitle" class="view-title" tabindex="-1">⚙ Provozní režim</h2><p class="view-subtitle">Jak samostatně Ada a Nox pracují. Přepnout smí jen člověk tady na webu. Základní bezpečnost a 🛑 nouzové zastavení platí vždy.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+    <div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></section>
 </div>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
@@ -1610,7 +1688,62 @@ function renderQualityProject() {
   };
   motion(el,[{opacity:.4},{opacity:1}],180);
 }
+const KB_LABEL = {verified:"ověřeno",unverified:"neověřeno — jen tip",rejected:"zamítnuto",stale:"zastaralé"};
+let kbTimer = null;
+function loadKnowledge() {
+  const q = document.getElementById("kbQuery").value.trim(), st = document.getElementById("kbStatus").value;
+  const params = new URLSearchParams({...(q ? {q} : {}), ...(st ? {status:st} : {})});
+  fetch("/api/knowledge?" + params).then(r => r.ok ? r.json() : Promise.reject(r))
+    .then(d => renderKnowledge(d.entries))
+    .catch(() => { document.getElementById("kbList").textContent = "Paměť se nepodařilo načíst."; });
+}
+function renderKnowledge(entries) {
+  const el = document.getElementById("kbList");
+  if (!entries.length) { el.innerHTML = '<p class="note">Žádné záznamy.</p>'; return; }
+  el.innerHTML = entries.map(e => `<article class="kb-entry" data-id="${e.id}"><div class="kb-actions"><strong>#${e.id}</strong><span class="kb-state ${esc(e.status)}">${esc(KB_LABEL[e.status] || e.status)}</span><span class="note">${esc(e.project || "obecné")} · autor ${esc(e.author)}${e.verified_by ? " · posoudil " + esc(e.verified_by) : ""} · ${new Date(e.updated_at * 1000).toLocaleString("cs-CZ")}</span></div>
+    <dl><dt>Příznak</dt><dd>${esc(e.symptom)}</dd>${e.cause ? `<dt>Příčina</dt><dd>${esc(e.cause)}</dd>` : ""}${e.solution ? `<dt>Řešení</dt><dd>${esc(e.solution)}</dd>` : ""}${e.evidence ? `<dt>Důkaz</dt><dd>${esc(e.evidence)}</dd>` : ""}${e.verdict_evidence ? `<dt>Důkaz posudku</dt><dd>${esc(e.verdict_evidence)}${e.verdict_note ? " — " + esc(e.verdict_note) : ""}</dd>` : ""}</dl>
+    <div class="kb-actions"><button class="btn" data-kb="verified">✓ Ověřit</button><button class="btn" data-kb="rejected">✕ Nefunguje</button><button class="btn" data-kb="stale">◷ Zastaralé</button></div></article>`).join("");
+  el.querySelectorAll("[data-kb]").forEach(b => b.onclick = () => {
+    const id = Number(b.closest(".kb-entry").dataset.id);
+    const evidence = prompt("Důkaz (commit, test, odkaz) — povinné:");
+    if (!evidence || !evidence.trim()) return;
+    b.disabled = true;
+    post("/api/knowledge-verdict", {id, verdict: b.dataset.kb, evidence}).then(ok => { b.disabled = false; if (ok) loadKnowledge(); });
+  });
+}
+document.getElementById("kbQuery").addEventListener("input", () => { clearTimeout(kbTimer); kbTimer = setTimeout(loadKnowledge, 250); });
+document.getElementById("kbStatus").addEventListener("change", loadKnowledge);
+document.getElementById("kbAdd").onclick = () => {
+  const val = id => document.getElementById(id).value;
+  if (!val("kbSymptom").trim()) { alert("Vyplň příznak."); return; }
+  const btn = document.getElementById("kbAdd"); btn.disabled = true;
+  post("/api/knowledge-add", {symptom: val("kbSymptom"), cause: val("kbCause"), solution: val("kbSolution"), project: val("kbProject"), evidence: val("kbEvidence")})
+    .then(ok => { btn.disabled = false; if (ok) { ["kbSymptom","kbCause","kbSolution","kbEvidence"].forEach(i => document.getElementById(i).value = ""); loadKnowledge(); } });
+};
+const MODES = [
+  {id:"basic", name:"🟢 Základní", items:["Bridge sám nepřebírá žádné úkoly","Pracuje jen session, kterou spustíš","Sdílená paměť vypnutá pro agenty","Minimální spotřeba tokenů"]},
+  {id:"intelligent", name:"🔵 Inteligentní", items:["Bridge přebírá read-only úkoly","Review mezi agenty (max 3 kola)","Sdílená paměť zapnutá","Dnešní chování"]},
+  {id:"autonomous", name:"🟣 Autonomní", items:["Opravy v izolovaném worktree","Povinné review, rozpočtové stropy","Eskalace na tebe po 3 pokusech"]},
+];
+function renderMode(m) {
+  if (!m) return;
+  const grid = document.getElementById("modeGrid");
+  grid.innerHTML = MODES.map(x => { const lock = m.locked && m.locked[x.id]; const on = m.mode === x.id;
+    return `<button type="button" class="mode-card" role="radio" data-mode="${x.id}" aria-checked="${on}" aria-disabled="${!!lock}"><h3>${x.name}${on ? " · aktivní" : ""}</h3><ul>${x.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="note">🔒 ${esc(lock)}</p>` : ""}</button>`; }).join("");
+  document.getElementById("modeInfo").textContent = m.by ? `Naposledy přepnul ${m.by} · ${new Date(m.at * 1000).toLocaleString("cs-CZ")}${m.reason ? " · " + m.reason : ""}` : "Výchozí režim (zatím nikdo nepřepínal).";
+  grid.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+    if (b.getAttribute("aria-disabled") === "true" || b.getAttribute("aria-checked") === "true") return;
+    const reason = prompt("Proč přepínáš režim? (zapíše se do historie)");
+    if (reason === null) return;
+    fetch("/api/mode", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({mode:b.dataset.mode, reason})})
+      .then(r => r.ok ? r.json().then(renderMode) : r.text().then(t => alert(t)))
+      .catch(() => alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."));
+  });
+}
+function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => renderMode(s.mode)).catch(() => {}); }
 function showView(view,{focus=true}={}) {
+  if(view==="settings")loadMode();
+  if(view==="memory")loadKnowledge();
   if(drawer.open){drawer.close();restorePanels();}
   currentView=view;
   document.querySelectorAll("[data-view-panel]").forEach(el=>{el.hidden=el.dataset.viewPanel!==view;});
