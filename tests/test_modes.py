@@ -23,17 +23,53 @@ def test_default_mode_keeps_pre_d2_behaviour(store: Store):
     m = store.mode()
     assert m["mode"] == "intelligent" and m["memory"] is True
     store.send("michal", "codex", "otestuj", kind="task")
-    assert store.lease_next("codex") is not None
+    assert store.lease_next("codex", worker=True) is not None
 
 
-def test_basic_mode_stops_bridge_pickup_and_agent_memory(store: Store):
+def test_basic_mode_stops_bridge_pickup_but_not_interactive(store: Store):
     store.set_mode("michal", "basic", "šetřím tokeny")
     store.send("michal", "codex", "otestuj", kind="task")
-    assert store.lease_next("codex") is None
-    with pytest.raises(PermissionError):
-        store.knowledge_add("codex", "x")
+    assert store.lease_next("codex", worker=True) is None
+    assert store.lease_next("codex", start=True, owner="session-1") is not None
+
+
+def test_downgrade_returns_unstarted_bridge_work_and_refuses_its_start(store: Store):
+    mid = store.send("michal", "codex", "otestuj", kind="task")
+    leased = store.lease_next("codex", worker=True)
+    store.set_mode("michal", "basic")
+    assert not store.holds(mid, "codex", leased.lease_token)  # spouštěč s launch gate nic nespustí
+    assert store.ack(mid, "codex", "started", lease_token=leased.lease_token) is False
     store.set_mode("michal", "intelligent")
-    assert store.lease_next("codex") is not None
+    again = store.lease_next("codex", worker=True)
+    assert again is not None and again.message_id == mid
+
+
+def test_ack_started_refused_in_basic_even_with_a_valid_lease(store: Store):
+    mid = store.send("michal", "codex", "otestuj", kind="task")
+    leased = store.lease_next("codex", worker=True)
+    with store._connect() as con:  # režim přepnutý mimo set_mode (např. starší web): start stejně neprojde
+        con.execute("INSERT INTO control(key, value, changed_by, changed_at) VALUES('mode','basic','michal',0)")
+    assert store.ack(mid, "codex", "started", lease_token=leased.lease_token) is False
+
+
+def test_running_work_is_left_to_finish_on_downgrade(store: Store):
+    mid = store.send("michal", "codex", "otestuj", kind="task")
+    leased = store.lease_next("codex", worker=True)
+    assert store.ack(mid, "codex", "started", lease_token=leased.lease_token)
+    store.set_mode("michal", "basic")
+    assert store.holds(mid, "codex", leased.lease_token)
+
+
+def test_basic_mode_blocks_agent_memory_but_not_human_reads(store: Store):
+    e = store.knowledge_add("codex", "disk full")
+    store.set_mode("michal", "basic")
+    for call in (lambda: store.knowledge_add("codex", "x"), lambda: store.knowledge_search("disk"),
+                 lambda: store.knowledge_get(e["id"])):
+        with pytest.raises(PermissionError):
+            call()
+    assert store.knowledge_human_search("disk")[0]["id"] == e["id"]
+    assert store.knowledge_list()[0]["id"] == e["id"]
+    assert "knowledge_list" not in METHODS and "knowledge_human_search" not in METHODS
 
 
 def test_mode_survives_restart_and_is_audited(tmp_path: Path):

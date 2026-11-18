@@ -550,7 +550,7 @@ class Bridge:
         delivery = self.store.lease_next(
             self.agent, lease_seconds=self.lease_seconds,
             after_message_id=self.after_message_id,
-            skip_accepted=True, defer_if_present=self.interactive_grace,
+            skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
         if delivery is None:
             return False

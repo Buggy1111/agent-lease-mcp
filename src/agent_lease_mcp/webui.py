@@ -461,7 +461,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             q, project, status = (qs.get(k, [""])[0] for k in ("q", "project", "status"))
             try:
                 if q:
-                    entries = store.knowledge_search(q, project=project, include_retired=True, limit=50,
+                    entries = store.knowledge_human_search(q, project=project, include_retired=True, limit=50,
                                                      status=status)
                 else:
                     entries = store.knowledge_list(project=project, status=status, limit=100)

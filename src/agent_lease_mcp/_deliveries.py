@@ -148,7 +148,7 @@ class DeliveriesMixin:
     def lease_next(
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
-        start: bool = False, workspace: Sequence[str] | None = None,
+        start: bool = False, workspace: Sequence[str] | None = None, worker: bool = False,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -174,8 +174,8 @@ class DeliveriesMixin:
             # nouzové zastavení se kontroluje v TÉŽE transakci jako převzetí (A10)
             if con.execute("SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
                 return None
-            # D2: v Základním režimu bridge nic sám nepřebírá (ve stejné transakci jako pauza)
-            if con.execute("SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
+            # D2: v Základním režimu bridge (`worker`) nic sám nepřebírá; interaktivní session ano
+            if worker and con.execute("SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
                 return None
             newest = None  # None = bez odkladu
             if defer_if_present > 0:
@@ -297,6 +297,10 @@ class DeliveriesMixin:
             # během nouzového zastavení nic nového nezačne (#550/1)
             if state_value == "started" and con.execute(
                     "SELECT 1 FROM control WHERE key='paused' AND value='1'").fetchone():
+                return False
+            # D2: ack(STARTED) je start bridge; v Základním režimu nic nového nezačne
+            if state_value == "started" and con.execute(
+                    "SELECT 1 FROM control WHERE key='mode' AND value='basic'").fetchone():
                 return False
             if not lease_token or row["lease_token"] != lease_token:
                 return False
@@ -440,7 +444,15 @@ class DeliveriesMixin:
                 "INSERT INTO control(key, value, changed_by, changed_at, reason) VALUES('mode',?,?,?,?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, changed_by=excluded.changed_by, "
                 "changed_at=excluded.changed_at, reason=excluded.reason", (mode, by, time.time(), reason))
+            if mode == "basic":
+                # Převzaté a nespuštěné (leased = jen bridge; interaktivní převzetí je rovnou started)
+                # vrátit do fronty. Běžící práce doběhne; okamžité zastavení = nouzové zastavení.
+                con.execute("UPDATE deliveries SET state='pending', lease_token=NULL, lease_until=NULL, "
+                            "updated_at=? WHERE state='leased'", (time.time(),))
             self._record(con, by, "mode", "", f"{mode}: {reason}"[:500])
+        if mode == "basic":
+            with launch_gate(self.db_path):  # počkat, až doběhne spouštění, které už bylo v letu
+                pass
         return self.mode()
 
     # ── checkpoint (fáze A6) ─────────────────────────────────────────────────

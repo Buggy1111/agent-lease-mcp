@@ -83,10 +83,14 @@ def _row(row: sqlite3.Row) -> dict:
 
 
 class KnowledgeMixin:
-    def _check_knowledge_agent(self, agent: str) -> None:
-        _check_agent(agent)
+    def _require_memory(self) -> None:
+        """D2: agentí rozhraní paměti platí jen v režimu s pamětí; člověk (web) čte vždy."""
         if not self.mode()["memory"]:  # type: ignore[attr-defined]
             raise PermissionError("shared memory is off in the basic mode; the human can switch it in the web UI")
+
+    def _check_knowledge_agent(self, agent: str) -> None:
+        _check_agent(agent)
+        self._require_memory()
         if agent.lower() in reserved_names(self.db_path):  # type: ignore[attr-defined]
             raise PermissionError(f"{agent!r} is reserved; human actions go through the web UI")
 
@@ -166,6 +170,10 @@ class KnowledgeMixin:
             return [_row(r) for r in con.execute(sql, args)]
 
     def knowledge_get(self, knowledge_id: int) -> dict:
+        self._require_memory()
+        return self._knowledge_get(knowledge_id)
+
+    def _knowledge_get(self, knowledge_id: int) -> dict:
         with self._connect() as con:  # type: ignore[attr-defined]
             row = con.execute("SELECT * FROM knowledge WHERE id=?", (int(knowledge_id),)).fetchone()
         if not row:
@@ -174,6 +182,11 @@ class KnowledgeMixin:
 
     def knowledge_search(self, query: str, project: str = "", include_unverified: bool = True,
                          include_retired: bool = False, limit: int = 10, status: str = "") -> list[dict]:
+        self._require_memory()
+        return self.knowledge_human_search(query, project, include_unverified, include_retired, limit, status)
+
+    def knowledge_human_search(self, query: str, project: str = "", include_unverified: bool = True,
+                               include_retired: bool = False, limit: int = 10, status: str = "") -> list[dict]:
         """Ověřené první, pak podle relevance (bm25). Zamítnuté/zastaralé jen na vyžádání.
 
         `status` omezí výsledky na jeden stav už v SQL (před LIMIT).
