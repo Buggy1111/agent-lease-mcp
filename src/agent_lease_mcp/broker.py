@@ -55,9 +55,12 @@ METHODS = frozenset({
     "begin_usage", "record_usage", "usage_summary",
     # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.
     "fix_task",
+    # D3: výzkum. Zrušení jen s actor (zadavatel); bez actor ruší jen člověk ve webu.
+    "research_start", "research_cancel", "research_get", "research_list", "research_archive",
+    "research_pending",
 })
-_NEEDS_ACTOR = frozenset({"retry", "cancel"})
-_NEEDS_VIEWER = frozenset({"jobs", "outcome"})
+_NEEDS_ACTOR = frozenset({"retry", "cancel", "research_cancel"})
+_NEEDS_VIEWER = frozenset({"jobs", "outcome", "research_get", "research_list", "research_archive"})
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
 
@@ -115,6 +118,28 @@ def _same_user(sock) -> bool:
     return uid == os.getuid()
 
 
+def _is_research_bridge(sock, recipient: str) -> bool:
+    """
+    D3 (review #30): výzkumnou frontu převezme jen HLAVNÍ proces služby
+    `agent-lease-bridge@<agent>.service` (MainPID podle systemd), ne libovolný proces
+    v její cgroup ani jiný klient socketu. Bridge sám převezme výzkum až po platné sondě.
+    """
+    import re
+    import subprocess
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", recipient):
+        return False
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid = struct.unpack("3i", creds)[0]
+        out = subprocess.run(["systemctl", "--user", "show", "-p", "MainPID", "--value",
+                              f"agent-lease-bridge@{recipient}.service"],
+                             capture_output=True, text=True, timeout=5, check=False)
+    except (AttributeError, OSError, struct.error, subprocess.SubprocessError):
+        return False
+    main = out.stdout.strip()
+    return out.returncode == 0 and main.isdigit() and int(main) > 0 and int(main) == pid
+
+
 class _Handler(socketserver.StreamRequestHandler):
     store: Store
 
@@ -144,6 +169,10 @@ class _Handler(socketserver.StreamRequestHandler):
                     raise PermissionError(f"{method} over the broker needs an actor")
                 if method in _NEEDS_VIEWER and kwargs.get("viewer") is None:
                     raise PermissionError(f"{method} over the broker needs a viewer")
+                if method == "lease_next" and kwargs.get("research"):
+                    recipient = (req.get("args") or [kwargs.get("recipient")])[0]
+                    if not _is_research_bridge(self.request, str(recipient)):
+                        raise PermissionError("research tasks are only for the agent's bridge service")
                 result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
                 self._reply({"ok": True, "result": encode(result)})
             except sqlite3.OperationalError as exc:
@@ -338,6 +367,11 @@ def main(argv: list[str] | None = None) -> int:
 
     last_backup = [store.last_backup_at()]  # platná záloha mladší 24 h → restart nezálohuje
 
+    try:  # D3: obnova po restartu – termíny výzkumů z DB hned, ne až po prvním ticku
+        store.research_sweep()
+    except Exception as exc:  # noqa: BLE001
+        print(f"research_sweep: {exc}", file=sys.stderr)
+
     def sweeper() -> None:
         import time as _t
         while True:
@@ -362,6 +396,10 @@ def main(argv: list[str] | None = None) -> int:
                 store.expire_stale_chats()
             except Exception as exc:  # noqa: BLE001
                 print(f"expire_stale_chats: {exc}", file=sys.stderr)
+            try:
+                store.research_sweep()
+            except Exception as exc:  # noqa: BLE001
+                print(f"research_sweep: {exc}", file=sys.stderr)
             try:
                 store.review_stale_sweep()
             except Exception as exc:  # noqa: BLE001

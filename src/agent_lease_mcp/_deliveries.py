@@ -41,9 +41,9 @@ from .workspace import matches as workspace_matches
 MODES = ("basic", "intelligent", "autonomous")
 DEFAULT_MODE = "intelligent"
 MEMORY_MODES = ("intelligent", "autonomous")
-# shortcut: autonomní režim je zamčený napevno, dokud není nasazená fáze C (bridge.repair) a nemá
-# kontrolu předpokladů v `doctor`; pak zámek nahradit tou kontrolou.
-MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený: fáze C (opravy ve worktree, rozpočty) ještě není nasazená."}
+# shortcut: autonomní režim je zamčený napevno, dokud ho Michal výslovně neodemkne (fáze C je nasazená
+# od 19. 11.); pak zámek nahradit kontrolou předpokladů v `doctor`.
+MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený, dokud ho vlastník výslovně neodemkne."}
 
 class DeliveriesMixin:
     @staticmethod
@@ -149,6 +149,7 @@ class DeliveriesMixin:
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
         start: bool = False, workspace: Sequence[str] | None = None, worker: bool = False,
+        research: bool = False,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -163,6 +164,9 @@ class DeliveriesMixin:
           minulého pokusu, musí volající doložit shodný `workspace` (git HEAD,
           otisk změn), jinak úkol jde k člověku (A6 jako invariant úložiště).
         """
+        if research and start:
+            # D3: start výzkumu jen přes ack(started), kde se zapíše pokus a projde brána
+            raise ValueError("research tasks cannot be leased as started")
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         after_message_id = max(0, int(after_message_id))
         token = uuid.uuid4().hex
@@ -201,9 +205,12 @@ class DeliveriesMixin:
                 "AND (? = 0 OR r.accepted_at IS NULL OR r.by_lease = 1) "
                 # interaktivní session nedostane úkol převzatý jinou session (audit #535 2a)
                 "AND (? IS NULL OR r.accepted_at IS NULL OR r.by_lease = 1 OR r.owner = ?) "
+                # D3: výzkum převezme jen bridge s ověřeným izolovaným runnerem, nikdy běžný
+                # worker ani interaktivní next_task (review #30)
+                "AND (? = 1) = EXISTS (SELECT 1 FROM research_msgs rm WHERE rm.message_id=m.id) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
                 (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted)),
-                 owner, owner),
+                 owner, owner, int(bool(research))),
             ).fetchall()
             row = None
             held = self._held(con) if rows else []  # jeden snímek pro všechny kandidáty
@@ -254,6 +261,21 @@ class DeliveriesMixin:
                     self._insert_event(con, "broker", candidate["agent"],
                                        f"Task #{candidate['id']} not started: {hold}.",
                                        candidate["id"], now)
+                    continue
+                research = self._research_hold(con, candidate["id"], recipient, starting=False)
+                if research and research[0] == "wait":
+                    continue
+                if research:
+                    # D3: výzkum mimo profil, rozpočet nebo už skončil – nespustit (§ 5, § 7)
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (research[1], now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started: {research[1]}.",
+                                       candidate["id"], now)
+                    self._research_after_hold(con, candidate["id"], now)
                     continue
                 if start and self._checkpoint_hold(con, candidate["id"], recipient,
                                                    candidate["attempts"] + 1, workspace,
@@ -347,6 +369,10 @@ class DeliveriesMixin:
                 # C1a: politiku a schválení opravy ověřit znovu i těsně před startem;
                 # mezi převzetím a startem je mohl člověk odebrat (Nox, review #13)
                 hold = self._fix_hold(con, message_id, recipient, next_attempt=False)
+                research = self._research_hold(con, message_id, recipient, starting=True)
+                if research and research[0] == "wait":
+                    return False  # jiný pokus výzkumu běží; lease propadne, úkol počká ve frontě
+                hold = hold or (research[1] if research else None)
                 if hold:
                     now = time.time()
                     con.execute(
@@ -356,7 +382,10 @@ class DeliveriesMixin:
                     )
                     self._insert_event(con, "broker", att["agent"],
                                        f"Task #{message_id} not started: {hold}.", message_id, now)
+                    self._research_after_hold(con, message_id, now)
                     return False
+            if state_value == "started":  # D3: start pokusu zaznamenat ve stejné transakci
+                self._research_mark_start(con, message_id, recipient, time.time())
             clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
@@ -413,7 +442,9 @@ class DeliveriesMixin:
                 "VALUES(?,?,?,?,?,?)",
                 (recipient, result_text, now, row["sender"], MessageKind.RESULT.value, message_id),
             )
+            self._research_on_complete(con, message_id, recipient, state_value, result_text, now)
         self._signal(row["sender"])
+        self._flush_research_signals()
         return True
 
     # ── nouzové zastavení (fáze A10) ─────────────────────────────────────────

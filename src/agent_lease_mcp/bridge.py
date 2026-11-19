@@ -41,7 +41,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import fix_runner, jev, workspace
+from . import fix_runner, jev, research_runner, workspace
 from .broker import database_busy, open_store
 from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
@@ -133,8 +133,9 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 gate=None, can_launch=None, use_cgroup: bool = False,
                 on_cgroup_created=None, idle_timeout: float | None = None,
-                progress=None, wrap=None) -> RunResult:
+                progress=None, wrap=None, tail: int = 4000) -> RunResult:
     """
+    `tail` = kolik konce výstupu vrátit (sonda D3 potřebuje celý proud událostí).
     `timeout` je absolutní strop běhu. S `idle_timeout` (B5) se běh ukončí i dřív,
     když tak dlouho nevykázal žádný postup: výstup, `progress()` (např. nový
     checkpoint) nebo spotřebu CPU v delegované cgroup.
@@ -153,7 +154,7 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 watchdog = CgroupWatchdog(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
                           gate=gate, can_launch=can_launch, group=group, watchdog=watchdog,
-                          idle_timeout=idle_timeout, progress=progress, wrap=wrap)
+                          idle_timeout=idle_timeout, progress=progress, wrap=wrap, tail=tail)
         except BaseException:
             try:
                 if watchdog is not None:
@@ -203,7 +204,7 @@ def _cgroup_cpu_usec(group: CommandCgroup | None) -> int | None:
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
          gate=None, can_launch=None, group: CommandCgroup | None = None,
          watchdog: CgroupWatchdog | None = None, idle_timeout: float | None = None,
-         progress=None, wrap=None) -> RunResult:
+         progress=None, wrap=None, tail: int = 4000) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     if wrap is not None:  # C1b: zápisový běh opravy v bwrap (adresář s odpovědí CLI zůstane zapisovatelný)
@@ -350,7 +351,7 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
                          cleanup_failed=not gone, usage=usage, returncode=proc.returncode)
-    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone,
+    return RunResult(proc.returncode == 0, output[-tail:], cleanup_failed=not gone,
                      usage=usage, returncode=proc.returncode)
 
 
@@ -565,6 +566,40 @@ class Bridge:
         self._cleanup_blocked = False
         self._run_fence = RunFence(self.store.db_path, self.agent)
         self._fence_reported = False
+        # D3: výzkum jen výchozí CLI s ověřeným profilem, ne vlastní příkaz ani callable runner
+        self.research_capable = (runner is None and command == DEFAULT_COMMANDS.get(agent)
+                                 and research_runner.supported(agent))
+        self._probe_warned: str | None = None
+        self._research_identity: dict | None = None
+
+    def _research_ready(self) -> dict | None:
+        """
+        Výzkum jen s operátorskou sondou (`agent-lease research-probe`) pro PŘESNOU binárku
+        klienta (cesta + SHA-256) a profil (review #30). Bridge sám sondu nespouští, takže
+        nic neutrácí mimo bránu režimu a rozpočtu. Vrací ověřenou identitu, se kterou se spouští.
+        """
+        identity = research_runner.client_identity(self.agent)
+        if identity is None:
+            return None
+        key = research_runner.profile_key(self.agent, identity)
+        attested = research_runner.attested_keys(self.store.db_path).get(self.agent) or {}
+        if attested.get("key") != key:
+            if self._probe_warned != key:
+                print("[agent-lease-bridge] research waits: no operator probe for this client binary "
+                      f"({identity['path']}); run `agent-lease research-probe`", file=sys.stderr)
+                self._probe_warned = key
+            return None
+        return {**identity, "key": key}
+
+    def _research_still_attested(self) -> bool:
+        """Pořád ta binárka, kterou ověřila sonda, a potvrzení operátora (čteno znovu) platí."""
+        if self._research_identity is None:
+            return False
+        now = research_runner.client_identity(self.agent)
+        attested = research_runner.attested_keys(self.store.db_path).get(self.agent) or {}
+        key = self._research_identity["key"]
+        return (now is not None and research_runner.profile_key(self.agent, now) == key
+                and attested.get("key") == key)
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -634,6 +669,16 @@ class Bridge:
             after_message_id=self.after_message_id,
             skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
+        is_research = False
+        if delivery is None and self.research_capable and self.store.research_pending(self.agent):
+            self._research_identity = self._research_ready()
+        if delivery is None and self._research_identity is not None:
+            delivery = self.store.lease_next(
+                self.agent, lease_seconds=self.lease_seconds,
+                after_message_id=self.after_message_id, skip_accepted=True, worker=True,
+                research=True,
+            )
+            is_research = delivery is not None
         if delivery is None:
             return False
         token = delivery.lease_token or ""
@@ -734,6 +779,30 @@ class Bridge:
         if scope is not None:
             return self._run_fix(mid, token, delivery, prompt, scope, tick, report_key)
         blocked_by_mode: list[bool] = []
+        blocked_by_research: list[bool] = []
+        command, wrap, research_env = self.command, None, None
+        if is_research:
+            try:
+                research_env = research_runner.prepare(
+                    Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR")
+                         or Path.home() / ".cache" / "agent-lease-research"),
+                    self.agent, Path.home(), mid, exe=self._research_identity["path"])
+                if not self._research_still_attested():
+                    research_runner.finish(research_env, self.agent, Path.home())
+                    self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                        f"Research #{mid} not started: the client changed after its probe.",
+                                        error="research: client changed")
+                    return True
+            except OSError as exc:
+                self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                    f"Research #{mid} not started: isolated environment failed.",
+                                    error=f"research: environment ({str(exc)[:120]})")
+                return True
+            command = research_env["command"]
+            wrap = research_runner.wrap(research_env, Path.home(),
+                                        (str(self.store.db_path.parent),))
+            if self.requested_model:
+                command = with_model(self.agent, command, self.requested_model)
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
@@ -757,21 +826,30 @@ class Bridge:
                 if self.store.mode()["mode"] == "basic":
                     blocked_by_mode.append(True)
                     return False
+                # D3: potvrzení sondy (znovu z disku) i binárka pod launch_gate (review #30)
+                if research_env is not None and not self._research_still_attested():
+                    blocked_by_research.append(True)
+                    return False
                 return self.store.holds(mid, self.agent, token)
 
             try:
-                result = run_command(self.command, prompt,
+                result = run_command(command, prompt,
                                      timeout=self.max_runtime or self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
                                      can_launch=can_launch,
                                      use_cgroup=self.use_cgroup,
                                      on_cgroup_created=self._run_fence.record_cgroup,
                                      idle_timeout=self.timeout if self.max_runtime else None,
-                                     progress=self._checkpoint_progress(mid))
+                                     progress=self._checkpoint_progress(mid), wrap=wrap)
             except BaseException:
                 # Even an unexpected exception cannot prove the command is gone.
                 self._cleanup_blocked = True
                 raise
+            if research_env is not None and not result.cleanup_failed:
+                try:  # jen po potvrzeném konci procesu: obnovené přihlášení zpět, adresář pryč
+                    research_runner.finish(research_env, self.agent, Path.home())
+                except OSError as exc:
+                    print(f"[agent-lease-bridge] research cleanup: {exc}", file=sys.stderr)
             if not result.cleanup_failed:
                 try:
                     self._run_fence.release()
@@ -799,6 +877,11 @@ class Bridge:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                 f"Task #{mid} stopped by the emergency stop; waiting for review.",
                                 error="emergency stop")
+            return True
+        if result.aborted and blocked_by_research:
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Research #{mid} not started: the client or its probe changed before launch.",
+                                error="research: client changed")
             return True
         if result.aborted and blocked_by_mode:
             # Základní režim přepnut mezi startem a spuštěním: proces nevznikl. Stejně jako u pauzy

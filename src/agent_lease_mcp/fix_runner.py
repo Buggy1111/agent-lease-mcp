@@ -72,7 +72,9 @@ def prepare(repo: Path, base_commit: str, workdir: Path) -> Path:
 
 # Proměnné, které smí projít do běhu (přihlášení CLI přes API klíč, jazyk); nic z AGENT_LEASE_*.
 ENV_PASS = ("LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-            "CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")
+            "CODEX_API_KEY", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY",
+            # D3: výzkumný běh vypíná konektory claude.ai (research_runner nastaví "false")
+            "ENABLE_CLAUDEAI_MCP_SERVERS")
 
 
 def prepare_home(workdir: Path, real_home: Path, files: tuple[str, ...]) -> Path:
@@ -194,8 +196,10 @@ def sandbox_argv(clone: Path, argv: list[str], *, home: Path | None = None, run_
         args += ["--bind", str(path), str(path)]
     if run_home is not None:
         args += ["--bind", str(run_home), str(run_home)]
-    args += ["--bind", str(clone), str(clone), "--ro-bind", str(clone / ".git"), str(clone / ".git"),
-             "--chdir", str(clone)]
+    args += ["--bind", str(clone), str(clone)]
+    if (clone / ".git").exists():  # výzkum (D3) běží v prázdném adresáři bez repozitáře
+        args += ["--ro-bind", str(clone / ".git"), str(clone / ".git")]
+    args += ["--chdir", str(clone)]
     for key in ENV_PASS:
         if env.get(key):
             args += ["--setenv", key, env[key]]
