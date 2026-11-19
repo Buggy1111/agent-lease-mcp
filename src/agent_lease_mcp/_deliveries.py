@@ -149,6 +149,7 @@ class DeliveriesMixin:
         self, recipient: str, *, lease_seconds: int = 60, after_message_id: int = 0,
         skip_accepted: bool = False, defer_if_present: float = 0, owner: str | None = None,
         start: bool = False, workspace: Sequence[str] | None = None, worker: bool = False,
+        research: bool = False,
     ) -> Delivery | None:
         """
         Atomicky převezme nejstarší připravený task pro jeden worker.
@@ -201,9 +202,12 @@ class DeliveriesMixin:
                 "AND (? = 0 OR r.accepted_at IS NULL OR r.by_lease = 1) "
                 # interaktivní session nedostane úkol převzatý jinou session (audit #535 2a)
                 "AND (? IS NULL OR r.accepted_at IS NULL OR r.by_lease = 1 OR r.owner = ?) "
+                # D3: výzkum převezme jen bridge s ověřeným izolovaným runnerem, nikdy běžný
+                # worker ani interaktivní next_task (review #30)
+                "AND (? = 1) = EXISTS (SELECT 1 FROM research_msgs rm WHERE rm.message_id=m.id) "
                 "ORDER BY COALESCE(tm.priority, 0) DESC, m.id",
                 (recipient, after_message_id, now, now, newest, newest, int(bool(skip_accepted)),
-                 owner, owner),
+                 owner, owner, int(bool(research))),
             ).fetchall()
             row = None
             held = self._held(con) if rows else []  # jeden snímek pro všechny kandidáty

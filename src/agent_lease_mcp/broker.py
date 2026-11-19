@@ -59,7 +59,7 @@ METHODS = frozenset({
     "research_start", "research_cancel", "research_get", "research_list", "research_archive",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel", "research_cancel"})
-_NEEDS_VIEWER = frozenset({"jobs", "outcome"})
+_NEEDS_VIEWER = frozenset({"jobs", "outcome", "research_get", "research_list", "research_archive"})
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
 
