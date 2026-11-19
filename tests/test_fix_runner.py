@@ -389,6 +389,38 @@ def test_late_cancellation_never_launches_next_phase(env, monkeypatch, after):
     assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
 
 
+@pytest.mark.parametrize("stop", ["cancel", "pause"])
+def test_fix_fetch_does_not_block_stop_or_publish_a_branch(env, monkeypatch, stop):
+    from agent_lease_mcp import _deliveries
+    from agent_lease_mcp.bridge import Bridge
+    from agent_lease_mcp.launch_gate import launch_gate
+
+    code = 'import pathlib,sys\nsys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n'
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    repo = env["repo"]
+    fetch_head = repo / ".git" / "FETCH_HEAD"
+    fetch_head.write_text("unchanged\n")
+    real_git = fix_runner._git
+    stopped = []
+
+    def git_with_stop(*args, **kwargs):
+        if args[0] == "fetch" and kwargs["cwd"] == repo:
+            if stop == "cancel":
+                assert store.cancel(mid, "codex")
+            else:
+                store.pause("michal")
+                assert store.paused()
+            stopped.append(stop)
+        return real_git(*args, **kwargs)
+
+    monkeypatch.setattr(_deliveries, "launch_gate", lambda path: launch_gate(path, timeout=0.2))
+    monkeypatch.setattr(fix_runner, "_git", git_with_stop)
+    assert Bridge(store, "codex", command, lease_seconds=30).step()
+    assert stopped == [stop], "cancel/pause must finish during the fetch"
+    assert not git("branch", "--list", "agent-fix/*", cwd=repo)
+    assert fetch_head.read_text() == "unchanged\n"
+
+
 def test_base_timeout_is_not_a_failing_regression_test(env, monkeypatch):
     from agent_lease_mcp.bridge import Bridge
     code = ('import pathlib,sys,time\n'
