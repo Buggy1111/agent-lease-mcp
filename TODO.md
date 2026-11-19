@@ -126,6 +126,14 @@ vyžaduje vlastní výslovný souhlas; publikace na `main` ji neprovádí.
 - [ ] **Posoudit nezávislé akceptační testy:** oddělení implementujícího a kontrolního agenta, ochrana testů před úpravou, auditní stopa a lidské schválení merge/deploy; sladit s B7 bez obcházení Quality Gate.
 - [ ] **Ada a Nox: dva nezávislé posudky** s tabulkou UŽ MÁME / PŘIDAT / NEPŘIDÁVAT, náklady na tokeny a provoz, riziky, testovacím pilotem a rollbackem. Výstup společně zrevidovat a předložit Michalovi ke schválení. Bez schválení nic neinstalovat, neměnit architekturu, neslučovat ani nenasazovat.
 
+## Katalog schopností agentů – skills, MCP a nástroje (před pilotem NIMO)
+
+- [ ] **Ada + Nox: read-only inventura skutečných schopností** — u každého agenta zjistit dostupné skills, MCP servery, vestavěné nástroje, hooky a jejich konfiguraci; ověřit rozdíl mezi nainstalováno / aktivní / skutečně funkční. Zohlednit různé profily, projektové a globální nastavení. Nezapisovat tokeny, klíče ani soukromý obsah konfigurací do repozitáře.
+- [ ] **Posoudit společný katalog schopností Agent Lease** — pro každou položku evidovat název, typ, kterému agentovi patří, účel, omezení, zdroj zjištění, čas posledního ověření a stav dostupnosti. Rozlišit sdílený přehled od skutečného zpřístupnění nástroje: skill nebo MCP dostupný Adě nelze automaticky považovat za dostupný Noxovi. Nejprve prověřit a využít existující mechanismy, nevytvářet duplicitní katalog.
+- [ ] **Výběr pro konkrétní úkol** — při přijetí úkolu nabídnout agentovi krátký, relevantní seznam vhodných skillů/MCP/nástrojů včetně důvodu a předpokladů použití; nezahlcovat kontext celým inventářem ani nutit zbytečná volání. Pokud vhodný nástroj není dostupný, přiznat to, použít schválenou alternativu nebo požádat o rozhodnutí.
+- [ ] **Aktualizace a bezpečnost** — ověřovat změny po startu relace či změně konfigurace a před použitím citlivého nástroje; nedůvěřovat zastaralému záznamu. Samotné doporučení nesmí instalovat skills, spouštět nové MCP servery, měnit oprávnění ani obcházet schvalování, izolaci a Quality Gate.
+- [ ] **Akceptace před/na začátku třídenního pilotu NIMO** — na úlohách pro Adu samotnou, Noxe samotného a oba společně doložit: správný výběr vhodného nástroje, odmítnutí nedostupného nástroje, změnu dostupnosti mezi relacemi, žádný únik citlivých údajů a srovnání režie (tokeny/čas) proti stavu bez doporučení. Ada navrhne, Nox nezávisle zkontroluje (nebo naopak); Michal schvaluje jakékoli implementační či konfigurační změny. Dokumentační úkol sám o sobě nepovoluje nasazení.
+
 ## Nejbližší kroky
 
 1. Michal: restart PC → `agent-lease doctor` (bod 15).
