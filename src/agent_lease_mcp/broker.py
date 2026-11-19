@@ -117,6 +117,22 @@ def _same_user(sock) -> bool:
     return uid == os.getuid()
 
 
+def _is_research_bridge(sock, recipient: str) -> bool:
+    """
+    D3 (review #30): výzkumnou frontu převezme jen hlavní proces bridge v jeho systemd službě
+    (cgroup `agent-lease-bridge@<agent>.service`), ne libovolný klient socketu. Zbytkové riziko:
+    proces téhož uživatele s právem zápisu do delegované cgroup se tam může přesunout; plné
+    oddělení by vyžadovalo jiného uživatele OS.
+    """
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid = struct.unpack("3i", creds)[0]
+        cgroup = Path(f"/proc/{pid}/cgroup").read_text().strip().splitlines()[-1].split(":", 2)[2]
+    except (AttributeError, OSError, IndexError, struct.error):
+        return False
+    return cgroup.rsplit("/", 1)[-1] == f"agent-lease-bridge@{recipient}.service"
+
+
 class _Handler(socketserver.StreamRequestHandler):
     store: Store
 
@@ -146,6 +162,10 @@ class _Handler(socketserver.StreamRequestHandler):
                     raise PermissionError(f"{method} over the broker needs an actor")
                 if method in _NEEDS_VIEWER and kwargs.get("viewer") is None:
                     raise PermissionError(f"{method} over the broker needs a viewer")
+                if method == "lease_next" and kwargs.get("research"):
+                    recipient = (req.get("args") or [kwargs.get("recipient")])[0]
+                    if not _is_research_bridge(self.request, str(recipient)):
+                        raise PermissionError("research tasks are only for the agent's bridge service")
                 result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
                 self._reply({"ok": True, "result": encode(result)})
             except sqlite3.OperationalError as exc:

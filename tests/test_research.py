@@ -358,3 +358,68 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     assert "--tools Read,Grep,Glob" in command and wrap is not None
     assert r(store, rid)["parts"][0]["state"] == "succeeded"
     assert not list((tmp_path / "runs").iterdir())                  # pracovní adresář uklizen
+
+
+# ── review #30, 2. kolo ─────────────────────────────────────────────────────
+
+def test_research_queue_is_refused_over_the_broker_outside_the_bridge_service(tmp_path: Path):
+    from agent_lease_mcp.broker import RemoteStore, serve
+    settings = Settings(tmp_path / "room.db", "claude-code", 1800)
+    sock = tmp_path / "broker.sock"
+    server = serve(settings, sock)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        remote = RemoteStore(settings, sock)
+        with pytest.raises(PermissionError, match="bridge service"):
+            remote.lease_next("claude-code", worker=True, research=True)
+        assert remote.lease_next("claude-code", worker=True) is None   # běžná fronta dál jde
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_started_attempt_without_any_usage_row_is_unknown(store: Store):
+    rid = start(store, n=3)["id"]
+    d = store.lease_next("claude-code", worker=True, lease_seconds=60, research=True)
+    assert store.ack(d.message_id, "claude-code", "started", lease_token=d.lease_token)
+    # žádné begin_usage ani record_usage
+    assert store.complete(d.message_id, "claude-code", d.lease_token, "succeeded", "x")
+    assert store.lease_next("claude-code", worker=True, research=True) is None
+    store.research_sweep()
+    assert r(store, rid)["state"] == "partial" and r(store, rid)["reason"] == "usage unknown"
+
+
+def test_synthesis_needs_a_measured_exact_attempt(store: Store):
+    rid = start(store, n=2)["id"]
+    run(store)
+    run(store)
+    d = store.lease_next("claude-code", worker=True, lease_seconds=60, research=True)
+    assert store.ack(d.message_id, "claude-code", "started", lease_token=d.lease_token)
+    assert store.complete(d.message_id, "claude-code", d.lease_token, "succeeded", "souhrn")
+    assert r(store, rid)["state"] == "partial" and r(store, rid)["reason"] == "usage unknown"
+
+
+def test_bridge_service_cgroup_is_recognised(monkeypatch):
+    import struct as _struct
+
+    from agent_lease_mcp import broker as broker_mod
+
+    class Sock:
+        def getsockopt(self, *a):
+            return _struct.pack("3i", 4242, os.getuid(), os.getgid())
+
+    def fake_path(cgroup):
+        class P:
+            def __init__(self, *_):
+                pass
+
+            def read_text(self):
+                return f"0::{cgroup}\n"
+        return P
+
+    base = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-agent\\x2dlease\\x2dbridge.slice/"
+    monkeypatch.setattr(broker_mod, "Path", fake_path(base + "agent-lease-bridge@claude-code.service"))
+    assert broker_mod._is_research_bridge(Sock(), "claude-code")
+    assert not broker_mod._is_research_bridge(Sock(), "codex")
+    monkeypatch.setattr(broker_mod, "Path", fake_path("/user.slice/session-3.scope"))
+    assert not broker_mod._is_research_bridge(Sock(), "claude-code")

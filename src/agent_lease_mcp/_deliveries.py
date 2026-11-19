@@ -381,6 +381,8 @@ class DeliveriesMixin:
                                        f"Task #{message_id} not started: {hold}.", message_id, now)
                     self._research_after_hold(con, message_id, now)
                     return False
+            if state_value == "started":  # D3: start pokusu zaznamenat ve stejné transakci
+                self._research_mark_start(con, message_id, recipient, time.time())
             clear_lease = state_value in terminal
             cur = con.execute(
                 "UPDATE deliveries SET state=?, last_error=?, updated_at=?, "
@@ -437,7 +439,7 @@ class DeliveriesMixin:
                 "VALUES(?,?,?,?,?,?)",
                 (recipient, result_text, now, row["sender"], MessageKind.RESULT.value, message_id),
             )
-            self._research_on_complete(con, message_id, state_value, result_text, now)
+            self._research_on_complete(con, message_id, recipient, state_value, result_text, now)
         self._signal(row["sender"])
         self._flush_research_signals()
         return True

@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS research_msgs (
     topic       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS research_msgs_rid ON research_msgs(research_id);
+-- Každý start pokusu (ack started) ve stejné transakci; bez změřené spotřeby = neznámá (review #30)
+CREATE TABLE IF NOT EXISTS research_attempts (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    recipient  TEXT NOT NULL,
+    attempt    INTEGER NOT NULL,
+    started_at REAL NOT NULL,
+    PRIMARY KEY(message_id, recipient, attempt)
+);
 """
 
 _TEMPLATES = {
@@ -195,21 +203,45 @@ class ResearchMixin:
             "WHERE rm.message_id=?", (message_id,)).fetchone()
 
     def _research_spend(self, con: sqlite3.Connection, rid: int, exclude: int | None = None) -> dict:
-        """Vykázané tokeny a neznámá spotřeba výzkumu (všechny pokusy částí i syntézy)."""
+        """
+        Spotřeba výzkumu přes všechny zaznamenané starty (části, opakování, failover, syntéza).
+        Start bez úplného měření je neznámá spotřeba: běžící → čekat, skončený → konečná.
+        """
         from ._usage import _NO_TOKENS, _TOKENS
         rows = con.execute(
-            f"SELECT u.message_id, ({_TOKENS}) AS tokens, {_NO_TOKENS} AS unknown, d.state "
-            "FROM task_usage u JOIN research_msgs rm ON rm.message_id=u.message_id "
-            "LEFT JOIN deliveries d ON d.message_id=u.message_id AND d.recipient=u.recipient "
-            "WHERE rm.research_id=?", (rid,)).fetchall()
-        # běžící pokus: started, i když bridge ještě nestihl `begin_usage`
-        running = con.execute(
-            "SELECT count(*) FROM deliveries d JOIN research_msgs rm ON rm.message_id=d.message_id "
-            "WHERE rm.research_id=? AND d.state='started' AND d.message_id IS NOT ?",
-            (rid, exclude)).fetchone()[0]
-        final_unknown = sum(1 for r in rows if r["unknown"] and r["state"] in TERMINAL)
-        return {"tokens": sum(int(r["tokens"] or 0) for r in rows if not r["unknown"]),
-                "running": running, "unknown_final": final_unknown}
+            f"SELECT a.message_id, a.attempt, d.state, d.attempts AS current, u.source IS NOT NULL AS measured, "
+            f"COALESCE({_NO_TOKENS}, 1) AS unknown, ({_TOKENS}) AS tokens "
+            "FROM research_attempts a JOIN research_msgs rm ON rm.message_id=a.message_id "
+            "LEFT JOIN deliveries d ON d.message_id=a.message_id AND d.recipient=a.recipient "
+            "LEFT JOIN task_usage u ON u.message_id=a.message_id AND u.recipient=a.recipient "
+            "AND u.attempt=a.attempt WHERE rm.research_id=?", (rid,)).fetchall()
+        tokens = running = final_unknown = 0
+        for r in rows:
+            if r["measured"] and not r["unknown"]:
+                tokens += int(r["tokens"] or 0)
+            elif r["state"] == "started" and r["attempt"] == r["current"]:
+                if r["message_id"] != exclude:
+                    running += 1
+            else:
+                final_unknown += 1
+        return {"tokens": tokens, "running": running, "unknown_final": final_unknown}
+
+    def _research_attempt_measured(self, con: sqlite3.Connection, message_id: int, recipient: str) -> bool:
+        from ._usage import _NO_TOKENS
+        row = con.execute(
+            f"SELECT {_NO_TOKENS} AS unknown FROM task_usage u JOIN deliveries d ON d.message_id=u.message_id "
+            "AND d.recipient=u.recipient AND d.attempts=u.attempt WHERE u.message_id=? AND u.recipient=?",
+            (message_id, recipient)).fetchone()
+        return bool(row) and not row["unknown"]
+
+    def _research_mark_start(self, con: sqlite3.Connection, message_id: int, recipient: str,
+                             now: float) -> None:
+        """Volá `ack(started)` ve své transakci, hned po průchodu branou."""
+        if self._research_of(con, message_id) is None:
+            return
+        con.execute("INSERT OR IGNORE INTO research_attempts(message_id, recipient, attempt, started_at) "
+                    "SELECT message_id, recipient, attempts, ? FROM deliveries "
+                    "WHERE message_id=? AND recipient=?", (now, message_id, recipient))
 
     def _research_hold(self, con: sqlite3.Connection, message_id: int, recipient: str,
                        *, starting: bool) -> tuple[str, str] | None:
@@ -242,8 +274,8 @@ class ResearchMixin:
 
     # ── přechody (§ 3.1) ─────────────────────────────────────────────────────
 
-    def _research_on_complete(self, con: sqlite3.Connection, message_id: int, state: str,
-                              result_text: str, now: float) -> None:
+    def _research_on_complete(self, con: sqlite3.Connection, message_id: int, recipient: str,
+                              state: str, result_text: str, now: float) -> None:
         """Volá `complete` ve své transakci: posunout výzkum, je-li to jeho část nebo syntéza."""
         r = self._research_of(con, message_id)
         if r is None:
@@ -251,7 +283,7 @@ class ResearchMixin:
         if r["role"] == "synth":
             if state == "succeeded" and now > (r["synth_deadline_at"] or 0):
                 self._research_partial(con, r["id"], "synthesis deadline", now)
-            elif state == "succeeded" and self._research_spend(con, r["id"])["unknown_final"]:
+            elif state == "succeeded" and not self._research_attempt_measured(con, message_id, recipient):
                 self._research_partial(con, r["id"], "usage unknown", now)
             elif state == "succeeded":
                 con.execute("UPDATE research SET state='done', summary=?, finished_at=? "
