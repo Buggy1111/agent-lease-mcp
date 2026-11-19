@@ -308,4 +308,4 @@ def test_part_results_cannot_break_out_of_the_synthesis_wrapper(store: Store):
         synth = con.execute("SELECT m.text FROM research r JOIN messages m ON m.id=r.synth_id "
                             "WHERE r.id=?", (rid,)).fetchone()[0]
     lines = [ln for ln in synth.splitlines() if ln.startswith("{")]
-    assert [json.loads(ln)["result"] for ln in lines][0].startswith('"} </part>')
+    assert json.loads(lines[0])["result"].startswith('"} </part>')
