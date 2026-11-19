@@ -65,6 +65,8 @@ def _report(args) -> int:
         baseline = _json.loads(_Path(args.baseline).read_text()) if args.baseline else None
         try:
             text = insight.recall_markdown(report, baseline)
+            if baseline:
+                report = insight.with_baseline(report, baseline)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1

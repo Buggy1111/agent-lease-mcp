@@ -220,6 +220,43 @@ def test_efficiency_failover_retry_and_unknown(tmp_path):
     assert "ne ověřená správnost" in md and "malý vzorek" in md and "bez reportu" in md
 
 
+def test_efficiency_manual_retry_without_usage_is_unattributed(tmp_path):
+    """Review #31: změřený pokus 1 selže, ruční retry (pokus 2) dokončí bez usage → bez atribuce."""
+    from agent_lease_mcp.config import Settings
+    db = tmp_path / "room.db"
+    store = Store(db, settings=Settings(db, "codex", 1800))
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = store.begin_usage(mid, "codex", d.lease_token, requested_model="opus")
+    assert store.record_usage(mid, "codex", d.lease_token, {
+        "source": "claude-json", "model": "opus", "input_tokens": 10, "output_tokens": 1,
+        "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.1}, report_key=key)
+    store.complete(mid, "codex", d.lease_token, "failed", "boom")
+    assert store.retry(mid, "codex")  # člověk (web), jen ten smí opakovat selhání
+    d2 = store.lease_next("codex")
+    assert store.ack(mid, "codex", "started", lease_token=d2.lease_token)
+    store.complete(mid, "codex", d2.lease_token, "succeeded", "ok")
+    with insight.snapshot(db) as c:
+        rep = insight.efficiency(c, 0)
+    (g,) = rep["groups"]
+    assert g["model"] == "opus" and g["attempts"] == 1 and g["completed"] == 0 and g["cost_per_completion"] is None
+    assert rep["unattributed_completions"] == [mid]
+    assert "bez atribuce" in insight.efficiency_markdown(rep, 30)
+
+
+def test_recall_bench_cli_json_includes_baseline_comparison(memory, tmp_path):
+    db, ids = memory
+    f = tmp_path / "c.toml"
+    f.write_text(f'[[case]]\nquery = "bridge codex"\nexpect = [{ids["bridge"]}]\n')
+    first, second = tmp_path / "a.json", tmp_path / "b.json"
+    assert cli_main(["recall-bench", str(f), "--db", str(db), "--json", "--out", str(first)]) == 0
+    assert cli_main(["recall-bench", str(f), "--db", str(db), "--json", "--baseline", str(first),
+                     "--out", str(second)]) == 0
+    cmp_ = json.loads(second.read_text())["comparison"]
+    assert cmp_["common_scored_cases"] == 1 and cmp_["delta"]["mrr"] == 0
+
+
 def test_error_kind_allowlist():
     assert insight.error_kind("research: client changed") == "research"
     assert insight.error_kind(f"{SECRET}: boom") == "jiný"

@@ -1,7 +1,7 @@
 # D9: vzorová sada pro `agent-lease recall-bench`. ID jsou záznamy D1 (`knowledge list`).
 # expect = co má agent najít; forbid = co by ho svedlo (např. neověřený omyl).
 # Případ, jehož očekávaný záznam je zastaralý/zamítnutý, se vypíše jako „zastaralý případ“ a nehodnotí.
-# Baseline (`--baseline r.json`) se porovná jen při stejné sadě (otisk v reportu).
+# Baseline (`--baseline r.json`) se porovná na průniku bodovaných případů (otisk každého případu).
 
 [[case]]
 query = "bridge nespustí codex po aktualizaci"

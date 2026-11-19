@@ -349,6 +349,14 @@ def recall_bench(con: sqlite3.Connection, cases: list[dict]) -> dict:
             "summary": summary, "cases": results}
 
 
+def with_baseline(report: dict, baseline: dict) -> dict:
+    """Report pro JSON: srovnání na průniku bodovaných případů včetně rozdílů."""
+    now, old, common = comparable(report, baseline)
+    return {**report, "comparison": {
+        "common_scored_cases": common, "current": now, "baseline": old,
+        "delta": {k: now[k] - old[k] for k in now if isinstance(now[k], (int, float))}}}
+
+
 def recall_markdown(report: dict, baseline: dict | None = None) -> str:
     s, base, common = report["summary"], None, 0
     if baseline:
@@ -391,26 +399,25 @@ def efficiency(con: sqlite3.Connection, since: float) -> dict:
     `message_id` (failover přepíše příjemce doručenky, starší pokusy jiného příjemce se tím
     neztratí). Pokus se počítá skupině příjemce × model (skutečný; u nehlášeného pokusu
     požadovaný) × druh, ve které běžel. „Dokončení“ (stav doručení `succeeded`, NE ověřená
-    správnost) dostane jen poslední pokus finálního příjemce. Pokus bez reportu nebo s
+    správnost) dostane jen přesný finální pokus (message_id, příjemce doručenky, její počet
+    pokusů). Dokončení bez změřeného finálního pokusu zůstane bez atribuce. Pokus bez reportu nebo s
     neúplnými tokeny (`_NO_TOKENS`) znamená neznámé tokeny; skupina pak nemá průměr.
     """
     from ._usage import _NO_TOKENS, _TOKENS
     tables = _tables(con)
     if not {"task_usage", "deliveries", "messages"} <= tables:
-        return {"kind": "efficiency", "generated_at": time.time(), "groups": []}
+        return {"kind": "efficiency", "generated_at": time.time(), "groups": [], "unattributed_completions": []}
     final = {r["message_id"]: r for r in con.execute(
-        "SELECT d.message_id, d.recipient, d.state, d.updated_at, m.sent_at, m.kind FROM deliveries d "
+        "SELECT d.message_id, d.recipient, d.state, d.attempts, d.updated_at, m.sent_at, m.kind FROM deliveries d "
         "JOIN messages m ON m.id=d.message_id WHERE m.sent_at>=?", (since,))}
     rows = con.execute(
         f"SELECT u.message_id, u.recipient, u.attempt, u.at, u.source, u.model, u.requested_model, u.cost_usd, "
         f"({_TOKENS}) AS tokens, {_NO_TOKENS} AS no_tokens FROM task_usage u "
         "JOIN messages m ON m.id=u.message_id WHERE m.sent_at>=? ORDER BY u.message_id, u.at, u.attempt",
         (since,)).fetchall()
-    last_of_final: dict[int, tuple] = {}
-    for r in rows:
-        d = final.get(r["message_id"])
-        if d is not None and r["recipient"] == d["recipient"]:
-            last_of_final[r["message_id"]] = (r["recipient"], r["attempt"], r["at"])
+    measured = {(r["message_id"], r["recipient"], r["attempt"]) for r in rows}
+    unattributed = sorted(mid for mid, d in final.items() if d["state"] == "succeeded"
+                          and (mid, d["recipient"], d["attempts"]) not in measured)
     groups: dict[tuple, dict] = {}
     for r in rows:
         d = final.get(r["message_id"])
@@ -434,7 +441,7 @@ def efficiency(con: sqlite3.Connection, since: float) -> dict:
             g["cost_unknown"] += 1
         else:
             g["cost_usd"] += r["cost_usd"]
-        if d["state"] == "succeeded" and last_of_final.get(r["message_id"]) == (r["recipient"], r["attempt"], r["at"]):
+        if d["state"] == "succeeded" and (r["recipient"], r["attempt"]) == (d["recipient"], d["attempts"]):
             g["completed"].append(max(0.0, (d["updated_at"] or 0) - (d["sent_at"] or 0)))
     out = []
     for g in groups.values():
@@ -450,7 +457,8 @@ def efficiency(con: sqlite3.Connection, since: float) -> dict:
         })
         out.append(g)
     out.sort(key=lambda g: (g["kind"], g["recipient"], g["model"]))
-    return {"kind": "efficiency", "generated_at": time.time(), "groups": out}
+    return {"kind": "efficiency", "generated_at": time.time(), "groups": out,
+            "unattributed_completions": unattributed}
 
 
 def efficiency_markdown(report: dict, days: float) -> str:
@@ -473,6 +481,9 @@ def efficiency_markdown(report: dict, days: float) -> str:
                          f"{fmt(g['tokens_per_completion'], ',.0f')} | {fmt(g['cost_per_completion'], '.4f')} | "
                          f"{g['tokens_unknown']} | {g['cost_unknown']} | {fmt(g['median_seconds'], '.0f')} | "
                          f"{'malý vzorek' if g['small_sample'] else ''} |")
+    if report["unattributed_completions"]:
+        lines += ["", ("Dokončené úkoly bez změřeného finálního pokusu (bez atribuce): "
+                       f"{len(report['unattributed_completions'])}.")]
     if any(g["unreported"] for g in report["groups"]):
         lines += ["", "Pokusy bez reportu spotřeby jsou mezi neznámými tokeny; jejich skupina nemá průměr."]
     return redact("\n".join(lines) + "\n")
