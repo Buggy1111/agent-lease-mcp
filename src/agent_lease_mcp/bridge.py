@@ -892,6 +892,13 @@ class Bridge:
         def supervise_test(argv: list[str], *, timeout: int) -> subprocess.CompletedProcess:
             try:
                 self._run_fence.acquire(mid, cgroup=self.use_cgroup)
+            except FileExistsError as exc:
+                # cizí plot (souběžný worker / mrtvý pokus): nic jsme nespustili, neblokovat se navždy
+                raise subprocess.SubprocessError("command fence unavailable") from exc
+            except BaseException:
+                self._cleanup_blocked = True   # jiná chyba mohla nechat náš rozepsaný plot
+                raise
+            try:
                 result = run_command("", "", timeout=timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path), can_launch=owns_task,
                                      use_cgroup=self.use_cgroup,
