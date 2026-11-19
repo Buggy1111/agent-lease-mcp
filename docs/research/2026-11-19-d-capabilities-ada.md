@@ -7,7 +7,10 @@
 - `installed` = je na disku nebo v konfiguraci;
 - `enabled` = klient ho načítá;
 - `verified` = dnes úspěšně použit v této relaci;
-- `failed` = klient ho načítá, ale dnes se nepřipojil.
+- `failed` = klient ho načítá, ale dnes se nepřipojil;
+- `PATH` = program je v PATH, nic víc (není to funkční test).
+
+**Původ údajů:** všechny stavy v § 2 doložila Ada ve své relaci (konfigurace jen podle názvů, běhy podle výstupu nástrojů). Nox (#33, #1611) **nezávisle ověřil** hashe a obsah ZIPů, CRC vady, chování `install.sh`, obsah image balíčku, manifest HyperFrames 0.9.9 a opt-out telemetrie. Adiny MCP, hooky a pluginy z principu nečetl (soukromá konfigurace). Nejsou tedy nezávisle potvrzené.
 
 ## 2. Ada – skutečné schopnosti
 
@@ -18,12 +21,19 @@
 | MCP | shelly, ufal, ghidra, aidvertaiser, Claude Docs / Gmail / Calendar / Drive / Vercel (claude.ai) | enabled | v této relaci nevolány |
 | MCP | chrome-devtools, gmail (lokální), sage | failed | timeout připojení |
 | MCP | context7, glm, higgsfield, suno, puppeteer, macaly-cloud | installed | v této relaci jako nástroje nenačteny nebo jen autentizace |
-| Plugin | hyperframes 0.9.9, ponytail 5.3.3, claude-mem 16.0.1, codex 1.0.6, socraticode 1.8.11 (failed), playwright (failed), voicemode (failed), trailofbits (insecure-defaults, supply-chain-risk-auditor, open-sourcing, modern-python, git-cleanup), vercel, frontend-design, document-skills, code-review, security-guidance | enabled | |
+| Plugin | hyperframes 0.9.9 | verified | render 10s MP4 v pilotu (`2026-11-19-d13-pilots-ada.md`) |
+| Plugin | ponytail 5.3.3, claude-mem 16.0.1 | enabled | aktivní hooky a instrukce relace. claude-mem `work_state_write` dnes použit (verified). |
+| Plugin | codex 1.0.6, trailofbits (insecure-defaults, supply-chain-risk-auditor, open-sourcing, modern-python, git-cleanup), vercel, frontend-design, document-skills, code-review, security-guidance | enabled | dnes nevolány |
+| Plugin | socraticode 1.8.11, playwright, voicemode | failed | MCP server pluginu se dnes nepřipojil (skills pluginu se nabízejí, jeho nástroje ne) |
 | Plugin | 13 dalších (legal, firebase, feature-dev, pr-review-toolkit …) | installed, vypnuté | |
 | Skill (uživatel) | agent-design, code-audit, czech-document-anonymization, finish-the-job, hermes-cron-automation, inbox-autopilot, mes-module, owasp-security, pb-check, pr-description, profily-deploy-checklist, senior-architect, shelly-home-automation, translate-cz, webgl-mobile-crash-fix | enabled | owasp-security použit dnes |
-| Hook | agent-lease (guard, context, Stop, SessionStart, SessionEnd), ponytail SessionStart, claude-mem | enabled | guard vynucuje edit-gate. Ostatní hooky jen doplňují kontext. |
+| Hook | agent-lease PreToolUse guard | enabled | vynucuje edit-gate (cizí rozpracovaný soubor) |
+| Hook | agent-lease Stop a SessionEnd | enabled | **uvolňují nájmy relace**. Stop navíc připomíná nepotvrzené zprávy. |
+| Hook | agent-lease SessionStart a UserPromptSubmit, ponytail SessionStart, claude-mem | enabled | doplňují kontext relace |
 | Vestavěné | Bash, Read/Edit/Write, Agent, Artifact, WebSearch/WebFetch, ToolSearch | enabled | |
-| CLI | node 24, ffmpeg 6.1, gcc 13.3, bwrap, git, gh, uv | verified (PATH) | |
+| CLI | node 24.11.1, ffmpeg 6.1.1 | verified | render a vzorkování videa v pilotu (19. 11. ~20:10) |
+| CLI | gcc 13.3, git, uv | verified | překlad RE fixtury; commity a push; testy (`uv run pytest`) |
+| CLI | bwrap, gh | PATH | dnes v této relaci nespuštěny |
 
 Mezi agenty se neplatí žádné pravidlo „co má Ada, má i Nox“. Katalog Noxe dělá Nox sám (`2026-11-19-d-capabilities-nox.md`).
 
@@ -39,7 +49,7 @@ Mezi agenty se neplatí žádné pravidlo „co má Ada, má i Nox“. Katalog N
 | `VojtaCode-balicek-claude-code.zip` | `c25e59f39491f52d` | checklist nastavení, preference, prompt na shrnutí | Návody pro začátečníky v Claude Desktop. Prompt na shrnutí (cíl, stav, rozhodnutí, další krok) se kryje s handoffem a checkpointem agent-lease. |
 | `VojtaCode-balicek-konec-ai-odpadu.zip` (a stejný „(1)“) | `458146e942dfec25` | skill `hezky-web` a reference, anti-slop pravidla | **Archiv je poškozený:** `START-CLAUDE.md` má chybný CRC (obě kopie stejně). Skill vyžaduje 2–3 reference (Refero), design tokeny předem a kontrast ≥ 4,5:1. Překrývá se s pluginem `frontend-design` a skillem `artifact-design`. |
 | `Skill-Prezentace-VojtaCode.zip` | `c56b30e0d44c1d64` | jeden SKILL.md a návod | Cesty v archivu se zpětnými lomítky (Windows). Překrývá se s `document-skills:pptx`, Slides artifact a `hyperframes:slideshow`. |
-| `skill-image-vojtacode.zip` | `b7990d1c008ac7b5` | skill, skripty Node, **přibalené `node_modules` (Playwright, 19 MB)**, `.claude-flow` | **Riziko:** (1) přibalená, neověřená binární/JS závislost místo instalace z registru; (2) `.claude-flow/policy/state.json` obsahuje účtenky z autorova stroje (nástroj `ruflo`). Je to únik cizího stavu, ne tajemství. (3) Ovládá **přihlášený Google účet** přes Playwright s trvalým profilem (`~/.vojtacode-image/profil-prohlizece`) a scrapuje gemini.google.com, což je v šedé zóně podmínek služby. (4) `platforms: windows, macos`, Linux neuveden. |
+| `skill-image-vojtacode.zip` | `b7990d1c008ac7b5` | skill, skripty Node, **přibalené `node_modules` (Playwright, 19 MB)**, `.claude-flow` | **Riziko:** (1) přibalená, neověřená binární/JS závislost místo instalace z registru; (2) `.claude-flow/policy/state.json` obsahuje účtenky z autorova stroje (nástroj `ruflo`). Je to únik cizího stavu, ne tajemství. (3) Ovládá **přihlášený Google účet** přes Playwright s trvalým profilem (`~/.vojtacode-image/profil-prohlizece`) a automatizuje web gemini.google.com. Zda to dovolují podmínky služby, **neověřeno**. (4) `platforms: windows, macos`, Linux neuveden. |
 | `motion-rezie.zip` | `e575fc2f8acdca1f` | textový skill | viz `2026-11-19-d13-motion-ada.md` |
 
 ## 5. UŽ MÁME / PŘIDAT / NEPŘIDÁVAT
@@ -49,8 +59,8 @@ Mezi agenty se neplatí žádné pravidlo „co má Ada, má i Nox“. Katalog N
 | Bezpečnost a důkazy dokončení (P1, safe-use) | **UŽ MÁME** (technicky), **PŘIDAT** jen princip | Rozsah, „ano“ před nevratnou akcí a stránku jako data už mají systémové instrukce Ady a auto-mode. Technicky vynucuje lease/edit-gate, bwrap a Quality Gate. Hodnotu má jedna věc: pro browser/computer use zapsat **rozsah předem**. Do Ady jen jako věta, ne jako skill. |
 | Předání kontextu (P1, prompt-shrnuti) | **UŽ MÁME** | checkpoint, room, receipts, claude-mem a work_state. Při převzetí agent ověřuje živý stav. |
 | Designový balík (P2, hezky-web / Refero / Open Design) | **INSPIROVAT SE**, neinstalovat teď | Překrývá se s frontend-design a artifact-design. Archiv je poškozený. Refero vyžaduje externí službu. |
-| Vizuální kontrola (P2) | **UŽ MÁME** zčásti | `hyperframes snapshot`, `rea capture_web_screenshot`, Playwright (dnes `failed`). Jen v izolovaném prostředí. |
-| Image + Prompt Master (P3) | **NEPŘIDÁVAT** | ovládá Google účet a scrapuje, přibaluje node_modules a cizí stav, chybí Linux. PROMPT-MASTER (8vrstvá metodika) lze číst jako inspiraci. |
+| Vizuální kontrola (P2) | **UŽ MÁME** zčásti | `hyperframes snapshot` a headless Chromium z cache Playwrightu (obojí verified v pilotu). `rea capture_web_screenshot` potřebuje běžící CDP. Plugin Playwright je dnes `failed`. Jen v izolovaném prostředí. |
+| Image + Prompt Master (P3) | **NEPŘIDÁVAT** | automatizuje přihlášený Google účet (podmínky neověřeny), přibaluje node_modules a cizí stav, chybí Linux. PROMPT-MASTER (8vrstvá metodika) lze číst jako inspiraci. |
 | Prezentace (P3) | **NEPŘIDÁVAT** | duplicita s existujícími nástroji |
 | Motion režie (D13) | **INSPIROVAT SE** | viz D13 |
 
