@@ -133,8 +133,9 @@ def parse_retry_after(text: str, *, now: float | None = None) -> float | None:
 def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 gate=None, can_launch=None, use_cgroup: bool = False,
                 on_cgroup_created=None, idle_timeout: float | None = None,
-                progress=None, wrap=None) -> RunResult:
+                progress=None, wrap=None, tail: int = 4000) -> RunResult:
     """
+    `tail` = kolik konce výstupu vrátit (sonda D3 potřebuje celý proud událostí).
     `timeout` je absolutní strop běhu. S `idle_timeout` (B5) se běh ukončí i dřív,
     když tak dlouho nevykázal žádný postup: výstup, `progress()` (např. nový
     checkpoint) nebo spotřebu CPU v delegované cgroup.
@@ -153,7 +154,7 @@ def run_command(template: str, prompt: str, *, timeout: float, on_tick=None,
                 watchdog = CgroupWatchdog(group)
             result = _run(template, prompt, last, timeout=timeout, on_tick=on_tick,
                           gate=gate, can_launch=can_launch, group=group, watchdog=watchdog,
-                          idle_timeout=idle_timeout, progress=progress, wrap=wrap)
+                          idle_timeout=idle_timeout, progress=progress, wrap=wrap, tail=tail)
         except BaseException:
             try:
                 if watchdog is not None:
@@ -203,7 +204,7 @@ def _cgroup_cpu_usec(group: CommandCgroup | None) -> int | None:
 def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
          gate=None, can_launch=None, group: CommandCgroup | None = None,
          watchdog: CgroupWatchdog | None = None, idle_timeout: float | None = None,
-         progress=None, wrap=None) -> RunResult:
+         progress=None, wrap=None, tail: int = 4000) -> RunResult:
     argv = [prompt if part == "{prompt}" else last if part == "{last_message}" else part
             for part in shlex.split(template)]
     if wrap is not None:  # C1b: zápisový běh opravy v bwrap (adresář s odpovědí CLI zůstane zapisovatelný)
@@ -350,7 +351,7 @@ def _run(template: str, prompt: str, last: str, *, timeout: float, on_tick=None,
     if proc.returncode != 0 and _RATE_LIMIT.search(output):
         return RunResult(False, output[-1500:], True, parse_retry_after(output),
                          cleanup_failed=not gone, usage=usage, returncode=proc.returncode)
-    return RunResult(proc.returncode == 0, output[-4000:], cleanup_failed=not gone,
+    return RunResult(proc.returncode == 0, output[-tail:], cleanup_failed=not gone,
                      usage=usage, returncode=proc.returncode)
 
 
@@ -568,6 +569,32 @@ class Bridge:
         # D3: výzkum jen výchozí CLI s ověřeným profilem, ne vlastní příkaz ani callable runner
         self.research_capable = (runner is None and command == DEFAULT_COMMANDS.get(agent)
                                  and research_runner.supported(agent))
+        self._probe: tuple[str, bool] | None = None   # (otisk verze+profilu, prošla sonda)
+        self._version: str | None = None
+        self._version_at = float("-inf")
+
+    def _research_ready(self) -> bool:
+        """
+        Výzkum jen po úspěšné sondě hranice čtení pro PŘESNĚ tuto verzi klienta a profil
+        (review #30). Změna verze = nová sonda; neúspěch se pamatuje, ať sonda nejede pořád dokola.
+        """
+        now = time.monotonic()
+        if self._probe is None or now - self._version_at > 60:   # verzi ověřit nejvýš jednou za minutu
+            self._version, self._version_at = research_runner.client_version(self.agent), now
+        version = self._version
+        if version is None:
+            return False
+        key = research_runner.profile_key(self.agent, version)
+        if self._probe is None or self._probe[0] != key:
+            result = research_runner.probe(
+                self.agent, Path.home(),
+                Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR") or Path.home() / ".cache" / "agent-lease-research"),
+                (str(self.store.db_path.parent),))
+            self._probe = (key, bool(result.get("ok")))
+            if not result.get("ok"):
+                print(f"[agent-lease-bridge] research probe failed ({result.get('reason')}); "
+                      "research stays off for this client version", file=sys.stderr)
+        return self._probe[1]
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -638,7 +665,8 @@ class Bridge:
             skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
         is_research = False
-        if delivery is None and self.research_capable:
+        if (delivery is None and self.research_capable and self.store.research_pending(self.agent)
+                and self._research_ready()):
             delivery = self.store.lease_next(
                 self.agent, lease_seconds=self.lease_seconds,
                 after_message_id=self.after_message_id, skip_accepted=True, worker=True,

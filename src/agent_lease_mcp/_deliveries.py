@@ -164,6 +164,9 @@ class DeliveriesMixin:
           minulého pokusu, musí volající doložit shodný `workspace` (git HEAD,
           otisk změn), jinak úkol jde k člověku (A6 jako invariant úložiště).
         """
+        if research and start:
+            # D3: start výzkumu jen přes ack(started), kde se zapíše pokus a projde brána
+            raise ValueError("research tasks cannot be leased as started")
         lease_seconds = max(1, min(int(lease_seconds), MAX_TASK_LEASE_SECONDS))  # APP-009
         after_message_id = max(0, int(after_message_id))
         token = uuid.uuid4().hex

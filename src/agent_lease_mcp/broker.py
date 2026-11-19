@@ -57,6 +57,7 @@ METHODS = frozenset({
     "fix_task",
     # D3: výzkum. Zrušení jen s actor (zadavatel); bez actor ruší jen člověk ve webu.
     "research_start", "research_cancel", "research_get", "research_list", "research_archive",
+    "research_pending",
 })
 _NEEDS_ACTOR = frozenset({"retry", "cancel", "research_cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome", "research_get", "research_list", "research_archive"})
@@ -119,18 +120,24 @@ def _same_user(sock) -> bool:
 
 def _is_research_bridge(sock, recipient: str) -> bool:
     """
-    D3 (review #30): výzkumnou frontu převezme jen hlavní proces bridge v jeho systemd službě
-    (cgroup `agent-lease-bridge@<agent>.service`), ne libovolný klient socketu. Zbytkové riziko:
-    proces téhož uživatele s právem zápisu do delegované cgroup se tam může přesunout; plné
-    oddělení by vyžadovalo jiného uživatele OS.
+    D3 (review #30): výzkumnou frontu převezme jen HLAVNÍ proces služby
+    `agent-lease-bridge@<agent>.service` (MainPID podle systemd), ne libovolný proces
+    v její cgroup ani jiný klient socketu. Bridge sám převezme výzkum až po platné sondě.
     """
+    import re
+    import subprocess
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", recipient):
+        return False
     try:
         creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
         pid = struct.unpack("3i", creds)[0]
-        cgroup = Path(f"/proc/{pid}/cgroup").read_text().strip().splitlines()[-1].split(":", 2)[2]
-    except (AttributeError, OSError, IndexError, struct.error):
+        out = subprocess.run(["systemctl", "--user", "show", "-p", "MainPID", "--value",
+                              f"agent-lease-bridge@{recipient}.service"],
+                             capture_output=True, text=True, timeout=5, check=False)
+    except (AttributeError, OSError, struct.error, subprocess.SubprocessError):
         return False
-    return cgroup.rsplit("/", 1)[-1] == f"agent-lease-bridge@{recipient}.service"
+    main = out.stdout.strip()
+    return out.returncode == 0 and main.isdigit() and int(main) > 0 and int(main) == pid
 
 
 class _Handler(socketserver.StreamRequestHandler):

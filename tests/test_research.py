@@ -340,12 +340,19 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     from agent_lease_mcp import bridge as bridge_mod
     from agent_lease_mcp import research_runner as rr
     monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))      # nikdy skutečné přihlášení
+    (tmp_path / "empty-home").mkdir()
     monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    monkeypatch.setattr(rr, "client_version", lambda agent: "2.0.0")
+    probes = []
+    monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(1) or {"ok": True})
     seen = []
 
     def fake_run(command, prompt, **kw):
         seen.append((command, kw.get("wrap")))
-        return bridge_mod.RunResult(True, "zjištění https://ex.com")
+        return bridge_mod.RunResult(True, "zjištění https://ex.com", usage={
+            "source": "claude-json", "input_tokens": 5, "output_tokens": 1,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0})
 
     monkeypatch.setattr(bridge_mod, "run_command", fake_run)
     rid = start(store, n=2)["id"]
@@ -358,6 +365,14 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     assert "--tools Read,Grep,Glob" in command and wrap is not None
     assert r(store, rid)["parts"][0]["state"] == "succeeded"
     assert not list((tmp_path / "runs").iterdir())                  # pracovní adresář uklizen
+    assert probes == [1]                                            # sonda jen jednou pro verzi
+    assert b.step() and probes == [1]
+    monkeypatch.setattr(rr, "client_version", lambda agent: "2.0.1")
+    b._version_at = float("-inf")
+    rid2 = start(store, n=2)["id"]
+    monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(2) or {"ok": False, "reason": "x"})
+    assert not b.step() and probes == [1, 2]                        # nová verze → nová sonda → nic
+    assert all(p["state"] == "pending" for p in r(store, rid2)["parts"])
 
 
 # ── review #30, 2. kolo ─────────────────────────────────────────────────────
@@ -399,8 +414,9 @@ def test_synthesis_needs_a_measured_exact_attempt(store: Store):
     assert r(store, rid)["state"] == "partial" and r(store, rid)["reason"] == "usage unknown"
 
 
-def test_bridge_service_cgroup_is_recognised(monkeypatch):
+def test_only_the_bridge_main_pid_may_lease_research(monkeypatch):
     import struct as _struct
+    import subprocess
 
     from agent_lease_mcp import broker as broker_mod
 
@@ -408,21 +424,22 @@ def test_bridge_service_cgroup_is_recognised(monkeypatch):
         def getsockopt(self, *a):
             return _struct.pack("3i", 4242, os.getuid(), os.getgid())
 
-    def fake_path(cgroup):
-        class P:
-            def __init__(self, *_):
-                pass
+    def systemctl(main):
+        return lambda *a, **k: subprocess.CompletedProcess(a, 0, f"{main}\n", "")
 
-            def read_text(self):
-                return f"0::{cgroup}\n"
-        return P
-
-    base = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-agent\\x2dlease\\x2dbridge.slice/"
-    monkeypatch.setattr(broker_mod, "Path", fake_path(base + "agent-lease-bridge@claude-code.service"))
+    monkeypatch.setattr(subprocess, "run", systemctl(4242))
     assert broker_mod._is_research_bridge(Sock(), "claude-code")
-    assert not broker_mod._is_research_bridge(Sock(), "codex")
-    monkeypatch.setattr(broker_mod, "Path", fake_path("/user.slice/session-3.scope"))
+    monkeypatch.setattr(subprocess, "run", systemctl(4243))     # dítě nebo jiný proces služby
     assert not broker_mod._is_research_bridge(Sock(), "claude-code")
+    monkeypatch.setattr(subprocess, "run", systemctl(0))        # služba neběží
+    assert not broker_mod._is_research_bridge(Sock(), "claude-code")
+    assert not broker_mod._is_research_bridge(Sock(), "../evil")
+
+
+def test_research_cannot_be_leased_as_started(store: Store):
+    start(store, n=2)
+    with pytest.raises(ValueError):
+        store.lease_next("claude-code", start=True, research=True)
 
 
 def test_web_research_view_needs_session_and_human_can_cancel(tmp_path: Path):
@@ -444,3 +461,54 @@ def test_web_research_view_needs_session_and_human_can_cancel(tmp_path: Path):
                                body={"id": rid}, handler_type=handler)
     assert status == 200 and json.loads(raw)["cancelled"] is True
     assert store.research_get(rid)["state"] == "cancelled"
+
+
+def _probe_env(monkeypatch, tmp_path, behaviour):
+    """Sonda s falešným klientem: `behaviour(control, canary)` vrátí řádky stream-json a smí otevírat soubory."""
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    monkeypatch.setattr(rr, "supported", lambda agent: True)
+
+    def fake_run(command, prompt, **kw):
+        assert "--output-format stream-json" in command
+        control, canary = (ln.split(". ", 1)[1] for ln in prompt.splitlines()[1:3])
+        return bridge_mod.RunResult(True, "\n".join(json.dumps(e) for e in behaviour(Path(control), Path(canary))))
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    home = tmp_path / "h"
+    home.mkdir(parents=True)
+    return rr.probe("claude-code", home, tmp_path / "runs", ())
+
+
+def _read(i, path):
+    return {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": i, "name": "Read", "input": {"file_path": str(path)}}]}}
+
+
+def _res(i, err, text):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": i, "is_error": err, "content": text}]}}
+
+
+def test_probe_passes_only_with_a_denied_canary_attempt_and_a_seen_control(monkeypatch, tmp_path: Path):
+    def good(control, canary):
+        return [_read("a", control), _res("a", False, control.read_text()),
+                _read("b", canary), _res("b", True, "Permission to read denied")]
+
+    def leaked(control, canary):
+        return [_read("a", control), _res("a", False, control.read_text()),
+                _read("b", canary), _res("b", False, canary.read_text())]
+
+    def skipped(control, canary):                       # model čtení chráněné značky vynechal
+        return [_read("a", control), _res("a", False, control.read_text())]
+
+    def blind(control, canary):                         # kontrolní značka „přečtena“ bez otevření
+        return [_read("a", control), _res("a", False, "CONTROL-?"),
+                _read("b", canary), _res("b", True, "denied")]
+
+    assert _probe_env(monkeypatch, tmp_path / "1", good)["ok"]
+    bad = _probe_env(monkeypatch, tmp_path / "2", leaked)
+    assert not bad["ok"] and not bad["checks"]["canary_not_opened"]
+    assert not _probe_env(monkeypatch, tmp_path / "3", skipped)["checks"]["canary_attempt_denied"]
+    blind_r = _probe_env(monkeypatch, tmp_path / "4", blind)
+    assert not blind_r["checks"]["watch_saw_control"] and not blind_r["ok"]

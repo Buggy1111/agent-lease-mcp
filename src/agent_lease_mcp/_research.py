@@ -437,6 +437,13 @@ class ResearchMixin:
                 pass
         return True
 
+    def research_pending(self, recipient: str) -> int:
+        """Kolik výzkumných úkolů čeká na `recipient` (bridge podle toho ověří profil, než převezme)."""
+        with self._connect() as con:
+            return int(con.execute(
+                "SELECT count(*) FROM deliveries d JOIN research_msgs rm ON rm.message_id=d.message_id "
+                "WHERE d.recipient=? AND d.state='pending'", (recipient,)).fetchone()[0])
+
     # ── čtení ────────────────────────────────────────────────────────────────
 
     @staticmethod
