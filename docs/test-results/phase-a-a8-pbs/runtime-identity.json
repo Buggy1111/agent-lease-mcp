@@ -1,0 +1,15 @@
+{
+ "date": "2026-11-03",
+ "source_commit": "cda7678",
+ "python": "3.13.18",
+ "sqlite_python": "3.53.1",
+ "sqlite_sql": "3.53.1",
+ "interpreter_archive": "cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz",
+ "interpreter_archive_sha256": "126343c54daff4068efc1ac269518d0cc202d57857794948103dd1454e8881be",
+ "interpreter_sha256_matches_upstream_SHA256SUMS": true,
+ "upstream_release": "astral-sh/python-build-standalone 20261026",
+ "upstream_sqlite_commit": "9150a58b (sqlite 3.50.4 -> 3.53.1, #1137)",
+ "wheel": "agent_lease_mcp-0.2.0-py3-none-any.whl",
+ "wheel_sha256": "177714e61644ab4c7893015e512bddb7faeff28c35dd5bcf7011054160b08932",
+ "fastmcp": "3.4.10"
+}

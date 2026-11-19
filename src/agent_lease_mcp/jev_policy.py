@@ -35,7 +35,7 @@ class GuardDecision:
 
 # Natvrdo blokované vzory. Nepotřebují klasifikátor — škoda je jistá a
 # nevratná, takže tu není prostor pro pravděpodobnost. Jev se ptá jen na to,
-# co sem nespadne. Schválně úzké (stejná zásada jako `policy.script_target`):
+# co sem nespadne. Schválně úzké (stejná zásada jako `policy.script_targets`):
 # falešný blok by agenta naučil hook obcházet.
 _HARD_BLOCK_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (

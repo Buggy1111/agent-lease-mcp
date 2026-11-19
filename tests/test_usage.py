@@ -1,0 +1,379 @@
+"""C3a: spotřeba tokenů z výstupu klienta a připnutý model."""
+
+from __future__ import annotations
+
+import json
+import stat
+import sys
+from pathlib import Path
+
+import pytest
+
+from agent_lease_mcp.bridge import DEFAULT_COMMANDS, Bridge, RunResult, extract_usage, with_model
+from agent_lease_mcp.broker import METHODS
+from agent_lease_mcp.config import Settings
+from agent_lease_mcp.store import Store
+
+# Tvar ověřený 11. 11. 2026 skutečným `claude -p … --output-format json` (zkrácený).
+CLAUDE = {"type": "result", "is_error": False, "result": "OK", "total_cost_usd": 0.1325501,
+          "usage": {"input_tokens": 2, "output_tokens": 4, "cache_read_input_tokens": 9021,
+                    "cache_creation_input_tokens": 32901},
+          "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 2}}}
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> Store:
+    return Store(tmp_path / "room.db", settings=Settings(tmp_path / "room.db", "codex", 1800))
+
+
+def test_claude_json_gives_result_text_usage_and_actual_model():
+    text, usage = extract_usage(DEFAULT_COMMANDS["claude-code"], json.dumps(CLAUDE))
+    assert text == "OK"
+    assert usage == {"source": "claude-json", "model": "claude-sonnet-5-5", "input_tokens": 2,
+                     "output_tokens": 4, "cache_read_tokens": 9021,
+                     "cache_creation_tokens": 32901, "cost_usd": 0.1325501}
+
+
+def test_codex_jsonl_takes_the_last_usage_event_and_keeps_the_text():
+    lines = "\n".join([json.dumps({"type": "thread.started"}), "not json",
+                       json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10,
+                                   "cached_input_tokens": 3, "output_tokens": 5}})])
+    text, usage = extract_usage(DEFAULT_COMMANDS["codex"], lines)
+    assert text == lines
+    # Codex počítá cache do vstupu; uložený vstup je jen ten nový (jako u Claude)
+    assert usage["source"] == "codex-jsonl" and usage["input_tokens"] == 7
+    assert usage["cache_read_tokens"] == 3 and usage["cost_usd"] is None
+
+
+@pytest.mark.parametrize("template, output", [
+    ("claude -p {prompt} --output-format text", "plain answer"),
+    (DEFAULT_COMMANDS["claude-code"], "not json at all"),
+    (DEFAULT_COMMANDS["claude-code"], "[1, 2]"),
+    (DEFAULT_COMMANDS["codex"], "no events"),
+])
+def test_unknown_usage_is_none_not_zero(template, output):
+    assert extract_usage(template, output) == (output, None)
+
+
+def test_garbage_numbers_become_unknown():
+    bad = dict(CLAUDE, total_cost_usd="free", usage={"input_tokens": -1, "output_tokens": True})
+    _, usage = extract_usage(DEFAULT_COMMANDS["claude-code"], json.dumps(bad))
+    assert usage["input_tokens"] is None and usage["output_tokens"] is None
+    assert usage["cost_usd"] is None
+
+
+def test_bridge_records_usage_of_the_attempt(store: Store, tmp_path: Path):
+    script = tmp_path / "fake.py"
+    script.write_text(f"print({json.dumps(json.dumps(CLAUDE))})")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    cmd = f"{sys.executable} {script} {{prompt}} --output-format json"
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    assert Bridge(store, "codex", cmd, lease_seconds=5).step()
+    with store._connect() as con:
+        row = dict(con.execute("SELECT * FROM task_usage WHERE message_id=?", (mid,)).fetchone())
+    assert row["attempt"] == 1 and row["model"] == "claude-sonnet-5-5" and row["cost_usd"] > 0
+    done = next(m for m in store.latest_messages() if m["text"].startswith(f"Done #{mid}"))
+    assert done["text"].endswith("OK")                       # výsledek je `result`, ne JSON
+    summary = store.usage_summary(recipient="codex")
+    assert summary["attempts"] == 1 and summary["cache_creation_tokens"] == 32901
+
+
+def test_invalid_usage_is_refused(store: Store):
+    with pytest.raises(ValueError):
+        store.record_usage(1, "codex", "t", {"source": "made-up"})
+    with pytest.raises(ValueError):
+        store.record_usage(1, "codex", "t", {"source": "claude-json", "input_tokens": -5})
+
+
+def test_usage_needs_the_live_lease_and_only_grows(store: Store):
+    """Review #15 F1: podvržený první zápis (nuly) nesmí zablokovat pravdivý zápis bridge."""
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    forged = {"source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0, "cost_usd": 0}
+    real = {"source": "codex-jsonl", "input_tokens": 50000, "output_tokens": 100}
+    assert store.record_usage(mid, "codex", "wrong-token", real) is False
+    assert store.record_usage(mid, "codex", d.lease_token, forged) is True
+    assert store.record_usage(mid, "codex", d.lease_token, real) is True
+    assert store.record_usage(mid, "codex", d.lease_token, forged) is True   # nesníží
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    assert store.record_usage(mid, "codex", d.lease_token, real) is False    # po konci lease
+    with store._connect() as con:
+        row = con.execute("SELECT * FROM task_usage").fetchone()
+    assert (row["input_tokens"], row["output_tokens"]) == (50000, 100)
+    assert row["cost_usd"] is None             # podvržená cena 0 nepřebije neznámou (Nox)
+
+
+def test_forged_numbers_cannot_hide_an_unreported_attempt(store: Store):
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.record_usage(mid, "codex", d.lease_token,
+                              {"source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0})
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.usage_summary()["input_tokens"] is None
+
+
+def test_cancelled_attempt_still_leaves_a_record(store: Store):
+    """Nox: zrušení během běhu smaže lease token, záznam ale vznikl už před startem."""
+    mid = store.send("michal", "codex", "ukol", kind="task")
+
+    def run(_prompt):
+        store.cancel(mid, "codex")
+        return RunResult(False, "stopped: the task lease was lost or cancelled", aborted=True)
+    assert Bridge(store, "codex", "unused {prompt}", runner=run, read_only=True,
+                  lease_seconds=10).step()
+    assert store.usage_summary()["attempts"] == 1
+
+
+@pytest.mark.parametrize("result", [
+    RunResult(True, "plain text"),                          # klient bez strojového výstupu
+    RunResult(False, "timed out after 60 s"),               # timeout / zaseknutí
+])
+def test_every_attempt_leaves_a_record_even_without_numbers(store: Store, result):
+    """Review #15 F2: proběhlý pokus musí být vidět i s neznámou spotřebou."""
+    store.send("michal", "codex", "ukol", kind="task")
+    assert Bridge(store, "codex", "unused {prompt}", runner=lambda _p: result,
+                  read_only=True, lease_seconds=10).step()
+    summary = store.usage_summary()
+    assert summary["attempts"] == 1 and summary["cost_unknown"] == 1
+    assert summary["input_tokens"] is None
+
+
+def test_usage_methods_are_on_the_broker():
+    assert {"begin_usage", "record_usage", "usage_summary"} <= METHODS
+
+
+def test_report_key_is_once_only_and_cannot_be_replaced_with_the_lease(store):
+    mid = store.send("michal", "codex", "task", kind="task")
+    d = store.lease_next("codex")
+    assert store.begin_usage(mid, "codex", d.lease_token) is None  # not started
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = store.begin_usage(mid, "codex", d.lease_token)
+    assert key and store.begin_usage(mid, "codex", d.lease_token) is None
+    usage = {"source": "claude-json", "input_tokens": 20, "output_tokens": 1,
+             "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.1}
+    for wrong_key in (None, "wrong", d.lease_token):
+        assert not store.record_usage(mid, "codex", d.lease_token, usage, report_key=wrong_key)
+    assert store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+    assert not store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    assert store.usage_summary()["input_tokens"] == 20
+    assert key not in json.dumps(store.usage_summary())
+    store.cancel(mid, "codex")
+    assert not store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+
+
+@pytest.mark.parametrize("failure", ["conflict", "broker_error"])
+def test_usage_reservation_failure_prevents_launch(store, monkeypatch, failure):
+    mid = store.send("michal", "codex", "task", kind="task")
+    launched = []
+
+    def begin(*args):
+        if failure == "broker_error":
+            raise OSError("synthetic broker failure")
+        # A caller using its own lease cannot make the bridge adopt its row.
+        assert store.record_usage(*args, {"source": "codex-jsonl", "cost_usd": 0})
+        return original(*args)
+
+    original = store.begin_usage
+    monkeypatch.setattr(store, "begin_usage", begin)
+    assert Bridge(store, "codex", "unused {prompt}", read_only=True,
+                  runner=lambda p: launched.append(p)).step()
+    assert not launched
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review"
+    assert job["last_error"] == "usage reservation unavailable"
+
+
+def test_usage_migration_preserves_old_rows_and_is_repeatable(store):
+    mid = store.send("michal", "codex", "old task", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, {"source": "unreported"})
+    with store._connect() as con:
+        con.execute("ALTER TABLE task_usage DROP COLUMN report_key_hash")
+    for _ in range(2):
+        reopened = Store(store.db_path, settings=store.settings)
+        assert reopened.usage_summary()["attempts"] == 1
+        assert reopened.usage_summary()["cost_unknown"] == 1
+        with reopened._connect() as con:
+            assert con.execute("SELECT report_key_hash FROM task_usage").fetchone()[0] is None
+
+
+@pytest.mark.parametrize("ending", ["no_usage", "cancel", "crash"])
+@pytest.mark.parametrize("cap", [{"daily_budget_tokens": 100}, {"daily_budget_usd": 1.0}])
+def test_runner_cannot_replace_bridge_unknown_with_forged_zeros(tmp_path, monkeypatch, ending, cap):
+    store = capped(tmp_path, **cap)
+    mid = store.send("michal", "codex", "first", kind="task")
+    rejected = []
+
+    def run(_prompt):
+        with store._connect() as con:
+            token = con.execute("SELECT lease_token FROM deliveries WHERE message_id=?",
+                                (mid,)).fetchone()[0]
+        rejected.append(not store.record_usage(mid, "codex", token, {
+            "source": "codex-jsonl", "input_tokens": 0, "output_tokens": 0,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0}))
+        if ending == "crash":
+            raise RuntimeError("synthetic crash")
+        if ending == "cancel":
+            store.cancel(mid, "codex")
+        return RunResult(True, "no usage", aborted=ending == "cancel")
+
+    bridge = Bridge(store, "codex", "unused {prompt}", runner=run, read_only=True)
+    if ending == "crash":
+        monkeypatch.setattr(bridge, "_supervised_runner", lambda prompt, tick: run(prompt))
+        with pytest.raises(RuntimeError, match="synthetic crash"):
+            bridge.step()
+    else:
+        assert bridge.step()
+    assert rejected == [True]
+    assert store.usage_summary()["cost_unknown"] == 1
+    assert store.usage_summary()["input_tokens"] is None
+    store.send("michal", "codex", "second", kind="task")
+    assert store.lease_next("codex") is None
+
+
+@pytest.mark.parametrize("agent, flag", [("claude-code", "--model"), ("codex", "-m")])
+def test_model_is_pinned_before_the_prompt(agent, flag):
+    pinned = with_model(agent, DEFAULT_COMMANDS[agent], "some model")
+    assert f"{flag} 'some model' {{prompt}}" in pinned
+    assert with_model(agent, DEFAULT_COMMANDS[agent], "") == DEFAULT_COMMANDS[agent]
+    assert with_model("kimi", "x {prompt}", "m") == "x {prompt}"
+
+
+# ── C3b: stropy ──────────────────────────────────────────────────────────────
+
+def capped(tmp_path: Path, **caps) -> Store:
+    return Store(tmp_path / "room.db",
+                 settings=Settings(tmp_path / "room.db", "codex", 1800, **caps))
+
+
+def use(store: Store, mid: int, token: str, tokens: int, usd: float | None = None):
+    assert store.record_usage(mid, "codex", token, {
+        "source": "claude-json", "input_tokens": tokens, "output_tokens": 0,
+        "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": usd})
+
+
+def test_task_over_its_token_cap_is_not_started_again(tmp_path: Path):
+    store = capped(tmp_path, task_budget_tokens=1000)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 1200)
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "neprošlo")
+    assert store.retry(mid, "codex")                     # člověk vrátí do fronty
+    assert store.lease_next("codex") is None             # strop: další pokus ne
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] == "needs_review" and job["last_error"].startswith("budget: task used 1200")
+
+
+def test_daily_cap_stops_new_starts_but_keeps_tasks_queued(tmp_path: Path):
+    store = capped(tmp_path, daily_budget_usd=1.0)
+    first = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    use(store, first, d.lease_token, 10, usd=1.5)
+    store.complete(first, "codex", d.lease_token, "succeeded", "hotovo")
+    second = store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex") is None
+    assert next(j for j in store.jobs("codex") if j["id"] == second)["state"] == "pending"
+    with store._connect() as con:                        # starší než 24 h se nepočítá
+        con.execute("UPDATE task_usage SET at = at - 90000")
+    assert store.lease_next("codex").message_id == second
+
+
+def test_no_caps_never_block(tmp_path: Path):
+    store = capped(tmp_path)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 10**9, usd=10**5)
+    store.complete(mid, "codex", d.lease_token, "needs_review", "x")
+    assert store.retry(mid, "codex")
+    assert store.lease_next("codex").message_id == mid
+
+
+@pytest.mark.parametrize("caps, usage", [
+    ({"daily_budget_usd": 1.0}, {"source": "codex-jsonl", "input_tokens": 50000}),  # cena neznámá
+    ({"daily_budget_tokens": 10**6}, {"source": "unreported"}),                    # timeout apod.
+    ({"daily_budget_tokens": 10**6}, {"source": "claude-json", "input_tokens": 1}),  # částečné
+])
+def test_unknown_usage_under_an_active_cap_fails_closed(tmp_path: Path, caps, usage):
+    """Review #16 F1: neznámá spotřeba se nesmí počítat jako nula."""
+    store = capped(tmp_path, **caps)
+    mid = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    assert store.record_usage(mid, "codex", d.lease_token, usage)
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex") is None
+    with store._connect() as con:
+        assert "unknown" in store._daily_over(con, "codex", __import__("time").time())
+
+
+def test_task_cap_counts_attempts_of_every_recipient(tmp_path: Path):
+    """Review #16 F4: převzetí úkolu jiným agentem strop nevynuluje."""
+    store = capped(tmp_path, task_budget_tokens=100)
+    mid = store.send("michal", "codex", "ukol", kind="task")
+    d = store.lease_next("codex")
+    use(store, mid, d.lease_token, 120)
+    with store._connect() as con:
+        assert store._task_over(con, mid, "claude-code").startswith("budget: task used 120")
+
+
+def test_budget_env_is_read_by_the_broker_process(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_LEASE_TASK_BUDGET_TOKENS", "5000")
+    monkeypatch.setenv("AGENT_LEASE_DAILY_BUDGET_USD", "2.5")
+    monkeypatch.setenv("AGENT_LEASE_DAILY_BUDGET_TOKENS", "-3")      # neplatné → bez stropu
+    s = Settings.from_env()
+    assert (s.task_budget_tokens, s.daily_budget_usd, s.daily_budget_tokens) == (5000, 2.5, 0)
+
+
+def test_cap_reached_after_lease_blocks_the_start(tmp_path: Path):
+    """Úkol převzatý před dosažením stropu se už nespustí (repro Noxe k #15/#16)."""
+    store = capped(tmp_path, daily_budget_tokens=100)
+    first = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    store.send("michal", "codex", "druhy", kind="task")
+    e = store.lease_next("codex")
+    use(store, first, d.lease_token, 120)
+    store.complete(first, "codex", d.lease_token, "succeeded", "ok")
+    assert not store.ack(e.message_id, "codex", "started", lease_token=e.lease_token)
+
+
+def test_complete_codex_usage_counts_as_known(tmp_path: Path):
+    """Codex nehlásí zápis do cache; jeho úplný report tokenový strop nezastaví."""
+    store = capped(tmp_path, daily_budget_tokens=10**6)
+    mid = store.send("michal", "codex", "prvni", kind="task")
+    d = store.lease_next("codex")
+    _, usage = extract_usage(DEFAULT_COMMANDS["codex"], json.dumps(
+        {"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 90,
+                                             "output_tokens": 10}}))
+    assert store.record_usage(mid, "codex", d.lease_token, usage)
+    store.complete(mid, "codex", d.lease_token, "succeeded", "ok")
+    nxt = store.send("michal", "codex", "druhy", kind="task")
+    assert store.lease_next("codex").message_id == nxt
+
+
+def test_requested_model_is_kept_separately_from_the_actual_one(store):
+    """Oponentura fáze C: připnutý model zvlášť od skutečného — tichý fallback je pak vidět."""
+    import sqlite3
+    mid = store.send("michal", "codex", "task", kind="task")
+    d = store.lease_next("codex")
+    assert store.ack(mid, "codex", "started", lease_token=d.lease_token)
+    key = store.begin_usage(mid, "codex", d.lease_token, "gpt-5.5")
+    usage = {"source": "codex-jsonl", "model": "gpt-5.5-mini", "input_tokens": 10, "output_tokens": 1,
+             "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": None}
+    assert store.record_usage(mid, "codex", d.lease_token, usage, report_key=key)
+    con = sqlite3.connect(store.db_path)
+    row = con.execute("SELECT requested_model, model FROM task_usage WHERE message_id=?", (mid,)).fetchone()
+    assert row == ("gpt-5.5", "gpt-5.5-mini")
+    with pytest.raises(ValueError):
+        store.begin_usage(mid, "codex", d.lease_token, "x" * 201)
+
+
+def test_bridge_passes_pinned_model_to_the_reservation(store, tmp_path):
+    import sqlite3
+    script = tmp_path / "ok.py"
+    script.write_text("print('ok')\n")
+    mid = store.send("michal", "codex", "task", kind="task")
+    Bridge(store, "codex", f"{sys.executable} {script} {{prompt}}", requested_model="gpt-5.5").step()
+    con = sqlite3.connect(store.db_path)
+    assert con.execute("SELECT requested_model FROM task_usage WHERE message_id=?", (mid,)).fetchone()[0] == "gpt-5.5"

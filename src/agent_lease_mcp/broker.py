@@ -1,0 +1,420 @@
+"""
+Broker: jediný proces, který otevírá SQLite pro zápis (fáze 2).
+
+Proč: (1) sandboxovaný agent (Codex) nepotřebuje přístup k DB, stačí mu socket;
+(2) jeden writer = žádné souběhy mezi procesy; (3) místo pro event-driven probuzení.
+
+Protokol: jeden JSON řádek na požadavek a jeden na odpověď přes Unix socket 0600.
+Povolené jsou jen veřejné metody `Store` ze seznamu níže (žádné `__getattr__`
+do blba). Důvěra = přístup k socketu, tedy stejný uživatel OS; identita agenta
+se posílá v argumentech stejně jako dnes u CLI.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import json
+import os
+import socket
+import socketserver
+import sqlite3
+import struct
+import sys
+import threading
+import time
+from enum import Enum
+from pathlib import Path
+
+from .config import Settings
+from .models import Claim, ClaimResult, Delivery, DeliveryState, MessageKind
+from .policy import normalize_path
+from .store import Store
+
+METHODS = frozenset({
+    "claim", "release", "release_all", "release_session", "holder_of", "claims", "edit_gate", "heartbeat", "peers",
+    "say", "send", "inbox", "latest_messages", "record", "cursor", "set_cursor", "undelivered",
+    "jobs", "addressed", "worker_activation", "lease_next", "ack", "retry", "cancel", "history", "mark_seen",
+    "accept", "awaiting_accept", "report_limit", "mark_notified", "unmark_notified", "needs_review_list", "recent_audit", "board", "clear_limit", "limits", "is_available",
+    "failover_activation", "failover_sweep", "get_screen", "overdue", "extend_lease", "signal_mtime",
+    "report_provider_state", "provider_state", "provider_states", "clear_provider_state",
+    "task_summary", "activation_status", "outcome", "complete", "holds", "defer", "quarantine_approved", "checkpoint_resume_approved", "paused", "pause",
+    "checkpoint", "get_checkpoint", "backup_now",
+    # `prune` tu schválně není: `prune(0)` by agentovi smazal celý audit. Retence běží sama ve Store.
+    # B3/B4. `review_grant_cycle` tu schválně není: další kolo po eskalaci povolí jen člověk.
+    "review_open", "review_submit", "review_verdict", "review_close", "review_get", "reviews",
+    "review_approved", "fix_record_result",
+    "quality_runs", "quality_get", "quality_log", "quality_check", "quality_request", "quality_requests",
+    "quality_autorun_enabled",
+    # D1. `knowledge_human_*` a `knowledge_list` tu schválně nejsou: jako člověk zapisuje jen web.
+    # `knowledge_list` jen pro web; agentí metody níže samy hlídají režim (D2).
+    "knowledge_add", "knowledge_verdict", "knowledge_get", "knowledge_search",
+    # D2: režim smí agent jen číst; `set_mode` tu schválně není.
+    "mode",
+    # C3a: bridge zapisuje spotřebu pokusu; přehled je jen čtení.
+    "begin_usage", "record_usage", "usage_summary",
+    # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.
+    "fix_task",
+    # D3: výzkum. Zrušení jen s actor (zadavatel); bez actor ruší jen člověk ve webu.
+    "research_start", "research_cancel", "research_get", "research_list", "research_archive",
+    "research_pending",
+})
+_NEEDS_ACTOR = frozenset({"retry", "cancel", "research_cancel"})
+_NEEDS_VIEWER = frozenset({"jobs", "outcome", "research_get", "research_list", "research_archive"})
+_TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
+_MAX_LINE = 1_000_000
+
+
+class DatabaseBusyError(OSError):
+    """A broker request could not complete because SQLite was busy."""
+
+
+def database_busy(exc: sqlite3.OperationalError) -> bool:
+    code = getattr(exc, "sqlite_errorcode", None)
+    return isinstance(code, int) and (code & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+
+
+def default_socket_path(settings: Settings) -> Path:
+    env = os.environ.get("AGENT_LEASE_SOCKET")
+    if env:
+        return Path(env)
+    return settings.db_path.parent / "broker.sock"
+
+
+def encode(obj):
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        data = {f.name: encode(getattr(obj, f.name)) for f in dataclasses.fields(obj)}
+        return {"__t": type(obj).__name__, **data}
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, (list, tuple)):
+        return [encode(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: encode(v) for k, v in obj.items()}
+    return obj
+
+
+def decode(obj):
+    if isinstance(obj, list):
+        return [decode(x) for x in obj]
+    if isinstance(obj, dict):
+        tag = obj.get("__t")
+        fields = {k: decode(v) for k, v in obj.items() if k != "__t"}
+        if tag in _TYPES:
+            if tag == "Delivery":
+                fields["kind"] = MessageKind(fields["kind"])
+                fields["state"] = DeliveryState(fields["state"])
+            return _TYPES[tag](**fields)
+        return fields
+    return obj
+
+
+def _same_user(sock) -> bool:
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    except (AttributeError, OSError):
+        return True  # platforma bez SO_PEERCRED: spoléháme na 0600 socketu
+    _pid, uid, _gid = struct.unpack("3i", creds)
+    return uid == os.getuid()
+
+
+def _is_research_bridge(sock, recipient: str) -> bool:
+    """
+    D3 (review #30): výzkumnou frontu převezme jen HLAVNÍ proces služby
+    `agent-lease-bridge@<agent>.service` (MainPID podle systemd), ne libovolný proces
+    v její cgroup ani jiný klient socketu. Bridge sám převezme výzkum až po platné sondě.
+    """
+    import re
+    import subprocess
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", recipient):
+        return False
+    try:
+        creds = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+        pid = struct.unpack("3i", creds)[0]
+        out = subprocess.run(["systemctl", "--user", "show", "-p", "MainPID", "--value",
+                              f"agent-lease-bridge@{recipient}.service"],
+                             capture_output=True, text=True, timeout=5, check=False)
+    except (AttributeError, OSError, struct.error, subprocess.SubprocessError):
+        return False
+    main = out.stdout.strip()
+    return out.returncode == 0 and main.isdigit() and int(main) > 0 and int(main) == pid
+
+
+class _Handler(socketserver.StreamRequestHandler):
+    store: Store
+
+    def handle(self) -> None:
+        # Socket je 0600, ale kdyby někdo práva povolil, ať se broker nebaví s
+        # procesem jiného uživatele (SO_PEERCRED, Linux). Identitu AGENTA tím
+        # neověříme — to je lokální model důvěry (README → Security).
+        if not _same_user(self.request):
+            self._reply({"ok": False, "error": "PermissionError", "message": "foreign user"})
+            return
+        for raw in self.rfile:
+            if len(raw) > _MAX_LINE:
+                self._reply({"ok": False, "error": "ValueError", "message": "request too large"})
+                return
+            try:
+                req = json.loads(raw)
+                method = req["method"]
+                if method == "ping":
+                    self._reply({"ok": True, "result": "pong"})
+                    continue
+                if method not in METHODS:
+                    raise PermissionError(f"method {method!r} is not allowed")
+                kwargs = req.get("kwargs", {}) or {}
+                # `actor`/`viewer` = None znamená práva člověka (web UI). Ten jde
+                # přímo do SQLite, přes broker chodí jen agenti → None odmítnout.
+                if method in _NEEDS_ACTOR and kwargs.get("actor") is None:
+                    raise PermissionError(f"{method} over the broker needs an actor")
+                if method in _NEEDS_VIEWER and kwargs.get("viewer") is None:
+                    raise PermissionError(f"{method} over the broker needs a viewer")
+                if method == "lease_next" and kwargs.get("research"):
+                    recipient = (req.get("args") or [kwargs.get("recipient")])[0]
+                    if not _is_research_bridge(self.request, str(recipient)):
+                        raise PermissionError("research tasks are only for the agent's bridge service")
+                result = getattr(self.store, method)(*req.get("args", []), **req.get("kwargs", {}))
+                self._reply({"ok": True, "result": encode(result)})
+            except sqlite3.OperationalError as exc:
+                error = "DatabaseBusyError" if database_busy(exc) else "RuntimeError"
+                self._reply({"ok": False, "error": error, "message": str(exc)})
+            except (PermissionError, ValueError, TypeError, KeyError) as exc:
+                self._reply({"ok": False, "error": type(exc).__name__, "message": str(exc)})
+            except Exception as exc:  # noqa: BLE001
+                self._reply({"ok": False, "error": "RuntimeError", "message": str(exc)})
+
+    def _reply(self, payload: dict) -> None:
+        self.wfile.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
+        self.wfile.flush()
+
+
+class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+    def serve_forever(self, poll_interval=0.5):
+        from ._quality_queue import QualityWorker
+        worker = QualityWorker(self.RequestHandlerClass.store)
+        worker.start()
+        try:
+            super().serve_forever(poll_interval)
+        finally:
+            worker.close()
+
+
+def serve(settings: Settings, path: Path | None = None) -> _Server:
+    path = path or default_socket_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.exists():
+        # živý broker → odmítnout, mrtvý soubor → uklidit
+        if ping(path):
+            raise RuntimeError(f"broker already running on {path}")
+        path.unlink()
+    handler = type("Handler", (_Handler,), {"store": Store(settings=settings)})
+    old = os.umask(0o177)  # socket vznikne rovnou 0600
+    try:
+        server = _Server(str(path), handler)
+    finally:
+        os.umask(old)
+    os.chmod(path, 0o600)
+    return server
+
+
+def ping(path: Path, timeout: float = 1.0) -> bool:
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(timeout)
+            s.connect(str(path))
+            s.sendall(b'{"method":"ping"}\n')
+            return "pong" in s.makefile().readline()
+    except OSError:
+        return False
+
+
+class RemoteStore:
+    """Má stejné rozhraní jako `Store`, ale každé volání jde přes broker."""
+
+    def __init__(self, settings: Settings, path: Path | None = None, *,
+                 connect_retry: float = 15.0) -> None:
+        self.settings = settings
+        self.path = path or default_socket_path(settings)
+        self.db_path = settings.db_path
+        self.connect_retry = connect_retry
+
+    def _connect(self) -> socket.socket:
+        """Připojí se k brokeru; při jeho restartu chvíli počká.
+
+        Opakuje se jen samotné připojení. Dokud neprojde, nic se neodeslalo,
+        takže opakování nemůže zapsat nic dvakrát. Spadlé spojení po odeslání
+        se neopakuje (broker mohl zápis už provést).
+        """
+        deadline = time.monotonic() + self.connect_retry
+        delay = 0.1
+        while True:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(30)
+            try:
+                s.connect(str(self.path))
+                return s
+            except (ConnectionRefusedError, FileNotFoundError):
+                s.close()
+                if time.monotonic() + delay > deadline:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 2.0)
+            except BaseException:
+                s.close()
+                raise
+
+    def _call(self, method: str, args, kwargs):
+        # Path normalization must happen in the client process.  The broker is
+        # a long-running systemd service with a different cwd; resolving a
+        # relative path there can silently protect the wrong file.
+        args, kwargs = _normalize_client_paths(method, args, kwargs)
+        with self._connect() as s:
+            if method == "quality_check":
+                s.settimeout(900)  # supervisor bounds the entire project job to 720s
+            s.sendall((json.dumps({"method": method, "args": encode(list(args)),
+                                   "kwargs": encode(kwargs)}) + "\n").encode())
+            line = s.makefile().readline()
+        if not line:  # broker spadl po odeslání: výsledek neznámý, neopakovat
+            raise ConnectionResetError(f"broker closed the connection during {method}")
+        reply = json.loads(line)
+        if reply["ok"]:
+            return decode(reply["result"])
+        exc = {"DatabaseBusyError": DatabaseBusyError,
+               "PermissionError": PermissionError, "ValueError": ValueError,
+               "TypeError": TypeError, "KeyError": KeyError}.get(reply["error"], RuntimeError)
+        raise exc(reply["message"])
+
+    def __getattr__(self, name: str):
+        if name not in METHODS:
+            raise AttributeError(name)
+        return lambda *a, **kw: self._call(name, a, kw)
+
+
+def _normalize_client_paths(method: str, args, kwargs) -> tuple[list, dict]:
+    args = list(args)
+    kwargs = dict(kwargs)
+
+    def path_list(position: int, name: str) -> None:
+        if len(args) > position:
+            args[position] = [normalize_path(path) for path in args[position]]
+        elif name in kwargs and kwargs[name] is not None:
+            kwargs[name] = [normalize_path(path) for path in kwargs[name]]
+
+    def one_path(position: int, name: str) -> None:
+        if len(args) > position and args[position] is not None:
+            args[position] = normalize_path(args[position])
+        elif kwargs.get(name) is not None:
+            kwargs[name] = normalize_path(kwargs[name])
+
+    if method in {"claim", "release"}:
+        path_list(0, "paths")
+    elif method in {"edit_gate", "holder_of"}:
+        one_path(0, "path")
+    elif method == "send":
+        if kwargs.get("paths") is not None:
+            kwargs["paths"] = [normalize_path(path) for path in kwargs["paths"]]
+        if kwargs.get("fix_repo"):
+            kwargs["fix_repo"] = normalize_path(kwargs["fix_repo"])
+    elif method == "history":
+        one_path(1, "path")
+    elif method in {"quality_check", "quality_request"}:
+        one_path(1, "repo")
+    return args, kwargs
+
+
+def open_store(settings: Settings | None = None, *, restart_wait: float = 3.0):
+    """Broker, pokud běží; jinak přímo SQLite.
+
+    - Výslovně nastavený `AGENT_LEASE_SOCKET` nebo `AGENT_LEASE_REQUIRE_BROKER=1` znamená
+      „jen přes broker“: sandbox Codexu bez přístupu k DB a dlouho běžící služby (bridge,
+      codex-wake). Ty startují i před brokerem, protože systemd u Type=simple považuje
+      broker za spuštěný dřív, než naváže socket. Vrací vždy RemoteStore, ten počká.
+    - Existuje-li výchozí socket, ale broker neodpovídá, nejspíš se právě restartuje:
+      chvíli se čeká. Jinak by dlouho běžící proces zůstal bez brokeru natrvalo.
+    - Bez socketu nebo se zastaralým socketem (broker neběží) zůstává přímé SQLite,
+      ať hooky nevisí ani nepadají.
+    """
+    settings = settings or Settings.from_env()
+    path = default_socket_path(settings)
+    if os.environ.get("AGENT_LEASE_SOCKET") or os.environ.get(
+            "AGENT_LEASE_REQUIRE_BROKER", "").strip().lower() in ("1", "true", "yes"):
+        return RemoteStore(settings, path)
+    if path.exists():
+        deadline = time.monotonic() + restart_wait
+        while True:
+            if ping(path):
+                return RemoteStore(settings, path)
+            if time.monotonic() >= deadline or not path.exists():
+                break
+            time.sleep(0.2)
+    return Store(settings=settings)
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="agent-lease-broker")
+    p.add_argument("--socket", default=None)
+    args = p.parse_args(argv)
+    settings = Settings.from_env()
+    path = Path(args.socket) if args.socket else None
+    try:
+        server = serve(settings, path)
+    except RuntimeError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    store = server.RequestHandlerClass.store
+
+    last_backup = [store.last_backup_at()]  # platná záloha mladší 24 h → restart nezálohuje
+
+    try:  # D3: obnova po restartu – termíny výzkumů z DB hned, ne až po prvním ticku
+        store.research_sweep()
+    except Exception as exc:  # noqa: BLE001
+        print(f"research_sweep: {exc}", file=sys.stderr)
+
+    def sweeper() -> None:
+        import time as _t
+        while True:
+            _t.sleep(15)
+            try:
+                store.failover_sweep()
+            except Exception as exc:  # noqa: BLE001 — sweep nesmí shodit broker
+                print(f"failover_sweep: {exc}", file=sys.stderr)
+            try:
+                if _t.time() - last_backup[0] > 86400:
+                    last_backup[0] = _t.time()
+                    result = store.backup()
+                    if result["integrity"] != "ok" or result["backup_integrity"] != "ok":
+                        print(f"backup integrity: {result}", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001
+                print(f"backup: {exc}", file=sys.stderr)
+            try:
+                store.reconcile()
+            except Exception as exc:  # noqa: BLE001
+                print(f"reconcile: {exc}", file=sys.stderr)
+            try:
+                store.expire_stale_chats()
+            except Exception as exc:  # noqa: BLE001
+                print(f"expire_stale_chats: {exc}", file=sys.stderr)
+            try:
+                store.research_sweep()
+            except Exception as exc:  # noqa: BLE001
+                print(f"research_sweep: {exc}", file=sys.stderr)
+            try:
+                store.review_stale_sweep()
+            except Exception as exc:  # noqa: BLE001
+                print(f"review_stale_sweep: {exc}", file=sys.stderr)
+
+    threading.Thread(target=sweeper, daemon=True).start()
+    print(f"broker listening on {path or default_socket_path(settings)} (0600)", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

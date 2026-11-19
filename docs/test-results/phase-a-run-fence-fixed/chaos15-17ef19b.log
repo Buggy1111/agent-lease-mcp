@@ -1,0 +1,25 @@
+izolovaná data: /tmp/al15b/agent-lease-chaos-7iwvcc5b; požadovaná délka: 15 min
+průběh: {'sent': 107, 'worker_kills': 40, 'broker_kills': 11, 'cancels': 14, 'interactive': 14, 'interactive_crash': 7, 'pauses': 0}
+průběh: {'sent': 178, 'worker_kills': 76, 'broker_kills': 17, 'cancels': 24, 'interactive': 35, 'interactive_crash': 16, 'pauses': 1}
+statistika: {'sent': 279, 'worker_kills': 117, 'broker_kills': 31, 'cancels': 28, 'interactive': 59, 'interactive_crash': 28, 'pauses': 1}, karanténa: 26
+stavy úkolů: {'succeeded': 131, 'needs_review': 118, 'cancelled': 28, 'pending': 2}
+efekty: 159 úkolů, dvojité: žádné
+succeeded bez právě 1 efektu: žádné
+succeeded bez právě 1 Done: žádné
+nesoulad zadaných a evidovaných úkolů: žádný
+„Done“ u nedokončeného: žádné; dvojité Done: žádné
+karanténa spuštěna: nikdy
+start během pauzy: žádný
+efekt během pauzy: žádný
+přeživší procesy: žádné
+potomci přeživší pád bridge: žádní
+účinky potomků po pádu bridge: žádné
+zaznamenaní potomci workerů: 26
+simulované limity poskytovatele: 12
+limit a následné zotavení skutečně pozorovány: True / True
+visící leased/started: žádné
+zbývající pending po dojezdu: 2
+pending kvůli aktivnímu limitu: 0
+integrita DB: ok; pokrytí scénářů: ano
+pokus o skutečný provider probe: žádný
+VÝSLEDEK: SELHALO (data: /tmp/al15b/agent-lease-chaos-7iwvcc5b)

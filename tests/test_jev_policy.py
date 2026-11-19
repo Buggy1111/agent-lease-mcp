@@ -117,7 +117,8 @@ def test_hard_block_stays_narrow(command):
 def test_redact_masks_secrets_and_keeps_shape():
     from agent_lease_mcp.jev_policy import redact
 
-    out = redact('curl -H "Authorization: Bearer abc123" https://u:pw@x.io API_KEY=sk-abcdefghijklmnopqrstu')
+    # klíč složený z částí, ať tento test sám nehlásí kontrola tajemství (B6)
+    out = redact('curl -H "Authorization: Bearer abc123" https://u:pw@x.io API_KEY=' + "sk-" + "abcdefghijklmnopqrstu")
     assert "abc123" not in out and "pw@" not in out and "sk-abc" not in out
     assert out.startswith("curl -H")
 

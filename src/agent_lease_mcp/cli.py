@@ -16,13 +16,85 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import sys
 import time
 
 from .briefing import session_briefing
-from .config import Settings
+from .broker import open_store
+from .config import UNTRUSTED_PREFIXES, Settings
 from .models import DeliveryState, MessageKind
 from .store import Store
+
+# Příkazy, které nic nezapisují pod jménem volajícího — smí i bez AGENT_NAME.
+READ_ONLY_CMDS = frozenset({"owner", "history", "limits", "overdue", "jobs"})
+
+
+def parse_until(text: str) -> float:
+    """`+2h`, `+30m`, epoch nebo ISO čas → epoch."""
+    import re
+    from datetime import datetime
+
+    m = re.fullmatch(r"\+(\d+)([smhd])", text.strip())
+    if m:
+        return time.time() + int(m.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+    try:
+        return float(text)
+    except ValueError:
+        return datetime.fromisoformat(text).timestamp()
+
+
+def _report(args) -> int:
+    """D8–D11: jen čtení (snímek DB, konfigurace, zdrojáky); výstup na stdout nebo do --out."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from . import health, insight
+    db = Settings.from_env().db_path
+    if args.cmd == "self-audit":
+        report = insight.self_audit(_Path.home(), db, args.days)
+        text = insight.self_audit_markdown(report)
+    elif args.cmd == "recall-bench":
+        cases = insight.load_cases(_Path(args.cases))
+        source = _Path(args.db) if args.db else db
+        if not source.exists():
+            print(f"no database at {source}", file=sys.stderr)
+            return 1
+        with insight.snapshot(source) as con:
+            report = insight.recall_bench(con, cases)
+        baseline = _json.loads(_Path(args.baseline).read_text()) if args.baseline else None
+        try:
+            text = insight.recall_markdown(report, baseline)
+            if baseline:
+                report = insight.with_baseline(report, baseline)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif args.cmd == "efficiency":
+        if not db.exists():
+            print(f"no database at {db}", file=sys.stderr)
+            return 1
+        with insight.snapshot(db) as con:
+            report = insight.efficiency(con, time.time() - args.days * 86400)
+        text = insight.efficiency_markdown(report, args.days)
+    else:
+        report = health.analyze(_Path(args.path))
+        text = health.markdown(report)
+    if args.json:
+        from .hygiene import redact
+        text = redact(_json.dumps(report, ensure_ascii=False, indent=2)) + "\n"
+    if args.out:
+        out = _Path(args.out)
+        try:  # jen nový soubor: --out nikdy nepřepíše vstup, DB ani konfiguraci
+            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            print(f"{out} already exists; choose a new file", file=sys.stderr)
+            return 1
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+    else:
+        sys.stdout.write(text)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +103,23 @@ def main(argv: list[str] | None = None) -> int:
         description="Shared room for coding agents: path leases, presence, messages.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_quality = sub.add_parser("quality", help="inspect committed quality setup without running project code")
+    quality_sub = p_quality.add_subparsers(dest="quality_action", required=True)
+    p_quality_inspect = quality_sub.add_parser("inspect", help="read a commit-bound quality plan (no execution)")
+    p_quality_inspect.add_argument("--repo", default=".")
+    p_quality_inspect.add_argument("--commit", default="HEAD")
+    p_quality_inspect.add_argument("--base", default=None)
+    p_quality_check = quality_sub.add_parser("check", help="run pinned project checks in the operator-approved offline sandbox")
+    p_quality_check.add_argument("--repo", default=".")
+    p_quality_check.add_argument("--commit", default="HEAD")
+    p_quality_check.add_argument("--base", default=None)
+    p_quality_check.add_argument("--task-id", type=int, default=None)
+    p_quality_check.add_argument("--lease-token", default=None)
+    p_quality_enqueue = quality_sub.add_parser("enqueue", help="queue a deterministic check; request acceptance is not a gate verdict")
+    p_quality_enqueue.add_argument("--repo", default=".")
+    p_quality_enqueue.add_argument("--commit", default="HEAD")
+    p_quality_enqueue.add_argument("--base", default=None)
 
     p_room = sub.add_parser("room", help="who is here, what is held, what is new")
     p_room.add_argument("--status", default="", help="announce what you are working on")
@@ -55,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     p_send.add_argument("--kind", choices=[k.value for k in MessageKind], default="chat")
     p_send.add_argument("--dedupe-key", default=None)
     p_send.add_argument("--reply-to", type=int, default=None)
+    p_send.add_argument("--path", action="append", dest="paths", default=[],
+                        help="declared task path; repeat for multiple paths")
+    p_send.add_argument("--priority", type=int, default=0, help="task priority from -100 to 100")
 
     p_jobs = sub.add_parser("jobs", help="addressed items and their state")
     p_jobs.add_argument("--for", dest="recipient", default=None)
@@ -69,7 +161,17 @@ def main(argv: list[str] | None = None) -> int:
     p_wait = sub.add_parser("wait", help="wait for an addressed message without spending model tokens")
     p_wait.add_argument("--for", required=True, dest="recipient")
     p_wait.add_argument("--since", type=int, default=0)
-    p_wait.add_argument("--timeout", type=float, default=3600)
+    p_wait.add_argument("--timeout", type=float, default=None,
+                        help="seconds (default 3600; with --rewake: until the session ends)")
+    p_wait.add_argument(
+        "--rewake", action="store_true",
+        help="for an asyncRewake hook: print to stderr and exit 2 (wakes the session)",
+    )
+
+    p_accept = sub.add_parser("accept", help="acknowledge that you are taking an addressed message/task")
+    p_accept.add_argument("message_id", type=int)
+    p_accept.add_argument("--note", default="", help="what you will do — the sender sees it")
+    p_accept.add_argument("--token", default=None, help="lease token, if you leased the task")
 
     p_retry = sub.add_parser("retry", help="put a failed task back in the queue")
     p_retry.add_argument("message_id", type=int)
@@ -83,20 +185,205 @@ def main(argv: list[str] | None = None) -> int:
     p_web = sub.add_parser("web", help="start the local live web room")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8765)
-    p_web.add_argument("--open", action="store_true", dest="open_browser")
+    p_web.add_argument("--open", action="store_true", dest="open_browser",
+                       help="open the browser logged in (the token never goes to stdout)")
 
-    p_hist = sub.add_parser("history", help="kdo na co sahal a jak to dopadlo")
+    p_limit = sub.add_parser("limit", help="report an exhausted limit (tasks move to a fallback agent)")
+    p_limit.add_argument("--until", default="+1h", help="+2h, +30m, ISO time or epoch")
+    p_limit.add_argument("--reason", default="")
+    p_limit.add_argument("--agent", default=None)
+    p_limit.add_argument("--clear", action="store_true", help="the limit no longer applies")
+
+    sub.add_parser("limits", help="active limits and fallback chains")
+
+    p_provider = sub.add_parser(
+        "provider-sync", help="read and persist an explicit provider availability signal",
+    )
+    p_provider.add_argument("--agent", choices=["codex"], default="codex")
+    p_provider_clear = sub.add_parser(
+        "provider-clear", help="confirm recovery and remove a stale provider state",
+    )
+    p_provider_clear.add_argument("--agent", default=None)
+
+    p_probe = sub.add_parser("research-probe",
+                             help="D3: prove the research read boundary of a client (spends a few tokens)")
+    p_probe.add_argument("--agent", default="claude-code")
+
+    p_overdue = sub.add_parser("overdue", help="messages nobody acknowledged / undelivered")
+    p_overdue.add_argument("--seconds", type=int, default=120)
+
+    p_broker = sub.add_parser("broker", help="run the broker (single SQLite writer, Unix socket 0600)")
+    p_broker.add_argument("--socket", default=None)
+
+    p_init = sub.add_parser("init", help="write the hooks into a client config (idempotent, with backup)")
+    p_init.add_argument("agent", choices=["claude-code", "codex"])
+    p_init.add_argument("--write", action="store_true", help="actually write (otherwise just show)")
+    p_init.add_argument("--rewake", action="store_true", help="add waking of a sleeping session")
+
+    sub.add_parser("simulate", help="replay a full scenario in a temporary DB (post-install check)")
+
+    p_notify = sub.add_parser("notify", help="Telegram alerts for what is waiting on the human")
+    p_notify.add_argument("--dry", action="store_true")
+    p_notify.add_argument("--loop", action="store_true")
+    p_notify.add_argument("--overdue", type=int, default=300)
+
+    p_doctor = sub.add_parser("doctor", help="check installation, delivery and worker health")
+    p_doctor.add_argument("--json", action="store_true", help="machine-readable diagnostics")
+
+    p_audit = sub.add_parser("self-audit", help="D8: read-only harness and room audit with proposals")
+    p_audit.add_argument("--days", type=float, default=7)
+    p_recall = sub.add_parser("recall-bench", help="D9: measure shared-memory (D1) search on a case set")
+    p_recall.add_argument("cases")
+    p_recall.add_argument("--db", default=None, help="test DB instead of a snapshot of the room DB")
+    p_recall.add_argument("--baseline", default=None, help="earlier --json report on the same cases")
+    p_eff = sub.add_parser("efficiency", help="D10: tokens, cost and time per completed task")
+    p_eff.add_argument("--days", type=float, default=30)
+    p_health = sub.add_parser("health", help="D11: duplicates, dead-code candidates, import cycles (read-only)")
+    p_health.add_argument("path", nargs="?", default=".")
+    for p_rep in (p_audit, p_recall, p_eff, p_health):
+        p_rep.add_argument("--json", action="store_true")
+        p_rep.add_argument("--out", default=None, help="write the report to a file instead of stdout")
+
+    p_bridge = sub.add_parser("bridge", help="autonomous worker for one agent's queue")
+    p_bridge.add_argument("--agent", required=True)
+    p_bridge.add_argument("--command", default=None)
+    p_bridge.add_argument("--once", action="store_true")
+    p_bridge.add_argument("--include-existing", action="store_true")
+    p_bridge.add_argument("--provider", choices=["cli", "openrouter"], default="cli")
+    p_bridge.add_argument("--model", default="")
+
+    p_activate = sub.add_parser(
+        "worker-activate", help="set this agent's safe worker baseline without running a task",
+    )
+    p_activate.add_argument("--include-existing", action="store_true")
+
+    p_failover_activate = sub.add_parser(
+        "failover-activate", help="set safe failover baselines without moving a task",
+    )
+    p_failover_activate.add_argument("agents", nargs="+")
+    p_failover_activate.add_argument("--include-existing", action="store_true")
+
+    p_stop = sub.add_parser("stop", help="EMERGENCY STOP: no new starts, running workers stop "
+                            "(resume only in the web UI)")
+    p_stop.add_argument("--reason", default="")
+    sub.add_parser("backup", help="consistent, integrity-checked copy of the room DB")
+
+    p_prune = sub.add_parser("prune", help="delete finished messages and audit older than N days")
+    p_prune.add_argument("--days", type=int, default=None)
+
+    p_hist = sub.add_parser("history", help="who touched what and how it ended")
     p_hist.add_argument("--path", default=None)
     p_hist.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
+    if args.cmd == "quality":
+        if args.quality_action == "enqueue":
+            from .quality_runner import check_cli
+            return check_cli(args.repo, args.commit, args.base, None, None, enqueue=True)
+        if args.quality_action == "check":
+            from .quality_runner import check_cli
+            return check_cli(args.repo, args.commit, args.base, args.task_id, args.lease_token)
+        from .quality import inspect_cli
+
+        return inspect_cli(args.repo, args.commit, args.base)
+    if args.cmd == "wait":
+        args.timeout_given = args.timeout is not None
+        if args.timeout is None:
+            args.timeout = 3600.0
+    if args.cmd == "simulate":
+        from .simulate import run_simulation
+
+        return 0 if run_simulation() else 1
+    if args.cmd == "notify":
+        from .notifier import main as notify_main
+
+        return notify_main((["--dry"] if args.dry else []) + (["--loop"] if args.loop else [])
+                           + ["--overdue", str(args.overdue)])
+    if args.cmd == "init":
+        from .init_cmd import run_init
+
+        return run_init(args.agent, write=args.write, rewake=args.rewake)
+    if args.cmd == "doctor":
+        from .doctor import run_doctor
+
+        return run_doctor(json_output=args.json)
+    if args.cmd in ("self-audit", "recall-bench", "efficiency", "health"):
+        return _report(args)
+    if args.cmd == "broker":
+        from .broker import main as broker_main
+
+        return broker_main(["--socket", args.socket] if args.socket else [])
+    if args.cmd == "bridge":
+        from .bridge import main as bridge_main
+
+        return bridge_main(["--agent", args.agent]
+                           + (["--command", args.command] if args.command else [])
+                           + (["--once"] if args.once else [])
+                           + (["--include-existing"] if args.include_existing else [])
+                           + ["--provider", args.provider]
+                           + (["--model", args.model] if args.model else []))
     settings = Settings.from_env()
-    store = Store(settings=settings)
     me = settings.agent
+    if me.startswith(UNTRUSTED_PREFIXES) and args.cmd not in READ_ONLY_CMDS:
+        # Bez jména by se zápis objevil v místnosti jako `unconfigured-<host>-<pid>`:
+        # druhý agent neví, od koho to je, a každé volání přidá nového „člověka".
+        print(f"AGENT_NAME is not set (or not allowed), so you would act as `{me}`.\n"
+              f"Run it as: AGENT_NAME=<your name> agent-lease {args.cmd} ...", file=sys.stderr)
+        return 2
+    store = open_store(settings)
+    if args.cmd == "worker-activate":
+        after = store.worker_activation(me, include_existing=args.include_existing)
+        print(f"Worker {me} will process task ids greater than {after}.")
+        return 0
+    if args.cmd == "failover-activate":
+        for agent in args.agents:
+            after = store.failover_activation(agent, include_existing=args.include_existing)
+            print(f"Failover from {agent} will move task ids greater than {after}.")
+        return 0
+    if args.cmd == "provider-sync":
+        from .rate_limits import probe_codex_rate_limits
+
+        state = probe_codex_rate_limits()
+        store.report_provider_state(
+            args.agent, state.state, state.source, observed_at=state.observed_at,
+            resets_at=state.resets_at, reason=state.reason,
+        )
+        reset = f", reset hint {time.strftime('%Y-%m-%d %H:%M', time.localtime(state.resets_at))}" \
+            if state.resets_at else ""
+        print(f"{args.agent}: {state.state} ({state.source}){reset}")
+        return 0 if state.state != "unknown" else 1
+    if args.cmd == "research-probe":
+        from pathlib import Path as _Path
+
+        from .research_runner import client_identity, probe, profile_key, record_attestation
+        identity = client_identity(args.agent)
+        if identity is None:
+            print(f"FAIL: {args.agent} client not found", file=sys.stderr)
+            return 1
+        result = probe(args.agent, _Path.home(), _Path.home() / ".cache" / "agent-lease-research",
+                       (str(store.db_path.parent),), exe=identity["path"])
+        # potvrzení platí jen pro tuto binárku a profil; neúspěch staré potvrzení smaže
+        record_attestation(store.db_path, args.agent,
+                           profile_key(args.agent, identity) if result["ok"] else None)
+        print(f" binary {identity['path']} sha256 {identity['sha256'][:16]}…")
+        for name, ok in result.get("checks", {}).items():
+            print(f" {'✔' if ok else '✘'} {name}")
+        print(f"PASS: {args.agent} may be listed in research.toml" if result["ok"]
+              else f"FAIL: {result['reason']} — keep {args.agent} out of research.toml")
+        return 0 if result["ok"] else 1
+
+    if args.cmd == "provider-clear":
+        who = args.agent or me
+        if who != me:
+            print("You can only clear your own provider state.", file=sys.stderr)
+            return 1
+        print("Provider state cleared." if store.clear_provider_state(who)
+              else "There was no provider state.")
+        return 0
 
     if args.cmd == "room":
         store.heartbeat(me, status=args.status or None, cwd=os.getcwd())
-        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me))
+        text = session_briefing(me, store.peers(), store.claims(), store.undelivered(me), store.awaiting_accept(me))
         print(text or f"[agent-lease] You are in the room as `{me}`. Nobody else is here and nothing is new.")
 
     elif args.cmd == "claim":
@@ -126,12 +413,30 @@ def main(argv: list[str] | None = None) -> int:
         print("Sent. ⚠️ The other agent sees it on its next prompt, not immediately.")
 
     elif args.cmd == "send":
+        if args.recipient == "auto":
+            from . import jev, routing
+
+            # B2: jen skuteční agenti (ne most, budík, broker ani člověk)
+            candidates = routing.candidates(store.peers(), me, settings.db_path)
+            if len(candidates) == 1:
+                chosen = candidates[0]  # jediný dosažitelný agent: není co rozhodovat
+            else:
+                chosen = (jev.route(args.text, candidates, routing.capabilities())
+                          if jev.enabled() else None)
+            if not chosen:
+                print("auto: cannot decide (Jev off/unavailable or no candidate) — "
+                      "zadej --to <agent>.", file=sys.stderr)
+                return 1
+            args.recipient = chosen
+            print(f"auto → {chosen}")
         message_id = store.send(
             me, args.recipient, args.text, kind=args.kind,
             dedupe_key=args.dedupe_key, reply_to=args.reply_to,
+            paths=args.paths, priority=args.priority,
         )
         store.heartbeat(me, cwd=os.getcwd())
-        print(f"Stored #{message_id} for {args.recipient} ({args.kind}).")
+        print(f"Stored #{message_id} for {args.recipient} ({args.kind}). "
+              "Receipts (seen / taking) come back to you in the room.")
 
     elif args.cmd == "jobs":
         recipient = args.recipient or me
@@ -152,31 +457,64 @@ def main(argv: list[str] | None = None) -> int:
         print(f"#{args.message_id} → {args.state}")
 
     elif args.cmd == "wait":
+        if args.rewake:
+            # asyncRewake hook: budí jen to, co session ještě neviděla (kurzor
+            # kontextu), jeden čekatel na session, konec se zánikem session.
+            from .lifecycle import _hook_session, rewake_wait
+
+            if args.recipient != me:
+                print("--rewake waits only for your own messages (--for must be AGENT_NAME).",
+                      file=sys.stderr)
+                return 1
+            return rewake_wait(store, me, session=_hook_session(),
+                               timeout=args.timeout if args.timeout_given else 0)
         deadline = time.monotonic() + max(0, args.timeout)
+        seen_signal = 0.0
+        next_db = 0.0
+        next_beat = 0.0
         while True:
-            messages = store.addressed(args.recipient, since_id=args.since)
-            if messages:
-                for message in messages:
-                    print(
-                        f"#{message['id']} {message['kind']} "
-                        f"{message['agent']} → {message['recipient']}: {message['text']}"
-                    )
-                return 0
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            signal = store.signal_mtime(args.recipient)
+            now = time.monotonic()
+            if me == args.recipient and now >= next_beat:
+                # spící čekatel nesmí vypadat jako offline (jinak by mu failover bral úkoly)
+                store.heartbeat(me)
+                next_beat = now + 60.0
+            if signal != seen_signal or now >= next_db:
+                seen_signal, next_db = signal, now + 5.0
+                messages = store.addressed(args.recipient, since_id=args.since)
+                if messages:
+                    for message in messages:
+                        print(
+                            f"#{message['id']} {message['kind']} "
+                            f"{message['agent']} → {message['recipient']}: {message['text']}",
+                        )
+                    return 0
+            if deadline - time.monotonic() <= 0:
                 return 124
-            time.sleep(min(1.0, remaining))
+            time.sleep(0.2)
+
+    elif args.cmd == "accept":
+        if not store.accept(args.message_id, me, args.note, lease_token=args.token,
+                            owner=os.environ.get("AGENT_LEASE_SESSION") or f"cli-{os.getppid()}"):  # jen za sebe
+            print("Not acknowledged: no such message, not addressed to you, or a worker "
+                  "(bridge) already holds this task — do not run it.", file=sys.stderr)
+            return 1
+        print(f"✔ Acknowledged #{args.message_id}. The sender knows. Now do the work.")
 
     elif args.cmd == "retry":
-        if not store.retry(
-            args.message_id, args.recipient, not_before=args.not_before, actor=me
-        ):
+        if not store.retry(args.message_id, args.recipient, not_before=args.not_before, actor=me):
             print("Retry refused: no such task, not in a failed state, or not yours.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → pending")
 
     elif args.cmd == "cancel":
-        if not store.cancel(args.message_id, args.recipient, actor=me):
+        try:
+            cancelled = store.cancel(args.message_id, args.recipient, actor=me)
+        except (OSError, RuntimeError):
+            print("Cancellation requested, but stopping could not be confirmed; "
+                  "check the running worker before continuing.", file=sys.stderr)
+            return 1
+        if not cancelled:
             print("Cancel refused: no such task, already finished, or not yours.", file=sys.stderr)
             return 1
         print(f"#{args.message_id} → cancelled")
@@ -184,10 +522,65 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "web":
         from .webui import main as web_main
 
-        web_args = ["--host", args.host, "--port", str(args.port)]
-        if args.open_browser:
-            web_args.append("--open")
-        return web_main(web_args)
+        return web_main(["--host", args.host, "--port", str(args.port)]
+                        + (["--open"] if args.open_browser else []))
+
+    elif args.cmd == "limit":
+        who = args.agent or me
+        if who != me:  # limit jde hlásit jen za sebe (security review 16. 10.)
+            print("You can only report your own limit.", file=sys.stderr)
+            return 1
+        if args.clear:
+            print("Limit cleared." if store.clear_limit(who) else "There was no limit.")
+        else:
+            until = parse_until(args.until)
+            store.report_limit(who, until, args.reason)
+            print(f"Limit for {who} until {time.strftime('%H:%M', time.localtime(until))}. "
+                  "Unstarted tasks move to a fallback (AGENT_LEASE_FALLBACKS).")
+
+    elif args.cmd == "limits":
+        rows = store.limits()
+        for r in rows:
+            print(f"{r['agent']:<14} {r['seconds_left'] // 60} min left  {r['reason']}")
+        for r in store.provider_states():
+            note = ""
+            if r["state"] == "limited" and r.get("resets_at") and r["resets_at"] <= time.time():
+                note = "  (reset passed — retried with the next task)"
+            print(f"{r['agent']:<14} provider={r['state']} via {r['source']}  {r['reason']}{note}")
+        print("Fallback chains:", settings.fallbacks or "(not set: AGENT_LEASE_FALLBACKS)")
+
+    elif args.cmd == "overdue":
+        late = store.overdue(args.seconds)
+        for m in late:
+            print(f"#{m['id']:<5} {m['problem']:<20} {m['from']} → {m['to']} "
+                  f"({m['waiting_seconds']} s): {m['text'][:70]}")
+        if not late:
+            print("Nothing has waited longer than the limit.")
+        return 1 if late else 0
+
+    elif args.cmd == "stop":
+        try:
+            store.pause(me, args.reason)
+        except (OSError, RuntimeError):
+            print("Pause requested, but stopping could not be confirmed; "
+                  "check running workers before continuing.", file=sys.stderr)
+            return 1
+        print("⏸ Pause confirmed. Running workers have been asked to stop; "
+              "check their tasks for review. Resume: web UI (human).")
+
+    elif args.cmd == "backup":
+        result = store.backup_now()
+        print(f"{result['path']} — integrity: {result['integrity']} / copy: "
+              f"{result['backup_integrity']}")
+
+    elif args.cmd == "prune":
+        # Jen přímo nad DB (člověk), broker `prune` agentům nenabízí.
+        try:
+            removed = Store(settings=settings).prune(args.days)
+        except (OSError, sqlite3.Error) as exc:
+            print(f"prune needs direct access to {settings.db_path}: {exc}", file=sys.stderr)
+            return 1
+        print(f"Deleted: {removed['messages']} messages, {removed['audit']} audit entries.")
 
     elif args.cmd == "history":
         for e in store.history(limit=args.limit, path=args.path):

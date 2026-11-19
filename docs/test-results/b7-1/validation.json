@@ -1,0 +1,19 @@
+{
+  "phase": "B7.1 inspection only",
+  "tests": 658,
+  "failures": 0,
+  "errors": 0,
+  "skipped_or_xfailed": 1,
+  "pytest_summary": "657 passed, 1 xfailed, 1 warning in 225.45s",
+  "targeted_summary": "65 passed in 6.06s",
+  "ruff": "src tests PASS",
+  "build": {
+    "wheel": "agent_lease_mcp-0.2.0-py3-none-any.whl",
+    "sha256": "0cd74c58bc43788001ff2d0eb8771f699521556a017a6c8a7784c6c4e48f86be",
+    "new_quality_module_and_cli_match_source": true,
+    "license_present": true
+  },
+  "independent_review": "pending",
+  "deployed": false,
+  "last_change_verified_by": "65 targeted tests after adding the gate policy source file to protected paths; full 657-test regression immediately before this path-only guard"
+}

@@ -56,6 +56,21 @@ def authenticated_handler(store: Store, settings: Settings, token: str, session_
     return handler_type
 
 
+def test_unconfirmed_pause_returns_an_error(tmp_path: Path, monkeypatch):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler = authenticated_handler(store, settings, "secret")
+
+    def cannot_confirm(*_args):
+        raise TimeoutError("launcher stuck")
+
+    monkeypatch.setattr(store, "pause", cannot_confirm)
+    status, body = call_handler(store, settings, "secret", "POST", "/api/pause",
+                                headers={"Cookie": f"{SESSION_COOKIE}=session"},
+                                body={"reason": "stop"}, handler_type=handler)
+    assert status == 503 and b"could not be confirmed" in body
+
+
 def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     connection.request(
@@ -468,3 +483,119 @@ def test_web_ui_creates_owner_only_human_name_file(tmp_path, monkeypatch):
     f = tmp_path / "human-name"
     assert f.read_text() == name
     assert stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_only_authenticated_human_approves_checkpoint_resume(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    mid = store.send("michal", "codex", "práce", kind="task")
+    d = store.lease_next("codex", start=True)
+    store.checkpoint(mid, "codex", d.lease_token, "krok", "", "h", "f")
+    assert store.complete(mid, "codex", d.lease_token, "needs_review", "zadrženo",
+                          error="checkpoint: workspace changed, not started")
+    handler_type = authenticated_handler(store, settings, "secret")
+    body = {"id": mid, "to": "codex", "reason": "diff zkontrolován"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                             headers={"Origin": "http://localhost:8765"}, body=body,
+                             handler_type=handler_type)
+    assert status in (401, 403)
+    headers = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://localhost:8765"}
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                               headers=headers, body={"id": mid, "to": "codex"},
+                               handler_type=handler_type)
+    assert status == 400                                       # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-resume",
+                               headers=headers, body=body, handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["resume_approved"] is True
+    assert store.jobs("codex")[0]["state"] == "pending"
+
+
+def test_live_room_event_carries_pause_state(live_chat):
+    """Živá aktualizace musí nést stav pauzy, jinak web ukáže „Zastavit" místo „Pustit"."""
+    port, _, session_id, store = live_chat
+    store.pause("michal", "test")
+    connection = HTTPConnection("127.0.0.1", port, timeout=3)
+    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{SESSION_COOKIE}={session_id}"})
+    response = connection.getresponse()
+    assert response.status == 200
+    event = None
+    data = b""
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        line = response.fp.readline()
+        if line.startswith(b"event:"):
+            event = line.split(b":", 1)[1].strip()
+        elif line.startswith(b"data:") and event == b"room":
+            data = line.split(b":", 1)[1].strip()
+            break
+    connection.close()
+    room = json.loads(data)
+    assert room["paused"]["by"] == "michal"
+
+
+def test_pause_banner_sits_on_top_and_ignores_missing_state():
+    assert PAGE_HTML.index('id="pause"') < PAGE_HTML.index('id="topbar"')
+    assert "if (p === undefined) return;" in PAGE_HTML
+    assert "Pustit agenty znovu" in PAGE_HTML
+    assert '<select id="to">' in PAGE_HTML  # komu se vybírá, nepíše
+
+
+def test_human_review_actions_only_in_web_ui(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    head = "a" * 40
+    review = store.review_open("claude-code", str(tmp_path), "B4", "codex", "", head)
+    for _ in range(3):
+        store.review_verdict("codex", review["id"], "changes_requested", head, "x")
+        head = format(int(head, 16) + 1, "040x")
+        store.review_submit("claude-code", review["id"], head)
+    store.review_verdict("codex", review["id"], "changes_requested", head, "x")
+    handler_type = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://127.0.0.1:8765",
+              "Host": "127.0.0.1:8765"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/review-grant",
+                             headers=cookie, body={"id": review["id"]}, handler_type=handler_type)
+    assert status == 409  # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/review-grant",
+                               headers=cookie, body={"id": review["id"], "reason": "ještě jednou"},
+                               handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["state"] == "changes_requested"
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/review-close",
+                             headers={}, body={"id": review["id"]})
+    assert status == 403
+    assert "renderReviews(r.reviews)" in PAGE_HTML
+
+
+def test_review_card_shows_secret_scan_without_values():
+    assert "function scanTag(v)" in PAGE_HTML and "${scanTag(v)}" in PAGE_HTML
+    assert "tajné údaje" in PAGE_HTML
+
+
+def test_only_authenticated_human_approves_a_fix(tmp_path: Path):
+    """C1a: zápisový běh opravy povolí jen přihlášený člověk, s důvodem."""
+    import os
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    policy = tmp_path / "fix-runner.toml"
+    policy.write_text(f'version = 1\nenabled = true\nrepositories = ["{repo}"]\nagents = ["codex"]\n')
+    os.chmod(policy, 0o600)
+    mid = store.send("michal", "codex", "oprav", kind="task", fix_repo=str(repo),
+                     fix_base="a" * 40, fix_allowed=["src"])
+    assert store.lease_next("codex") is None                    # brána ho zadrží
+    handler_type = authenticated_handler(store, settings, "secret")
+    body = {"id": mid, "to": "codex", "reason": "zadání zkontrolováno"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                             headers={"Origin": "http://localhost:8765"}, body=body,
+                             handler_type=handler_type)
+    assert status in (401, 403)
+    headers = {"Cookie": f"{SESSION_COOKIE}=session", "Origin": "http://localhost:8765"}
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                             headers=headers, body={"id": mid, "to": "codex"},
+                             handler_type=handler_type)
+    assert status == 400                                       # bez důvodu ne
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/approve-fix",
+                               headers=headers, body=body, handler_type=handler_type)
+    assert status == 200 and json.loads(raw)["fix_approved"] is True
+    assert store.lease_next("codex").message_id == mid

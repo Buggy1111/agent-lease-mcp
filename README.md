@@ -12,6 +12,13 @@ the edit happens.
 
 [Česky / Czech version](README.cs.md)
 
+**Dočasná koordinace do 16. 11. 2026:** [instrukce pro Fable 5.2](docs/FABLE_5_2_TEMP_COORDINATOR.md) (dokumentace, nikoli automatické spuštění).
+
+The B7 candidate on `main` adds an opt-in offline Quality Gate for committed Python
+and TypeScript/JavaScript projects. See the [runner guide](docs/PHASE_B7_2_RUNNER.md)
+and [activation plan](docs/PHASE_B7_ACTIVATION_PLAN.md). Production activation and
+independent review are pending; the dashboard alone does not enforce merges.
+
 ## Why it exists
 
 9 September 2026. A coordination file, `docs/AGENT-HANDOFF.md`, existed and both
@@ -63,9 +70,30 @@ script serves both clients.
 | **UserPromptSubmit** | new messages are delivered once, via a cursor |
 | **PreToolUse** (Edit/Write/apply_patch…) | an edit of a file someone else holds is refused |
 | **PreToolUse** (Bash) | a script being run is leased; obvious writes (`>`, `tee`, `sed -i`, `cp`/`mv` target) into a held file are refused |
-| **Stop / SessionEnd** | all leases are returned when the agent finishes its turn |
+| **Stop / SessionEnd** | leases the session took automatically for edits are returned when it finishes its turn (explicit `claim`s and running-script leases stay until `release`/TTL) |
 
 Injections stay silent when there is nothing to say.
+
+### Waking a sleeping agent
+
+Hooks only fire when the agent acts, so an idle session is woken from outside,
+without spending model tokens:
+
+- **Claude Code**: `agent-lease init claude-code --write --rewake` adds an
+  `asyncRewake` hook on `SessionStart` and `Stop`. It waits on a signal file and
+  wakes the session when an addressed message from someone else arrives.
+  Broadcasts and automatic receipts do not wake it.
+- **Codex**: the `agent-lease-codex-wake` service nudges a named session through
+  `codex queue` (only message numbers, never their text). After a provider limit
+  ends, it nudges once for unfinished work. Setup: `/rename nox` in Codex,
+  `AGENT_LEASE_CODEX_THREAD=nox` in `~/.config/agent-lease/environment`, then
+  enable `deploy/systemd/agent-lease-codex-wake.service`.
+
+A message from another agent is information, not a human instruction. For agents
+to hand work to each other unattended, the human writes the allowed scope (and
+what always needs asking) into the agent's own instructions, e.g.
+`~/.codex/AGENTS.md`. Template and details (in Czech):
+[docs/ZPRAVY-A-POTVRZENI.md](docs/ZPRAVY-A-POTVRZENI.md).
 
 ## Tools
 
@@ -77,6 +105,8 @@ Injections stay silent when there is nothing to say.
 | `room(status?)` | one call per checkpoint: who is here, what is held, what is new |
 | `say(text)` / `inbox(since_id)` | messages to the room |
 | `send` / `jobs` / `next_task` / `ack` / `retry` / `cancel` | addressed messages and durable tasks with delivery state |
+| `accept(message_id, note)` | acknowledge you are taking an addressed message — the sender sees it |
+| `report_limit(minutes, reason)` | out of quota: your unstarted tasks move to a fallback agent |
 | `history(path?)` | who touched what and how it ended — the answer to "why was I blocked" |
 
 The same operations exist as a CLI (`agent-lease room|claim|release|say|send|…`),
@@ -87,6 +117,19 @@ background session when a message arrives.
 `say`/`inbox` is not a live chat: MCP is pull, the other side reads a message when
 it next looks. For a live view there is a local web room:
 `agent-lease web --open` (loopback only, see [Security](#security)).
+
+## Quick start (two minutes)
+
+```bash
+uv tool install agent-lease-mcp
+agent-lease init claude-code --write --rewake   # writes all hooks, keeps a .bak backup
+agent-lease init codex --write
+agent-lease simulate                            # 2 s: replays a full scenario in a temp DB
+agent-lease doctor                              # checks it really works
+agent-lease web --open                          # live room in the browser
+```
+
+`init` without `--write` only shows what it would write. Manual setup below.
 
 ## Install
 
@@ -155,6 +198,9 @@ blocks its own files. An agent called `unconfigured-*` in `room` means exactly t
 | `AGENT_LEASE_TTL` | `1800` | default lease length (s) |
 | `AGENT_LEASE_RETENTION_DAYS` | `30` | messages and audit older than this are deleted (`0` = keep) |
 | `AGENT_LEASE_FAIL_CLOSED` | off | `1` = block the tool call when the hook itself fails |
+| `AGENT_LEASE_HUMAN` | `human` | the human's name in the room (stored next to the DB by the web UI) |
+| `AGENT_LEASE_TASK_SENDERS` | human + configured agents | who may create tasks (comma-separated) |
+| `AGENT_LEASE_FALLBACKS` | — | failover chains, e.g. `codex=claude-code;claude-code=codex` |
 
 ### Optional: Bash safety gate
 
@@ -164,6 +210,56 @@ not "who holds this file" but "is this command destructive". Hard rules
 as it is wired in. An optional external classifier (TypeSafe Jev) is off by
 default, starts in shadow mode, receives only redacted commands and is advisory —
 never the only safeguard. Details in [ADR 0003](docs/adr/0003-jev-samostatny-guard.md).
+
+## Receipts, failover, bridge and broker
+
+- **Every addressed message has a visible state** ⏳ → 👁 seen → ✔ taking → done.
+  "Seen" is written by the hook automatically; "taking" must be acknowledged by
+  the agent (`accept`) and is reminded on every prompt. Nothing gets lost
+  silently. `agent-lease overdue` lists what nobody acknowledged.
+- **Limits and failover.** Codex workers read the explicit typed availability
+  signal from the local App Server. Other workers record a limit only after a
+  real provider/CLI error; if no reset time is supplied, agent-lease does not
+  invent one. Manual `agent-lease limit` / MCP `report_limit` remains available.
+  Unaccepted, unstarted tasks then move to the next agent in
+  `AGENT_LEASE_FALLBACKS` (e.g. `codex=claude-code;claude-code=codex`) after a
+  grace period, and the sender is told.
+- **Bridge** (`agent-lease bridge --agent codex`) — an autonomous worker: takes a
+  task, acknowledges it, runs `codex exec` / `claude -p` read-only and returns the
+  result. `--provider openrouter --model <model>` sends it to any model through
+  OpenRouter as plain text without tools (read-only; good for review and a
+  second opinion). Keys only from the environment. Worker presence/provider
+  state uses a separate identity (`codex-bridge`, `claude-code-bridge`), so a
+  headless quota cannot overwrite the state of an interactive agent.
+- **A task never runs twice.** A task held by a worker (`leased`/`started`) can
+  be accepted only with its lease token; the bridge skips a task an interactive
+  session has accepted and, with `--interactive-grace`, leaves fresh tasks to a
+  present interactive agent first.
+- **Broker** (`agent-lease broker`) — single SQLite writer over a `0600` Unix
+  socket; other tools use it automatically when it runs, so a sandboxed Codex
+  does not need direct access to the database. Clients survive a broker restart:
+  the connect is retried (nothing was sent yet), an interrupted call is never
+  repeated, and long-running workers continue with the next call.
+- **Overview panel** in the live room: each agent's active task, queue,
+  unacknowledged items, typed provider state, reason for waiting, limits and
+  items to review. Tasks may declare repeatable `--path` worksets and a
+  `--priority`; the scheduler skips paths held by another agent and the board
+  shows the blocking path, owner and TTL. `agent-lease notify --loop`
+  sends to Telegram only what waits on the human, each event at most once
+  (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` from the environment; `--dry` to test).
+- **Operating workers safely.** `agent-lease worker-activate` and
+  `agent-lease failover-activate <agents…>` set a safe starting point without
+  running or moving any task: only work that arrives *after* activation is
+  picked up or rerouted (`--include-existing` opts into older items).
+  `agent-lease provider-sync --agent codex` reads and stores Codex's explicit
+  availability; `agent-lease provider-clear` confirms a provider has recovered
+  and removes a stale limit; `agent-lease limits` shows active limits and
+  fallback chains. `agent-lease doctor --json` reports delivery, receipts,
+  worker health and failover readiness separately.
+- systemd units in `deploy/systemd/`, Windows/WSL starter in `deploy/windows/`.
+
+Details (in Czech): [receipts](docs/ZPRAVY-A-POTVRZENI.md),
+[limits and failover](docs/LIMITY-A-FAILOVER.md), [Jev](docs/JEV.md).
 
 ## Security
 
@@ -192,6 +288,13 @@ account**. What that means in practice:
 
 Known limits, stated plainly:
 
+- **Provider signals differ.** The installed Codex App Server has an explicit
+  `account/rateLimits/read` signal. Claude Code's documented CLI does not expose
+  an equivalent status read, so recovery is confirmed by a bounded normal task
+  retry only after a provider-supplied reset time. Without one, automatic probes
+  stop until `agent-lease provider-clear` explicitly confirms recovery.
+  `unknown` is never treated as proof that a provider recovered.
+
 - **Shell commands are checked best effort.** Redirects, `tee`, `sed -i`,
   `truncate`, `cp`/`mv` targets, wrappers like `sudo`/`env` and `sh -c` are
   recognised. `eval`, variables in paths and arbitrary programs are not. This
@@ -218,4 +321,8 @@ Design decisions: [ADR 0001](docs/adr/0001-vynuceni-hookem.md) (hook enforcement
 
 Built by Michal with Claude Code and Codex — the two agents it coordinates.
 
-MIT licence.
+## License
+
+Copyright (c) 2026 Michal Buggy. Licensed under the [MIT License](LICENSE).
+
+See [open-source compliance and third-party policy](docs/OPEN_SOURCE_COMPLIANCE.md) for dependency attribution and authorized analysis rules.

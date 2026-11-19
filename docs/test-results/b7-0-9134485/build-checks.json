@@ -1,0 +1,12 @@
+{
+  "agent_lease_mcp-0.2.0-py3-none-any.whl": {
+    "sha256": "90b6f3acd3d4e5288bf15f1e55fee21f3f4a66b2cd7954cc6985bc5f127ad0e4",
+    "bytes": 185181,
+    "license_check": "pass"
+  },
+  "agent_lease_mcp-0.2.0.tar.gz": {
+    "sha256": "a7f3b9d2bfb45aaa7bf3b8675ae8e243e03c85603dc795e44f94ea4198665df1",
+    "bytes": 13301237,
+    "license_check": "pass"
+  }
+}

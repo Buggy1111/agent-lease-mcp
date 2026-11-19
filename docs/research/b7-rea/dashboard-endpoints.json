@@ -1,0 +1,828 @@
+{
+  "evidence_id": "ev_736212976fb64cd1b41e6c97041a81abd167dad4fcaa59d578e14da8e72a4ca8",
+  "subject": {
+    "name": "rea-dashboard",
+    "digest": {
+      "sha256": "1f724163cc4558e89d916c5aa970de5a189bf4fa3ddbda8fad40f7e36bf00695"
+    },
+    "local_path": "/home/buggy1111/dev/work/agent-lease-b7-mvp-evidence/rea-dashboard",
+    "format": "directory",
+    "architecture": null
+  },
+  "provider": {
+    "id": "rea-analysis-view",
+    "name": "REA analysis view projection",
+    "version": "1"
+  },
+  "analysis_profile": null,
+  "predicate_type": "rea.analysis-view",
+  "operation": "inspect_analysis_view",
+  "parameters": {
+    "parent_evidence_id": "ev_d7618a0387392d4badb2db74035bf325f231e46433248a7bbcb85fe6cb89df4d",
+    "view": {
+      "kind": "javascript-facts",
+      "where": {
+        "paths": [
+          "dashboard.js"
+        ],
+        "kinds": [
+          "endpoint"
+        ]
+      },
+      "property_keys": [
+        "value",
+        "mechanism",
+        "resolution"
+      ],
+      "include_available_property_keys": false,
+      "offset": 0,
+      "limit": 32
+    }
+  },
+  "raw_result": null,
+  "normalized_result": {
+    "parent_evidence_id": "ev_d7618a0387392d4badb2db74035bf325f231e46433248a7bbcb85fe6cb89df4d",
+    "parent_operation": "analyze_javascript_application",
+    "parent_digest": "d7618a0387392d4badb2db74035bf325f231e46433248a7bbcb85fe6cb89df4d",
+    "view_digest": "770a863d2c5f7a5e1fa3cfd2b6441ed46cb355b90df20f04f0121034ab98d032",
+    "artifact": {
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-mvp-evidence/rea-dashboard",
+      "sha256": "1f724163cc4558e89d916c5aa970de5a189bf4fa3ddbda8fad40f7e36bf00695"
+    },
+    "coverage": {
+      "status": "page",
+      "examined": 11,
+      "total": 11,
+      "next_offset": null,
+      "exhausted": true
+    },
+    "limitations": [
+      "Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.",
+      "Caller-selected source analysis leaves 2 inventoried files outside analysis scope. Inventory identity covers the complete artifact; relationships through unselected sources remain unknown.",
+      "Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.",
+      "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+      "Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.",
+      "Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.",
+      "Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.",
+      "Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.",
+      "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+      "Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.",
+      "Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.",
+      "Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.",
+      "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
+      "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+      "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+      "The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.",
+      "Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.",
+      "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."
+    ],
+    "unknowns": [
+      "1913 semantic graph unknowns remain in the parent Evidence.",
+      "2 application graph unknowns remain in the parent Evidence.",
+      "Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.",
+      "Caller-selected source analysis leaves 2 inventoried files outside analysis scope. Inventory identity covers the complete artifact; relationships through unselected sources remain unknown.",
+      "Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.",
+      "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+      "Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.",
+      "Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.",
+      "Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.",
+      "Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.",
+      "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+      "Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.",
+      "Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.",
+      "Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.",
+      "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
+      "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+      "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+      "The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.",
+      "Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.",
+      "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code.",
+      "graph.coverage.status is partial",
+      "semantic_graph.coverage.status is unknown"
+    ],
+    "kind": "javascript-facts",
+    "view": {
+      "kind": "javascript-facts",
+      "where": {
+        "paths": [
+          "dashboard.js"
+        ],
+        "kinds": [
+          "endpoint"
+        ]
+      },
+      "property_keys": [
+        "value",
+        "mechanism",
+        "resolution"
+      ],
+      "include_available_property_keys": false,
+      "offset": 0,
+      "limit": 32
+    },
+    "rows": [
+      {
+        "node_id": "jag_node_203f385e7b95d85644b6d20add03dcf54d36c0130fa7eca7d4cecba00c02a012",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"partial\",{\"start\":{\"line\":533,\"column\":13},\"end\":{\"line\":533,\"column\":58}},\"\\\"/api/events?since=\\\" + since\"]"
+        },
+        "observation_id": "jag_observation_49bdf38a05d168cddb6cca6ce65b9e848f996dd6675ccd77e42703c077c21f2d",
+        "source_map_reference": null,
+        "properties": {
+          "value": "\"/api/events?since=\" + since",
+          "mechanism": "call:EventSource",
+          "resolution": "partial"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 533,
+                "column": 13
+              },
+              "end": {
+                "line": 533,
+                "column": 58
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence.",
+            "The request target is not an exact literal; the endpoint value retains the unresolved source expression."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_27dec9aaa48fb1d056b03da5b9184cfbdeff5b121f66d22632289ccec0f2a653",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"partial\",{\"start\":{\"line\":566,\"column\":9},\"end\":{\"line\":566,\"column\":116}},\"url\"]"
+        },
+        "observation_id": "jag_observation_7f1a3191d9cad1872354b8df80a83d7f134de81e762fbdaced8ac2bcf3002127",
+        "source_map_reference": null,
+        "properties": {
+          "value": "url",
+          "mechanism": "call:fetch",
+          "resolution": "partial"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 566,
+                "column": 9
+              },
+              "end": {
+                "line": 566,
+                "column": 116
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence.",
+            "The request target is not an exact literal; the endpoint value retains the unresolved source expression."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_283f9cef2a4781724b033836ffbb00c7f65d89ac3eac8efb0e21b4bffa66d0d0",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/session\"]"
+        },
+        "observation_id": "jag_observation_08e9c665dc7eb76ef43334ca267095e12caf2af045322a1759a36cc2616e3f46",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/session",
+          "mechanism": "call:fetch"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 546,
+                "column": 25
+              },
+              "end": {
+                "line": 546,
+                "column": 105
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_29648c6e1c948de12f4850ff606f482e9603599cd417c6debfdcf0d00bb5dc7b",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/review-grant\"]"
+        },
+        "observation_id": "jag_observation_b635fa818a4da1aa32e0945c30d1b96eaa92bc57034a3396d64cae56714645d9",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/review-grant",
+          "mechanism": "call:post"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 456,
+                "column": 20
+              },
+              "end": {
+                "line": 456,
+                "column": 65
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_658942769fb2e39737da1074de82ca0a150efb7e094c0ba21ccc74a810b62c8a",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/send\"]"
+        },
+        "observation_id": "jag_observation_356850e38ca7a4f33ed137d0cfaf8126c366475d7e2e37b7a1176c9d2149f4e1",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/send",
+          "mechanism": "call:post"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 578,
+                "column": 2
+              },
+              "end": {
+                "line": 578,
+                "column": 100
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_76973b4edd95688bbdbcc56130bf9bcc2f0754b74bfb84cc4c26c545aed36b8f",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"partial\",{\"start\":{\"line\":389,\"column\":13},\"end\":{\"line\":389,\"column\":68}},\"\\\"/api/snapshot?since=\\\" + Number.MAX_SAFE_INTEGER\"]"
+        },
+        "observation_id": "jag_observation_b9b30b26bec8ae167c654ccb20dd7858de4e70d2260839f9370172d4a8afb349",
+        "source_map_reference": null,
+        "properties": {
+          "value": "\"/api/snapshot?since=\" + Number.MAX_SAFE_INTEGER",
+          "mechanism": "call:fetch",
+          "resolution": "partial"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 389,
+                "column": 13
+              },
+              "end": {
+                "line": 389,
+                "column": 68
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence.",
+            "The request target is not an exact literal; the endpoint value retains the unresolved source expression."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_8c09b0d431e6016061e44bee47dd31dde58421d1ac04a2faaf93bf0dd699ff35",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/snapshot?since=0\"]"
+        },
+        "observation_id": "jag_observation_1c27446b18966a8955aa9681e5bf4c7dfd02376e066a6af85ce6ec7c920aebf6",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/snapshot?since=0",
+          "mechanism": "call:fetch"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 555,
+                "column": 14
+              },
+              "end": {
+                "line": 555,
+                "column": 44
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_acc04f079f4673b4e20ba97907836364ca45e14cf6cd128dd93d2d286d1a0d74",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/approve-resume\"]"
+        },
+        "observation_id": "jag_observation_e2fd5ff293d9256f69ce2fc64eb35bebb0e75ecdd8fb4cc2e55bec5d28c4455e",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/approve-resume",
+          "mechanism": "call:post"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 348,
+                "column": 20
+              },
+              "end": {
+                "line": 348,
+                "column": 84
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_b91e92e00b82bdbcfee840e867f3d59dd0bad87f358dee4de3280abe121cd05a",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/approve\"]"
+        },
+        "observation_id": "jag_observation_b9f5dba47c189616535b25cc257752c7f48b927d44c929f572ea9a3886e40184",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/approve",
+          "mechanism": "call:post"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 342,
+                "column": 20
+              },
+              "end": {
+                "line": 342,
+                "column": 77
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_ba707b67a092528a6db1e0a85d75dd98450d36afb7cfadea591d22a054a75896",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"partial\",{\"start\":{\"line\":385,\"column\":2},\"end\":{\"line\":385,\"column\":122}},\"\\\"/api/\\\" + action\"]"
+        },
+        "observation_id": "jag_observation_0e89988fd7519b3592e36f39a0030fd820ff78d2722c98e0ff579a1d0267c6d6",
+        "source_map_reference": null,
+        "properties": {
+          "value": "\"/api/\" + action",
+          "mechanism": "call:fetch",
+          "resolution": "partial"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 385,
+                "column": 2
+              },
+              "end": {
+                "line": 385,
+                "column": 122
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence.",
+            "The request target is not an exact literal; the endpoint value retains the unresolved source expression."
+          ],
+          "evidence_ids": []
+        }
+      },
+      {
+        "node_id": "jag_node_d19efcd1f1cfa29befc16109ddd29a9a18de74aa5c9b02167018e52f3e85fb92",
+        "kind": "endpoint",
+        "identity": {
+          "strategy": "artifact-local-key",
+          "stability": "artifact-version",
+          "artifact_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+          "namespace": "network",
+          "key": "[\"literal\",\"/api/review-close\"]"
+        },
+        "observation_id": "jag_observation_a6d564bd692fe8ed9a06ed36172b37d3990ad60b375e361a4c10682686097151",
+        "source_map_reference": null,
+        "properties": {
+          "value": "/api/review-close",
+          "mechanism": "call:post"
+        },
+        "evidence": {
+          "authority": "ast-static-analysis",
+          "state": "observed",
+          "confidence": "exact",
+          "artifact": {
+            "available": true,
+            "artifact_id": "art_0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+            "sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c"
+          },
+          "location": {
+            "available": true,
+            "value": {
+              "start": {
+                "line": 462,
+                "column": 29
+              },
+              "end": {
+                "line": 462,
+                "column": 74
+              },
+              "kind": "source-range",
+              "source": "dashboard.js"
+            }
+          },
+          "extractor": {
+            "name": "rea-javascript-artifact-reconstruction",
+            "version": "1",
+            "operation": "discover-static-endpoint",
+            "executable_sha256": null
+          },
+          "coverage": {
+            "status": "partial",
+            "truncated": false,
+            "omitted_count": null,
+            "limits": []
+          },
+          "limitations": [
+            "AST coverage is incomplete; omitted or dynamic facts must not be interpreted as absence."
+          ],
+          "evidence_ids": []
+        }
+      }
+    ],
+    "source_coverage": {
+      "source_selection": {
+        "requested_paths": [
+          "dashboard.js"
+        ],
+        "unselected_files": 2
+      },
+      "application": {
+        "status": "partial",
+        "truncated": false,
+        "omitted_count": null,
+        "limits": []
+      },
+      "semantic": {
+        "status": "unknown",
+        "truncated": false,
+        "omitted_nodes": 0,
+        "omitted_relations": 0,
+        "limits": []
+      },
+      "application_unknown_count": 2,
+      "semantic_unknown_count": 1913
+    }
+  },
+  "confidence": "derived",
+  "authority": "shipped-artifact",
+  "environment": null,
+  "limitations": [
+    "Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.",
+    "Caller-selected source analysis leaves 2 inventoried files outside analysis scope. Inventory identity covers the complete artifact; relationships through unselected sources remain unknown.",
+    "Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.",
+    "CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.",
+    "Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.",
+    "Event extraction covers EventEmitter-style literal registrations, removals, and dispatch candidates; dynamic names remain unknown.",
+    "Function fingerprints are static candidates; equal digests can remain ambiguous and do not prove behavioral equivalence.",
+    "Graph coverage is incomplete; unavailable facts remain explicit and must not be read as absence.",
+    "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
+    "Local data flow does not claim control-flow-sensitive reaching definitions or arbitrary dynamic property resolution.",
+    "Promise ownership covers explicit unshadowed Promise construction, static factories, aggregation, chaining, and await syntax only.",
+    "Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.",
+    "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
+    "Static imports, entrypoints, workers, endpoints, and storage relationships do not prove runtime execution.",
+    "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+    "The semantic graph contains static syntax observations and conservative relationship candidates; it does not claim runtime execution.",
+    "Timer extraction covers global or node:timers scheduling and exact local-handle cancellation.",
+    "Webpack/Rspack factories were recovered from AST literals; REA did not invoke push handlers or bundle bootstrap code."
+  ],
+  "relationship_coverage": null,
+  "locations": [
+    {
+      "kind": "artifact-path",
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-mvp-evidence/rea-dashboard"
+    }
+  ],
+  "evidence_links": [
+    "ev_d7618a0387392d4badb2db74035bf325f231e46433248a7bbcb85fe6cb89df4d"
+  ]
+}

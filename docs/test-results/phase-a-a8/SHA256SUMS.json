@@ -1,0 +1,11 @@
+{
+  "installed.txt": "202afcce1d364dad854fd5a88269474762e217ac45a98e09a06582f556918602",
+  "clean-child.json": "371d3208f25ad8b21b672473ca83cb10428b18c99a538832547dd9f81ef4f370",
+  "requirements.lock": "653efa8265980818c91151d02acc8571e5d77be526e107fa75294c04ec18a973",
+  "runtime-check.json": "ebca71a29646cca6f1dd80974865005ecc1348e89b8fec61c1f4d88226886931",
+  "bootstrap-refusal.json": "2afbc478037070f7890a07c7ed3437064a14b5ab2d72035337725ca1abd78369",
+  "artifact-identity.json": "a6ed8334050922cbc1ebda9fb8d02eb3677ca2056ead1a0fff490c944c1b6858",
+  "pytest.log": "be7840b47d8ad5d820a6a15854a82c82a7e1e31fd47181ddd2c162cc953ed625",
+  "a8_sqlite_bootstrap.py": "8439d7a27d9ce230be44030bc765495bddfd444cb9cf4f5240fca2e015a39af4",
+  "store-crash-migration.json": "c206c4ab8323af7742bbb0ce8844bf7f347fc8ef84ea306bf8d4a71ccda755be"
+}

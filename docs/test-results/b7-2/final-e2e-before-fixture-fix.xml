@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="30" time="296.502" timestamp="2026-11-07T22:17:47.689538+01:00" hostname="Buggy"><testcase classname="tests.test_quality_runner_e2e" name="test_real_pass_and_fail_for_each_agent[python-claude-code]" time="5.075" /><testcase classname="tests.test_quality_runner_e2e" name="test_real_pass_and_fail_for_each_agent[python-codex]" time="5.118" /><testcase classname="tests.test_quality_runner_e2e" name="test_real_pass_and_fail_for_each_agent[typescript-claude-code]" time="32.655" /><testcase classname="tests.test_quality_runner_e2e" name="test_real_pass_and_fail_for_each_agent[typescript-codex]" time="37.820" /><testcase classname="tests.test_quality_runner_e2e" name="test_both_agents_and_existing_broker_snapshot_history[python]" time="3.867" /><testcase classname="tests.test_quality_runner_e2e" name="test_both_agents_and_existing_broker_snapshot_history[typescript]" time="32.837" /><testcase classname="tests.test_quality_runner_e2e" name="test_missing_review_and_changed_tests_remain_review[python]" time="4.992" /><testcase classname="tests.test_quality_runner_e2e" name="test_missing_review_and_changed_tests_remain_review[typescript]" time="44.988" /><testcase classname="tests.test_quality_runner_e2e" name="test_dirty_checkout_is_never_executed[python]" time="2.507" /><testcase classname="tests.test_quality_runner_e2e" name="test_dirty_checkout_is_never_executed[typescript]" time="14.586" /><testcase classname="tests.test_quality_runner_e2e" name="test_valid_task_binding_and_no_implicit_completion[python]" time="1.876" /><testcase classname="tests.test_quality_runner_e2e" name="test_valid_task_binding_and_no_implicit_completion[typescript]" time="18.699" /><testcase classname="tests.test_quality_runner_e2e" name="test_sandbox_hides_home_environment_network_and_raw_output[python]" time="1.726" /><testcase classname="tests.test_quality_runner_e2e" name="test_sandbox_hides_home_environment_network_and_raw_output[typescript]" time="2.275" /><testcase classname="tests.test_quality_runner_e2e" name="test_timeout_and_output_limit_are_bounded[python]" time="3.191" /><testcase classname="tests.test_quality_runner_e2e" name="test_timeout_and_output_limit_are_bounded[typescript]" time="3.855" /><testcase classname="tests.test_quality_runner_e2e" name="test_pause_or_cancellation_kills_running_namespace_and_descendants[python-pause]" time="2.007" /><testcase classname="tests.test_quality_runner_e2e" name="test_pause_or_cancellation_kills_running_namespace_and_descendants[python-cancel]" time="2.922" /><testcase classname="tests.test_quality_runner_e2e" name="test_pause_or_cancellation_kills_running_namespace_and_descendants[typescript-pause]" time="2.078" /><testcase classname="tests.test_quality_runner_e2e" name="test_pause_or_cancellation_kills_running_namespace_and_descendants[typescript-cancel]" time="1.760" /><testcase classname="tests.test_quality_runner_e2e" name="test_background_descendant_does_not_survive_success[python]" time="0.940" /><testcase classname="tests.test_quality_runner_e2e" name="test_background_descendant_does_not_survive_success[typescript]" time="1.833" /><testcase classname="tests.test_quality_runner_e2e" name="test_global_stop_hook_enqueues_and_broker_runs_without_model_tokens[python]" time="5.496" /><testcase classname="tests.test_quality_runner_e2e" name="test_global_stop_hook_enqueues_and_broker_runs_without_model_tokens[typescript]" time="31.603" /><testcase classname="tests.test_quality_runner_e2e" name="test_supervisor_sigkill_kills_even_setsid_descendants[python]" time="1.025" /><testcase classname="tests.test_quality_runner_e2e" name="test_supervisor_sigkill_kills_even_setsid_descendants[typescript]" time="1.387" /><testcase classname="tests.test_quality_runner_e2e" name="test_real_numeric_coverage_and_report_only_crap[python]" time="3.588" /><testcase classname="tests.test_quality_runner_e2e" name="test_real_numeric_coverage_and_report_only_crap[typescript]" time="22.441" /><testcase classname="tests.test_quality_runner_e2e" name="test_namespace_init_reaps_orphans_while_project_is_running[python]" time="2.388" /><testcase classname="tests.test_quality_runner_e2e" name="test_namespace_init_reaps_orphans_while_project_is_running[typescript]" time="0.579"><failure message="AssertionError: {'schema_version': 1, 'kind': 'inspection', 'executed': False, 'execution_allowed': False, ...}&#10;assert 'SETUP_REQUIRED' == 'PASS'&#10;  &#10;  - PASS&#10;  + SETUP_REQUIRED">project = (PosixPath('/tmp/pytest-of-buggy1111/pytest-87/test_namespace_init_reaps_orph1/project'), &lt;agent_lease_mcp.store.Store object at 0x78229355fa70&gt;, 'typescript', '82c3e25f581b8a2018b04ec0f66e5756e232d746')
+
+    def test_namespace_init_reaps_orphans_while_project_is_running(project):
+        root, store, _, _ = project
+        source = '''import os,subprocess,sys,time
+    intermediate = subprocess.Popen([sys.executable,'-c',
+     "import subprocess,sys; c=subprocess.Popen([sys.executable,'-c','import time; time.sleep(.1)']); print(c.pid,flush=True)"],
+     stdout=subprocess.PIPE,text=True)
+    orphan=int(intermediate.stdout.readline())
+    intermediate.wait(timeout=2)
+    deadline=time.monotonic()+2
+    while time.monotonic()&lt;deadline:
+     try: os.kill(orphan,0)
+     except ProcessLookupError: break
+     time.sleep(.02)
+    else: raise AssertionError('namespace init left an adopted zombie')
+    '''
+        head = commit(root, {"reaper_probe.py":source,".agent-lease/quality.toml":'''version=1
+    language="python"
+    [checks.tests]
+    command=["python","reaper_probe.py"]
+    [checks.lint]
+    command=["python","-m","compileall","-q","src"]
+    [checks.build]
+    command=["python","-m","compileall","-q","src"]
+    '''})
+        run = store.quality_check("codex", str(root), head)
+&gt;       assert run["checks"]["tests"]["status"] == "PASS", run
+E       AssertionError: {'schema_version': 1, 'kind': 'inspection', 'executed': False, 'execution_allowed': False, ...}
+E       assert 'SETUP_REQUIRED' == 'PASS'
+E
+E         - PASS
+E         + SETUP_REQUIRED
+
+tests/test_quality_runner_e2e.py:456: AssertionError</failure></testcase></testsuite></testsuites>

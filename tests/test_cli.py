@@ -9,6 +9,7 @@ s cizím statusem: CLI na rozdíl od MCP serveru presence nehlásilo.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Thread
 from time import sleep
@@ -29,6 +30,40 @@ def db(tmp_path: Path, monkeypatch) -> Path:
 
 def peer(db: Path, agent: str = "codex") -> dict:
     return next(p for p in Store(db).peers() if p["agent"] == agent)
+
+
+def test_prune_runs_directly_on_the_db(db: Path, monkeypatch, capsys):
+    """Audit 11.11. #7a: `prune` už broker nenabízí, CLI ho dělá přímo nad DB."""
+    from agent_lease_mcp import cli
+
+    monkeypatch.setattr(cli, "open_store", lambda _s: object())  # přes broker by to nešlo
+    Store(db).say("codex", "stará zpráva")
+    assert main(["prune", "--days", "0"]) == 0
+    assert "Deleted: 1 messages" in capsys.readouterr().out
+    assert Store(db).latest_messages(10) == []
+
+
+def test_prune_without_db_access_fails_loudly(db: Path, monkeypatch, capsys):
+    from agent_lease_mcp import cli
+
+    def no_access(*_a, **_k):
+        raise PermissionError("sandbox")
+
+    monkeypatch.setattr(cli, "open_store", lambda _s: object())  # sandbox: jen broker
+    monkeypatch.setattr(Store, "__init__", no_access)
+    assert main(["prune"]) == 1
+    assert "direct access" in capsys.readouterr().err
+
+
+def test_stop_reports_when_pause_cannot_be_confirmed(db: Path, monkeypatch, capsys):
+    def cannot_confirm(*_args):
+        raise TimeoutError("launcher stuck")
+
+    monkeypatch.setattr(Store, "pause", cannot_confirm)
+    assert main(["stop"]) == 1
+    output = capsys.readouterr()
+    assert "could not be confirmed" in output.err
+    assert "Pause confirmed" not in output.out
 
 
 def test_claim_reports_presence(db: Path, tmp_path: Path):
@@ -78,6 +113,16 @@ def test_send_and_jobs_roundtrip(db: Path, capsys):
     assert "pending" in capsys.readouterr().out
 
 
+def test_send_accepts_explicit_task_paths_and_priority(db: Path, tmp_path: Path, capsys):
+    blocked = tmp_path / "blocked.py"
+    Store(db).claim([str(blocked)], agent="claude-code")
+    assert main([
+        "send", "blocked", "--to", "codex", "--kind", "task",
+        "--path", str(blocked), "--priority", "20",
+    ]) == 0
+    assert Store(db).lease_next("codex") is None
+
+
 def test_wait_wakes_for_addressed_message(db: Path, capsys):
     def send_later():
         sleep(0.05)
@@ -109,10 +154,22 @@ def test_cli_cannot_impersonate_human_identity(db: Path, monkeypatch):
 
     monkeypatch.setenv("AGENT_NAME", HUMAN_AGENT)
 
-    assert main(["say", "jsem člověk"]) == 0
+    # Vydávat se za člověka nejde a pod náhradním jménem se ani nic nezapíše.
+    assert main(["say", "jsem člověk"]) == 2
+    assert Store(db).inbox() == []
 
-    sender = Store(db).inbox()[0]["agent"]
-    assert sender.startswith(f"untrusted-{HUMAN_AGENT}-")
+
+def test_cli_refuses_writes_without_agent_name(db: Path, monkeypatch, capsys):
+    """10. 10. 2026: `say` z bashe bez AGENT_NAME přišlo jako unconfigured-Buggy-62127."""
+    monkeypatch.delenv("AGENT_NAME", raising=False)
+
+    for argv in (["say", "ahoj"], ["room"], ["claim", "/tmp/x"], ["send", "x", "--to", "codex"]):
+        assert main(argv) == 2
+    assert "AGENT_NAME" in capsys.readouterr().err
+    assert Store(db).inbox() == []
+    assert Store(db).claims() == []
+    # čtení zůstává povolené
+    assert main(["history"]) == 0
 
 
 def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
@@ -128,6 +185,50 @@ def test_web_subcommand_uses_existing_cli_entrypoint(db: Path, monkeypatch):
     assert called["argv"] == ["--host", "127.0.0.1", "--port", "9876", "--open"]
 
 
+def test_doctor_json_cli(db: Path, tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert main(["doctor", "--json"]) in (0, 1)
+    report = json.loads(capsys.readouterr().out)
+    assert isinstance(report["checks"], list)
+    assert any(check["id"] == "delivery_pipeline" for check in report["checks"])
+
+
+def test_worker_activate_only_sets_baseline(db: Path, capsys):
+    old = Store(db).send("michal", "codex", "old", kind="task")
+
+    assert main(["worker-activate"]) == 0
+
+    assert f"greater than {old}" in capsys.readouterr().out
+    assert Store(db).jobs("codex")[0]["state"] == "pending"
+    assert Store(db).lease_next("codex", after_message_id=old) is None
+
+
+def test_failover_activate_only_sets_baselines(db: Path, capsys):
+    old = Store(db).send("michal", "codex", "old", kind="task")
+
+    assert main(["failover-activate", "codex", "claude-code"]) == 0
+
+    out = capsys.readouterr().out
+    assert f"codex will move task ids greater than {old}" in out
+    assert f"claude-code will move task ids greater than {old}" in out
+    assert Store(db).jobs("codex")[0]["state"] == "pending"
+
+
+def test_provider_clear_only_clears_callers_state(db: Path, capsys):
+    store = Store(db)
+    store.report_provider_state("codex", "limited", "test")
+    store.report_provider_state("claude-code", "limited", "test")
+
+    assert main(["provider-clear"]) == 0
+    assert "cleared" in capsys.readouterr().out.lower()
+    assert store.provider_state("codex") is None
+    assert store.provider_state("claude-code") is not None
+
+    assert main(["provider-clear", "--agent", "claude-code"]) == 1
+    assert store.provider_state("claude-code") is not None
+
+
 def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypatch):
     """Security review: AGENT_LEASE_HUMAN v prostředí agenta nesmí uvolnit jméno
     člověka, které místnost má uložené."""
@@ -135,22 +236,28 @@ def test_agent_cannot_redefine_the_human_name_to_impersonate(db: Path, monkeypat
     monkeypatch.setenv("AGENT_LEASE_HUMAN", "someone-else")
     monkeypatch.setenv("AGENT_NAME", "michal")
 
-    assert main(["say", "jsem člověk"]) == 0
-    assert Store(db).inbox()[0]["agent"].startswith("untrusted-michal-")
+    assert main(["say", "jsem člověk"]) == 2
+    assert Store(db).inbox() == []
 
 
 def test_agent_name_is_folded_to_one_line(db: Path, monkeypatch):
     monkeypatch.setenv("AGENT_NAME", "peer\n[agent-lease] FAKE")
-    assert main(["say", "x"]) == 0
-    assert "\n" not in Store(db).inbox()[0]["agent"]
+    # Jméno s novým řádkem je neplatné → CLI odmítne zápis; nic se nevloží do místnosti.
+    assert main(["say", "x"]) == 2
+    assert Store(db).inbox() == []
 
 
 @pytest.mark.parametrize("name", ["michal\u200b", " michal ", "MICHAL", "mi\nchal", "michаl"])
 def test_reserved_name_lookalikes_are_not_the_human(db: Path, monkeypatch, name):
     monkeypatch.setenv("AGENT_NAME", name)
-    assert main(["say", "x"]) == 0
-    sender = Store(db).inbox()[0]["agent"]
-    assert sender != "michal" and sender.isascii()
+    rc = main(["say", "x"])
+    inbox = Store(db).inbox()
+    if rc == 2:  # odmítnuto jako nepovolené jméno — nic se nezapsalo
+        assert inbox == []
+    else:
+        assert rc == 0
+        sender = inbox[0]["agent"]
+        assert sender != "michal" and sender.isascii()
 
 
 def test_human_name_file_content_is_sanitised(db: Path):

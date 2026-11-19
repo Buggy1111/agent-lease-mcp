@@ -1,0 +1,28 @@
+{
+  "unit": "agent-lease-b7-coverage-fixed-1794028508.scope",
+  "properties": {
+    "RuntimeMaxUSec": "15min",
+    "CPUQuotaPerSecUSec": "1s",
+    "MemoryMax": "2147483648"
+  },
+  "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/agent-lease-b7-coverage-fixed-1794028508.scope",
+  "limits": {
+    "memory.max": "2147483648",
+    "cpu.max": "100000 100000"
+  },
+  "command": [
+    "/tools/python/bin/python3",
+    "-m",
+    "coverage",
+    "run",
+    "--branch",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "phase": "coverage-fixed",
+  "wrapper": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/run-with-identity.sh",
+  "wrapper_sha256": "8477304bd5c560f97ff9806ff634441dd5f997c9edd2e42d6fdda12bb1dbaeb4"
+}

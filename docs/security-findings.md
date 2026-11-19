@@ -2,9 +2,9 @@
 
 ## Resolution in 0.2.0 (16 October 2026)
 
-All application candidates were addressed on branch `release/0.2-hardening`
-(fixes by Claude Code and Codex, each cross-reviewed by the other agent; every
-fix has a regression test). Remaining items are documented limits of the local
+All application candidates were addressed for 0.2.0 (fixes by Claude Code and
+Codex, each cross-reviewed by the other agent, merged with a parallel hardening
+branch, PR #1; every fix has a regression test). Remaining items are documented limits of the local
 trust model, not open bugs.
 
 | ID | Resolution |
@@ -13,17 +13,17 @@ trust model, not open bugs.
 | APP-002 | **Mitigated + documented** — names normalised to a safe ASCII label; reserved human name stored next to the DB; identity remains local-account trust (README → Security) |
 | APP-003 | **Fixed** — job listing and retry/cancel bound to the caller; lease tokens only to the recipient |
 | APP-004 | **Fixed** — kind/sender/recipient labels, untrusted-content note, all peer-supplied values folded to one line |
-| APP-005 | **Mitigated + documented** — tasks are pull-only; tool description states a task is a peer request, not a human instruction |
+| APP-005 | **Fixed** — task sender policy (`AGENT_LEASE_TASK_SENDERS`; default: the human and configured agents); tasks are pull-only and described as peer requests |
 | APP-006 | **Mitigated** — obvious shell writes into held files are refused (redirects, tee, sed -i, truncate, cp/mv/install incl. `-t`, wrappers, `sh -c`); best effort, documented |
 | APP-007 | **Fixed** — atomic claim result decides; own lease renewed atomically on every write |
 | APP-008 | **Mitigated** — optional `AGENT_LEASE_FAIL_CLOSED=1`; fail-open stays the documented default |
 | APP-009 | **Fixed** — bounds on text, short fields, list limits, task lease length |
 | APP-010 | **Fixed** — fragment token exchanged for random, expiring HttpOnly SameSite=Strict session cookie; no token in URLs or stdout |
 | APP-011 | **Fixed** — SSE connection cap, socket timeout, heartbeat |
-| APP-012 | **Fixed** — 30-day retention for messages and audit, never unfinished tasks; dangling replies unlinked |
+| APP-012 | **Fixed** — secrets redacted from stored text; 30-day retention for messages and audit, never unfinished tasks; dangling replies unlinked |
 | APP-013 | **Documented limit** — a hook cannot bind the later file open to the checked inode |
 | DEP-001 | **Fixed** — pytest upgraded past GHSA-6w46-j5rx-g56g |
-| REPO-001/002/003 | Repository settings — to be applied at release (default branch, protection, Dependabot) |
+| REPO-001/002/003 | **Fixed** (16 Oct 2026) — default branch `master`, force-push and deletion protection, Dependabot alerts and security updates, private vulnerability reporting |
 
 ## Status and handling notice
 

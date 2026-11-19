@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import stat
+import time
+from pathlib import Path
+
+from agent_lease_mcp.codex_wake import CodexWake, _poll_once, main
+from agent_lease_mcp.config import Settings
+from agent_lease_mcp.store import Store
+
+
+def _store(tmp_path: Path) -> Store:
+    db = tmp_path / "room.db"
+    return Store(db, settings=Settings(db, "codex-wake", 1800))
+
+
+def _fake_codex(tmp_path: Path, *, exit_code: int = 0) -> tuple[Path, Path]:
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    log = tmp_path / "codex-args"
+    executable = bindir / "codex"
+    executable.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$@\" >> {log}\n"
+        f"exit {exit_code}\n"
+    )
+    executable.chmod(executable.stat().st_mode | stat.S_IEXEC)
+    return bindir, log
+
+
+def test_first_start_baselines_existing_messages(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    store.send("claude-code", "codex", "old", kind="chat")
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    assert wake.step() is False
+    assert not log.exists()
+    assert (tmp_path / "cursor").read_text().strip() == "1"
+
+
+def test_chat_task_and_real_result_are_batched_but_receipts_are_skipped(
+    tmp_path: Path, monkeypatch,
+):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()
+
+    chat = store.send("claude-code", "codex", "ping", kind="chat")
+    task = store.send("claude-code", "codex", "headless work", kind="task")
+    source = store.send("codex", "claude-code", "question", kind="chat")
+    store.mark_seen("claude-code", [source])
+    store.accept(source, "claude-code", owner="s1")
+    receipt_ids = {
+        message["id"] for message in store.addressed("codex")
+        if message["text"].startswith(("✓ ", "✔ taking #"))
+    }
+    result = store.send("claude-code", "codex", "review hotov", kind="result")
+
+    assert wake.step() is True
+    args = log.read_text()
+    assert "queue\n--thread\nnox\n--message\n" in args
+    assert f"#{chat}" in args and f"#{task}" in args and f"#{result}" in args
+    assert all(f"#{receipt_id}" not in args for receipt_id in receipt_ids)
+    assert int((tmp_path / "cursor").read_text()) == result
+
+
+def test_inactive_session_does_not_advance_cursor_or_spam_error(tmp_path: Path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path, exit_code=1)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    cursor = tmp_path / "cursor"
+    wake = CodexWake(store, "missing", cursor)
+    wake.step()
+    store.send("claude-code", "codex", "ping", kind="chat")
+
+    assert wake.step() is False
+    first_cursor = cursor.read_text()
+    assert wake.step() is False
+    assert cursor.read_text() == first_cursor == "0\n"
+    assert capsys.readouterr().err.count("not active") == 1
+    assert log.read_text().count("queue\n") == 1
+
+
+def test_receipts_advance_without_calling_codex(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    cursor = tmp_path / "cursor"
+    wake = CodexWake(store, "nox", cursor)
+    wake.step()
+    source = store.send("codex", "claude-code", "question", kind="chat")
+    store.mark_seen("claude-code", [source])
+    store.accept(source, "claude-code", owner="s1")
+    last = store.addressed("codex")[-1]["id"]
+
+    assert wake.step() is False
+    assert int(cursor.read_text()) == last
+    assert not log.exists()
+
+
+def test_daemon_never_heartbeats_as_codex_wake(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, _ = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()
+    store.send("claude-code", "codex", "ping", kind="chat")
+    wake.step()
+    assert store.peers() == []
+
+
+def test_main_requires_named_thread(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.delenv("AGENT_LEASE_CODEX_THREAD", raising=False)
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    assert main(["--once"]) == 2
+    assert "/rename" in capsys.readouterr().err
+
+
+def test_systemd_service_starts_the_broker_it_depends_on():
+    unit = (
+        Path(__file__).parents[1]
+        / "deploy/systemd/agent-lease-codex-wake.service"
+    ).read_text(encoding="utf-8")
+    assert "After=agent-lease-broker.service" in unit
+    assert "Wants=agent-lease-broker.service" in unit
+    # Requires i Requisite by při restartu brokeru restartovaly i wake (ověřeno naostro
+    # 21. 10.). Že wake nikdy nepřejde na přímé SQLite, zajišťuje AGENT_LEASE_REQUIRE_BROKER.
+    assert "Requisite=agent-lease-broker.service" not in unit
+    assert "Requires=agent-lease-broker.service" not in unit
+
+
+def test_poll_survives_ambiguous_broker_disconnect_without_inline_retry():
+    class RestartingStore:
+        def __init__(self):
+            self.calls = 0
+
+        def signal_mtime(self, _recipient):
+            self.calls += 1
+            if self.calls == 1:
+                raise BrokenPipeError("broker restarted after connect")
+            return 42.0
+
+    class Wake:
+        store = RestartingStore()
+
+        def __init__(self):
+            self.steps = 0
+
+        def step(self):
+            self.steps += 1
+
+    wake = Wake()
+    seen, next_db, delay, error = _poll_once(wake, None, 0.0, 1.0, 0.0)
+    assert isinstance(error, BrokenPipeError)
+    assert (seen, next_db, delay, wake.store.calls, wake.steps) == (None, 0.0, 0.25, 1, 0)
+
+    seen, next_db, delay, error = _poll_once(wake, seen, next_db, 2.0, delay)
+    assert error is None
+    assert (seen, next_db, delay, wake.store.calls, wake.steps) == (42.0, 7.0, 0.0, 2, 1)
+
+
+def test_provider_recovery_wakes_stale_accepted_work_once(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    task = store.send("michal", "codex", "continue after limit", kind="task")
+    store.accept(task, "codex", "working in the interactive session", owner="s1")
+    store.heartbeat("codex", status="implementing recovery")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()  # baseline před novou limitní epizodou
+    for i in range(205):
+        store.record("other", "provider-state", detail=f"available via old-{i}")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    with sqlite3.connect(store.db_path) as con:
+        con.execute("UPDATE agents SET seen_at=? WHERE agent='codex'", (time.time() - 901,))
+
+    assert wake.step() is True
+    assert "Limit Codexu skončil" in log.read_text()
+    before = log.read_text()
+    assert wake.step() is False
+    assert log.read_text() == before
+
+
+def test_provider_recovery_does_not_wake_active_or_finished_session(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    store.heartbeat("codex", status="start session")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    wake.step()
+
+    assert wake.step() is False
+    assert not log.exists()
+
+
+def test_first_start_baselines_an_old_recovery_episode(tmp_path: Path, monkeypatch):
+    store = _store(tmp_path)
+    bindir, log = _fake_codex(tmp_path)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    task = store.send("michal", "codex", "old unfinished work", kind="task")
+    store.accept(task, "codex", "working", owner="s1")
+    store.heartbeat("codex", status="old status")
+    store.report_provider_state("codex-bridge", "limited", "test")
+    store.report_provider_state("codex-bridge", "available", "test")
+    with sqlite3.connect(store.db_path) as con:
+        con.execute("UPDATE agents SET seen_at=? WHERE agent='codex'", (time.time() - 901,))
+
+    wake = CodexWake(store, "nox", tmp_path / "cursor")
+    assert wake.step() is False
+    assert wake.step() is False
+    assert not log.exists()
+    assert (tmp_path / "cursor.recovery").exists()
+
+
+def test_wake_unit_requires_the_broker():
+    unit = Path(__file__).parents[1] / "deploy" / "systemd" / "agent-lease-codex-wake.service"
+    assert "Environment=AGENT_LEASE_REQUIRE_BROKER=1" in unit.read_text()

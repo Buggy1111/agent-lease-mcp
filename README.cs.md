@@ -101,13 +101,26 @@ Proto jsou i ostatní části na hoocích, ne na dobré vůli:
 | **UserPromptSubmit** | doručí nové vzkazy — jednou, přes kurzor, ať se neopakují |
 | **PreToolUse** | zablokuje editaci cizího rozpracovaného souboru |
 | **PreToolUse (Bash)** | spouštěný skript si vezme do nájmu, takže ho druhý nesmí editovat za běhu |
-| **Stop / SessionEnd** | vrátí všechny nájmy, jakmile agent dotáhne tah |
+| **Stop / SessionEnd** | vrátí nájmy, které si session vzala sama při editaci, jakmile dotáhne tah (explicitní `claim` a běžící skript zůstávají do `release`/TTL) |
 
 Ten předposlední řádek je ta konkrétní kombinace, která 9. 9. rozbila balíček:
 jeden agent skript spouštěl, druhý ho zároveň editoval.
 
 Poslední řádek je důvod, proč nájmy nemusí mít dlouhé TTL — po dokončení tahu se
 uvolní samy. TTL zůstává jen jako pojistka pro tvrdý pád.
+
+### Probuzení spícího agenta
+
+Hook se spustí jen při akci agenta, takže nečinnou session probouzí něco
+zvenku, bez spotřeby modelových tokenů:
+
+- **Claude Code**: `agent-lease init claude-code --write --rewake` přidá
+  `asyncRewake` hook na `SessionStart` a `Stop`. Session probudí adresná zpráva
+  od někoho jiného, broadcast ani automatické příjemky ne.
+- **Codex**: služba `agent-lease-codex-wake` pošťouchne pojmenovanou session přes
+  `codex queue` (jen čísla zpráv, nikdy jejich text). Po skončení limitu ji
+  jednou pošťouchne k rozdělané práci. Nastavení:
+  [docs/ZPRAVY-A-POTVRZENI.md](docs/ZPRAVY-A-POTVRZENI.md#codex-služba-agent-lease-codex-wake).
 
 Injekce **mlčí, když není co říct.** Vstřikovat stav při každém promptu by byl
 šum, agent by to začal přeskakovat a jsme zpátky u nástěnky, do které se nikdo
@@ -284,14 +297,24 @@ a `store.py` tu schválně není — bylo by to sedm funkcí na proklikávání.
   guard — [Jev Bash safety-gate](#volitelně-jev-bash-safety-gate),
   [ADR 0003](docs/adr/0003-jev-samostatny-guard.md).
 - **Jeden stroj.** Stav je soubor na disku.
-- **Vzkazy nikoho nevyruší.**
+- **Probouzení potřebuje podporu klienta.** Claude Code budí `asyncRewake` hook,
+  Codex služba `agent-lease-codex-wake` přes `codex queue` do pojmenované
+  session. Jiný klient bez obdobného mechanismu si vzkaz přečte až při další
+  akci.
+- **Zpráva od agenta není pokyn člověka.** Aby si agenti předávali práci sami,
+  musí člověk povolený rozsah zapsat do jejich instrukcí
+  ([šablona](docs/ZPRAVY-A-POTVRZENI.md#autonomie-co-smí-agent-udělat-bez-člověka)).
 
 ## Vývoj
 
 ```bash
 uv sync --extra dev
-.venv/bin/python -m pytest tests -q     # 124 testů
+.venv/bin/python -m pytest tests -q
 .venv/bin/python -m ruff check src tests
 ```
 
-MIT.
+## Licence
+
+Copyright (c) 2026 Michal Buggy. Projekt je poskytován pod [licencí MIT](LICENSE).
+
+Podmínky použití cizích knihoven a oprávněné technické analýzy popisuje [Open-source compliance](docs/OPEN_SOURCE_COMPLIANCE.md).

@@ -1,0 +1,446 @@
+{
+  "evidence_id": "ev_2bc463fbdf36cedf11d74d823f8ba75af45f1953a8cfbae16ffc8bcec3362cbd",
+  "subject": {
+    "name": "betterleaks",
+    "digest": {
+      "sha256": "d9deb306c80b489512bbca87c39bf4b5f529ce1ab43cd8e0aa444c603085db7e"
+    },
+    "local_path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/betterleaks",
+    "format": "elf",
+    "architecture": "x86_64"
+  },
+  "provider": {
+    "id": "go-build-info",
+    "name": "REA Go build-information reader",
+    "version": "1"
+  },
+  "analysis_profile": null,
+  "predicate_type": "rea.analysis",
+  "operation": "inspect_go_binary",
+  "parameters": {
+    "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/betterleaks"
+  },
+  "raw_result": null,
+  "normalized_result": {
+    "artifact": {
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/betterleaks",
+      "sha256": "d9deb306c80b489512bbca87c39bf4b5f529ce1ab43cd8e0aa444c603085db7e",
+      "bytes": 25133216
+    },
+    "format": "elf",
+    "architecture": "amd64",
+    "bits": 64,
+    "byte_order": "little",
+    "build_info": {
+      "header_offset": 23060480,
+      "encoding": "inline",
+      "go_version": "go1.27.3",
+      "go_version_bytes_base64": "Z28xLjI3LjM=",
+      "module_text": "path\tcommand-line-arguments\ndep\tdario.cat/mergo\tv1.0.2\th1:85+piFYR1tMbRrLcDwR18y4UKJ3aH1Tbzi24VRW1TK8=\ndep\tgithub.com/Masterminds/semver/v3\tv3.4.0\th1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=\ndep\tgithub.com/STARRY-S/zip\tv0.2.3\th1:luE4dMvRPDOWQdeDdUxUoZkzUIpTccdKdhHHsQJ1fm4=\ndep\tgithub.com/andybalholm/brotli\tv1.2.1\th1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=\ndep\tgithub.com/betterleaks/betterleaks\t(devel)\t\ndep\tgithub.com/betterleaks/go-re2\tv1.11.0-betterleaks.3\th1:89efHsGJOOCl1KH6GxBtixZNBkNzYIlKPtmQJizCBXU=\ndep\tgithub.com/bodgit/plumbing\tv1.3.0\th1:pf9Itz1JOQgn7vEOE7v7nlEfBykYqvUYioC61TwWCFU=\ndep\tgithub.com/bodgit/sevenzip\tv1.6.2\th1:6/0mwj5KaRXpuf9iSiE+VpG7VpzFJ8D60P53VjxRv34=\ndep\tgithub.com/bodgit/windows\tv1.0.1\th1:tF7K6KOluPYygXa3Z2594zxlkbKPAOvqr97etrGNIz4=\ndep\tgithub.com/charlievieth/fastwalk\tv1.0.14\th1:3Eh5uaFGwHZd8EGwTjJnSpBkfwfsak9h6ICgnWlhAyg=\ndep\tgithub.com/dlclark/regexp2\tv1.11.5\th1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=\ndep\tgithub.com/dsnet/compress\tv0.0.2-0.20230904184137-39efe44ab707\th1:2tV76y6Q9BB+NEBasnqvs7e49aEBFI8ejC89PSnWH+4=\ndep\tgithub.com/expr-lang/expr\tv1.17.8\th1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM=\ndep\tgithub.com/fatih/semgroup\tv1.2.0\th1:h/OLXwEM+3NNyAdZEpMiH1OzfplU09i2qXPVThGZvyg=\ndep\tgithub.com/gitleaks/go-gitdiff\tv0.9.1\th1:ni6z6/3i9ODT685OLCTf+s/ERlWUNWQF4x1pvoNICw0=\ndep\tgithub.com/go-sprout/sprout\tv1.0.3\th1:LLuz0D3aYazgbVTOwCVuMor3LOUVYinipXRIdjA/D+I=\ndep\tgithub.com/google/go-github/v72\tv72.0.0\th1:FcIO37BLoVPBO9igQQ6tStsv2asG4IPcYFi655PPvBM=\ndep\tgithub.com/google/go-querystring\tv1.1.0\th1:AnCroh3fv4ZBgVIf1Iwtovgjaw/GiKJo8M8yD/fhyJ8=\ndep\tgithub.com/google/uuid\tv1.6.0\th1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\ndep\tgithub.com/h2non/filetype\tv1.1.3\th1:FKkx9QbD7HR/zjK1Ia5XiBsq9zdLi5Kf3zGyFTAFkGg=\ndep\tgithub.com/hashicorp/go-version\tv1.7.0\th1:5tqGy27NaOTB8yJKUZELlFAS/LTKJkrmONwQKeRZfjY=\ndep\tgithub.com/hashicorp/golang-lru/v2\tv2.0.7\th1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=\ndep\tgithub.com/klauspost/compress\tv1.18.6\th1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=\ndep\tgithub.com/klauspost/pgzip\tv1.2.6\th1:8RXeL5crjEUFnR2/Sn6GJNWtSQ3Dk8pq4CL3jvdDyjU=\ndep\tgithub.com/mattn/go-colorable\tv0.1.14\th1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=\ndep\tgithub.com/mattn/go-isatty\tv0.0.20\th1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=\ndep\tgithub.com/mholt/archives\tv0.1.6-0.20260429171216-ef71b7a32fae\th1:J5ek2lGxYgdh5SMMmlNTSKLmS1x2oJQla/V0NaAH7vo=\ndep\tgithub.com/mikelolasagasti/xz\tv1.0.1\th1:Q2F2jX0RYJUG3+WsM+FJknv+6eVjsjXNDV0KJXZzkD0=\ndep\tgithub.com/minio/minlz\tv1.1.1\th1:OGmft1V6AnI/Wme332U6bhG54nxEan+VFgkD7lat4KM=\ndep\tgithub.com/mitchellh/copystructure\tv1.2.0\th1:vpKXTN4ewci03Vljg/q9QvCGUDttBOGBIa15WveJJGw=\ndep\tgithub.com/mitchellh/reflectwalk\tv1.0.2\th1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=\ndep\tgithub.com/nwaples/rardecode/v2\tv2.2.2\th1:/5oL8dzYivRM/tqX9VcTSWfbpwcbwKG1QtSJr3b3KcU=\ndep\tgithub.com/pelletier/go-toml/v2\tv2.3.1\th1:MYEvvGnQjeNkRF1qUuGolNtNExTDwct51yp7olPtrEc=\ndep\tgithub.com/pierrec/lz4/v4\tv4.1.26\th1:GrpZw1gZttORinvzBdXPUXATeqlJjqUG/D87TKMnhjY=\ndep\tgithub.com/pkoukk/tiktoken-go\tv0.1.8\th1:85ENo+3FpWgAACBaEUVp+lctuTcYUO7BtmfhlN/QTRo=\ndep\tgithub.com/rrethy/ahocorasick\tv1.0.0\th1:YKkCB+E5PXc0xmLfMrWbfNht8vG9Re97IHSWZk/Lk8E=\ndep\tgithub.com/rs/zerolog\tv1.33.0\th1:1cU2KZkvPxNyfgEmhHAz/1A9Bz+llsdYzklWFzgp0r8=\ndep\tgithub.com/shurcooL/githubv4\tv0.0.0-20260209031235-2402fdf4a9ed\th1:KT7hI8vYXgU0s2qaMkrfq9tCA1w/iEPgfredVP+4Tzw=\ndep\tgithub.com/shurcooL/graphql\tv0.0.0-20240915155400-7ee5256398cf\th1:o1uxfymjZ7jZ4MsgCErcwWGtVKSiNAXtS59Lhs6uI/g=\ndep\tgithub.com/sorairolake/lzip-go\tv0.3.8\th1:j5Q2313INdTA80ureWYRhX+1K78mUXfMoPZCw/ivWik=\ndep\tgithub.com/spf13/afero\tv1.15.0\th1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=\ndep\tgithub.com/spf13/cast\tv1.10.0\th1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=\ndep\tgithub.com/spf13/cobra\tv1.10.1\th1:lJeBwCfmrnXthfAupyUTzJ/J4Nc1RsHC/mSRU2dll/s=\ndep\tgithub.com/spf13/pflag\tv1.0.10\th1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=\ndep\tgithub.com/tetratelabs/wazero\tv1.12.0\th1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=\ndep\tgithub.com/ulikunitz/xz\tv0.5.15\th1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=\ndep\tgithub.com/wasilibs/wazero-helpers\tv0.0.0-20250123031827-cd30c44769bb\th1:gQ+ZV4wJke/EBKYciZ2MshEouEHFuinB85dY3f5s1q8=\ndep\tgo.yaml.in/yaml/v3\tv3.0.4\th1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=\ndep\tgo4.org\tv0.0.0-20260112195520-a5071408f32f\th1:ziUVAjmTPwQMBmYR1tbdRFJPtTcQUI12fH9QQjfb0Sw=\ndep\tgolang.org/x/crypto\tv0.53.0\th1:QZ4Muo8THX6CizN2vPPd5fBGHyogrdK9fG4wLPFUsto=\ndep\tgolang.org/x/exp\tv0.0.0-20250218142911-aa4b98e5adaa\th1:t2QcU6V556bFjYgu4L6C+6VrCPyJZ+eyRsABUPs1mz4=\ndep\tgolang.org/x/sync\tv0.21.0\th1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=\ndep\tgolang.org/x/sys\tv0.46.0\th1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=\ndep\tgolang.org/x/text\tv0.39.0\th1:UbZz4pLOvn600D6Oh6GGEI6VAmndrEBLv8/6BEXzyus=\nbuild\t-buildmode=exe\nbuild\t-compiler=gc\nbuild\t-ldflags=\"-s -w -X=github.com/betterleaks/betterleaks/version.Version=1.10.0\"\nbuild\tDefaultGODEBUG=tracebacklabels=0,x509sslcertoverrideplatform=0\nbuild\tCGO_ENABLED=0\nbuild\tGOARCH=amd64\nbuild\tGOOS=linux\nbuild\tGOAMD64=v1\n",
+      "module_bytes_base64": "MHevDJJ0CAJB4cEH5tYY5nBhdGgJY29tbWFuZC1saW5lLWFyZ3VtZW50cwpkZXAJZGFyaW8uY2F0L21lcmdvCXYxLjAuMgloMTo4NStwaUZZUjF0TWJSckxjRHdSMTh5NFVLSjNhSDFUYnppMjRWUlcxVEs4PQpkZXAJZ2l0aHViLmNvbS9NYXN0ZXJtaW5kcy9zZW12ZXIvdjMJdjMuNC4wCWgxOlpvZytpNVVNdFZvQ1U4b0trYTVQN2k5cTlIZ3JKZUd6STlTQTFYYmF0cDA9CmRlcAlnaXRodWIuY29tL1NUQVJSWS1TL3ppcAl2MC4yLjMJaDE6bHVFNGRNdlJQRE9XUWRlRGRVeFVvWmt6VUlwVGNjZEtkaEhIc1FKMWZtND0KZGVwCWdpdGh1Yi5jb20vYW5keWJhbGhvbG0vYnJvdGxpCXYxLjIuMQloMTpSK2Y1eFAyODVWQXJKRFJnb3dyZmI5RHFMMTh5VkswZ0tBVy9GK2VUV3JvPQpkZXAJZ2l0aHViLmNvbS9iZXR0ZXJsZWFrcy9iZXR0ZXJsZWFrcwkoZGV2ZWwpCQpkZXAJZ2l0aHViLmNvbS9iZXR0ZXJsZWFrcy9nby1yZTIJdjEuMTEuMC1iZXR0ZXJsZWFrcy4zCWgxOjg5ZWZIc0dKT09DbDFLSDZHeEJ0aXhaTkJrTnpZSWxLUHRtUUppekNCWFU9CmRlcAlnaXRodWIuY29tL2JvZGdpdC9wbHVtYmluZwl2MS4zLjAJaDE6cGY5SXR6MUpPUWduN3ZFT0U3djdubEVmQnlrWXF2VVlpb0M2MVR3V0NGVT0KZGVwCWdpdGh1Yi5jb20vYm9kZ2l0L3NldmVuemlwCXYxLjYuMgloMTo2LzBtd2o1S2FSWHB1ZjlpU2lFK1ZwRzdWcHpGSjhENjBQNTNWanhSdjM0PQpkZXAJZ2l0aHViLmNvbS9ib2RnaXQvd2luZG93cwl2MS4wLjEJaDE6dEY3SzZLT2x1UFl5Z1hhM1oyNTk0enhsa2JLUEFPdnFyOTdldHJHTkl6ND0KZGVwCWdpdGh1Yi5jb20vY2hhcmxpZXZpZXRoL2Zhc3R3YWxrCXYxLjAuMTQJaDE6M0VoNXVhRkd3SFpkOEVHd1RqSm5TcEJrZndmc2FrOWg2SUNnbldsaEF5Zz0KZGVwCWdpdGh1Yi5jb20vZGxjbGFyay9yZWdleHAyCXYxLjExLjUJaDE6US9zU25zS2VySGVDa2MvalNUTnExb0NtN0tpVmdVTVpSRFVvUnUwSlFaUT0KZGVwCWdpdGh1Yi5jb20vZHNuZXQvY29tcHJlc3MJdjAuMC4yLTAuMjAyMzA5MDQxODQxMzctMzllZmU0NGFiNzA3CWgxOjJ0Vjc2eTZROUJCK05FQmFzbnF2czdlNDlhRUJGSThlakM4OVBTbldIKzQ9CmRlcAlnaXRodWIuY29tL2V4cHItbGFuZy9leHByCXYxLjE3LjgJaDE6VzFsb0RUVCswUFFmNVl0ZUhTVHBqdTJxZlVmTm9CdDR5dzkrd09FVTlWTT0KZGVwCWdpdGh1Yi5jb20vZmF0aWgvc2VtZ3JvdXAJdjEuMi4wCWgxOmgvT0xYd0VNKzNOTnlBZFpFcE1pSDFPemZwbFUwOWkycVhQVlRoR1p2eWc9CmRlcAlnaXRodWIuY29tL2dpdGxlYWtzL2dvLWdpdGRpZmYJdjAuOS4xCWgxOm5pNno2LzNpOU9EVDY4NU9MQ1RmK3MvRVJsV1VOV1FGNHgxcHZvTklDdzA9CmRlcAlnaXRodWIuY29tL2dvLXNwcm91dC9zcHJvdXQJdjEuMC4zCWgxOkxMdXowRDNhWWF6Z2JWVE93Q1Z1TW9yM0xPVVZZaW5pcFhSSWRqQS9EK0k9CmRlcAlnaXRodWIuY29tL2dvb2dsZS9nby1naXRodWIvdjcyCXY3Mi4wLjAJaDE6RmNJTzM3QkxvVlBCTzlpZ1FRNnRTdHN2MmFzRzRJUGNZRmk2NTVQUHZCTT0KZGVwCWdpdGh1Yi5jb20vZ29vZ2xlL2dvLXF1ZXJ5c3RyaW5nCXYxLjEuMAloMTpBbkNyb2gzZnY0WkJnVklmMUl3dG92Z2phdy9HaUtKbzhNOHlEL2ZoeUo4PQpkZXAJZ2l0aHViLmNvbS9nb29nbGUvdXVpZAl2MS42LjAJaDE6Tkl2YUpETU9zakhBOG4xakFoTFNnenJBenkxSGdyK2hOcmI1N2UrOTRGMD0KZGVwCWdpdGh1Yi5jb20vaDJub24vZmlsZXR5cGUJdjEuMS4zCWgxOkZLa3g5UWJEN0hSL3pqSzFJYTVYaUJzcTl6ZExpNUtmM3pHeUZUQUZrR2c9CmRlcAlnaXRodWIuY29tL2hhc2hpY29ycC9nby12ZXJzaW9uCXYxLjcuMAloMTo1dHFHeTI3TmFPVEI4eUpLVVpFTGxGQVMvTFRLSmtybU9Od1FLZVJaZmpZPQpkZXAJZ2l0aHViLmNvbS9oYXNoaWNvcnAvZ29sYW5nLWxydS92Mgl2Mi4wLjcJaDE6YStic1E1cnZHTGp6SHV3dzZ0VnhvelBaRlZnaFhhSE93RnM0bHVMVUsyaz0KZGVwCWdpdGh1Yi5jb20va2xhdXNwb3N0L2NvbXByZXNzCXYxLjE4LjYJaDE6Mmp1cExsQXdGbTk1K1lEUitOd0QyTUVmRk85ZDR6NFByamwxWFhEanVhbz0KZGVwCWdpdGh1Yi5jb20va2xhdXNwb3N0L3BnemlwCXYxLjIuNgloMTo4UlhlTDVjcmpFVUZuUjIvU242R0pOV3RTUTNEazhwcTRDTDNqdmREeWpVPQpkZXAJZ2l0aHViLmNvbS9tYXR0bi9nby1jb2xvcmFibGUJdjAuMS4xNAloMTo5QTlMSFNxRi83ZHlWVlg2ZzBVOWN3bTlwRzNrUDlnU3pjdUlQSFBzYUlFPQpkZXAJZ2l0aHViLmNvbS9tYXR0bi9nby1pc2F0dHkJdjAuMC4yMAloMTp4ZkQwaUR1RUtuRGtsMDNxNGxpbUIrdkgrR3hMRXRML2piNHhWSlNXV0VZPQpkZXAJZ2l0aHViLmNvbS9taG9sdC9hcmNoaXZlcwl2MC4xLjYtMC4yMDI2MDQyOTE3MTIxNi1lZjcxYjdhMzJmYWUJaDE6SjVlazJsR3hZZ2RoNVNNTW1sTlRTS0xtUzF4Mm9KUWxhL1YwTmFBSDd2bz0KZGVwCWdpdGh1Yi5jb20vbWlrZWxvbGFzYWdhc3RpL3h6CXYxLjAuMQloMTpRMkYyalgwUllKVUczK1dzTStGSmtudis2ZVZqc2pYTkRWMEtKWFp6a0QwPQpkZXAJZ2l0aHViLmNvbS9taW5pby9taW5segl2MS4xLjEJaDE6T0dtZnQxVjZBbkkvV21lMzMyVTZiaEc1NG54RWFuK1ZGZ2tEN2xhdDRLTT0KZGVwCWdpdGh1Yi5jb20vbWl0Y2hlbGxoL2NvcHlzdHJ1Y3R1cmUJdjEuMi4wCWgxOnZwS1hUTjRld2NpMDNWbGpnL3E5UXZDR1VEdHRCT0dCSWExNVd2ZUpKR3c9CmRlcAlnaXRodWIuY29tL21pdGNoZWxsaC9yZWZsZWN0d2Fsawl2MS4wLjIJaDE6RzJMeldLaTUyNFBXZ2QzbUxIVjhZNWs3czZYVXZUMEdlZjZ6eFNJZVhhUT0KZGVwCWdpdGh1Yi5jb20vbndhcGxlcy9yYXJkZWNvZGUvdjIJdjIuMi4yCWgxOi81b0w4ZHpZaXZSTS90cVg5VmNUU1dmYnB3Y2J3S0cxUXRTSnIzYjNLY1U9CmRlcAlnaXRodWIuY29tL3BlbGxldGllci9nby10b21sL3YyCXYyLjMuMQloMTpNWUV2dkduUWplTmtSRjFxVXVHb2xOdE5FeFREd2N0NTF5cDdvbFB0ckVjPQpkZXAJZ2l0aHViLmNvbS9waWVycmVjL2x6NC92NAl2NC4xLjI2CWgxOkdycFp3MWdadHRPUmludnpCZFhQVVhBVGVxbEpqcVVHL0Q4N1RLTW5oalk9CmRlcAlnaXRodWIuY29tL3Brb3Vray90aWt0b2tlbi1nbwl2MC4xLjgJaDE6ODVFTm8rM0ZwV2dBQUNCYUVVVnArbGN0dVRjWVVPN0J0bWZobE4vUVRSbz0KZGVwCWdpdGh1Yi5jb20vcnJldGh5L2Fob2NvcmFzaWNrCXYxLjAuMAloMTpZS2tDQitFNVBYYzB4bUxmTXJXYmZOaHQ4dkc5UmU5N0lIU1daay9MazhFPQpkZXAJZ2l0aHViLmNvbS9ycy96ZXJvbG9nCXYxLjMzLjAJaDE6MWNVMktaa3ZQeE55ZmdFbWhIQXovMUE5QnorbGxzZFl6a2xXRnpncDByOD0KZGVwCWdpdGh1Yi5jb20vc2h1cmNvb0wvZ2l0aHVidjQJdjAuMC4wLTIwMjYwMjA5MDMxMjM1LTI0MDJmZGY0YTllZAloMTpLVDdoSTh2WVhnVTBzMnFhTWtyZnE5dENBMXcvaUVQZ2ZyZWRWUCs0VHp3PQpkZXAJZ2l0aHViLmNvbS9zaHVyY29vTC9ncmFwaHFsCXYwLjAuMC0yMDI0MDkxNTE1NTQwMC03ZWU1MjU2Mzk4Y2YJaDE6bzF1eGZ5bWpaN2paNE1zZ0NFcmN3V0d0VktTaU5BWHRTNTlMaHM2dUkvZz0KZGVwCWdpdGh1Yi5jb20vc29yYWlyb2xha2UvbHppcC1nbwl2MC4zLjgJaDE6ajVRMjMxM0lOZFRBODB1cmVXWVJoWCsxSzc4bVVYZk1vUFpDdy9pdldpaz0KZGVwCWdpdGh1Yi5jb20vc3BmMTMvYWZlcm8JdjEuMTUuMAloMTpiL1lCQ0xXQUpkRldKVE45Y0xoaVhYY0Q3bXpLbjlEbTg2ZE5uZnlRdzFJPQpkZXAJZ2l0aHViLmNvbS9zcGYxMy9jYXN0CXYxLjEwLjAJaDE6aDJ4MHUyc2hjMVF1TEhmeGkrY1RKdnMzMCtaQUhPR1JpYzh1eUdURFd4WT0KZGVwCWdpdGh1Yi5jb20vc3BmMTMvY29icmEJdjEuMTAuMQloMTpsSmVCd0NmbXJuWHRoZkF1cHlVVHpKL0o0TmMxUnNIQy9tU1JVMmRsbC9zPQpkZXAJZ2l0aHViLmNvbS9zcGYxMy9wZmxhZwl2MS4wLjEwCWgxOjRFQmgyS0FZQndhT05qNmIyWWUxR2lIZndqcXlST29GNFJ3WU8rdlB3Rms9CmRlcAlnaXRodWIuY29tL3RldHJhdGVsYWJzL3dhemVybwl2MS4xMi4wCWgxOkR1V2NwTnUvRnpnRVhnR0JEcDhKMVNwYytDV092dnR2VnlqS2xhWm9wWVU9CmRlcAlnaXRodWIuY29tL3VsaWt1bml0ei94egl2MC41LjE1CWgxOjlETmRCNXMrU2dWM2JRMkFwTDEweFJjMzVjazBEdUlYL2lzWnZJayt1Ylk9CmRlcAlnaXRodWIuY29tL3dhc2lsaWJzL3dhemVyby1oZWxwZXJzCXYwLjAuMC0yMDI1MDEyMzAzMTgyNy1jZDMwYzQ0NzY5YmIJaDE6Z1ErWlY0d0prZS9FQktZY2laMk1zaEVvdUVIRnVpbkI4NWRZM2Y1czFxOD0KZGVwCWdvLnlhbWwuaW4veWFtbC92Mwl2My4wLjQJaDE6dGZxMzJpZTJKdjJVeFhGZExKZGgzalh1T3pXaUwxZm8wYnUvRmJ1S3BiYz0KZGVwCWdvNC5vcmcJdjAuMC4wLTIwMjYwMTEyMTk1NTIwLWE1MDcxNDA4ZjMyZgloMTp6aVVWQWptVFB3UU1CbVlSMXRiZFJGSlB0VGNRVUkxMmZIOVFRamZiMFN3PQpkZXAJZ29sYW5nLm9yZy94L2NyeXB0bwl2MC41My4wCWgxOlFaNE11bzhUSFg2Q2l6TjJ2UFBkNWZCR0h5b2dyZEs5Zkc0d0xQRlVzdG89CmRlcAlnb2xhbmcub3JnL3gvZXhwCXYwLjAuMC0yMDI1MDIxODE0MjkxMS1hYTRiOThlNWFkYWEJaDE6dDJRY1U2VjU1NmJGallndTRMNkMrNlZyQ1B5SlorZXlSc0FCVVBzMW16ND0KZGVwCWdvbGFuZy5vcmcveC9zeW5jCXYwLjIxLjAJaDE6SExJSTR4UlJUdENSa3hZcDRITkZGMEpzL09nNnEyaSsrS1hiZzBnSEN3TT0KZGVwCWdvbGFuZy5vcmcveC9zeXMJdjAuNDYuMAloMTpub1NmMkZxNkY4REJnUytMeXNJa3g3cklFeG9OSEpzeE9BdFBwNHJ0aFh3PQpkZXAJZ29sYW5nLm9yZy94L3RleHQJdjAuMzkuMAloMTpVYlp6NHBMT3ZuNjAwRDZPaDZHR0VJNlZBbW5kckVCTHY4LzZCRVh6eXVzPQpidWlsZAktYnVpbGRtb2RlPWV4ZQpidWlsZAktY29tcGlsZXI9Z2MKYnVpbGQJLWxkZmxhZ3M9Ii1zIC13IC1YPWdpdGh1Yi5jb20vYmV0dGVybGVha3MvYmV0dGVybGVha3MvdmVyc2lvbi5WZXJzaW9uPTEuMTAuMCIKYnVpbGQJRGVmYXVsdEdPREVCVUc9dHJhY2ViYWNrbGFiZWxzPTAseDUwOXNzbGNlcnRvdmVycmlkZXBsYXRmb3JtPTAKYnVpbGQJQ0dPX0VOQUJMRUQ9MApidWlsZAlHT0FSQ0g9YW1kNjQKYnVpbGQJR09PUz1saW51eApidWlsZAlHT0FNRDY0PXYxCvkyQzGGGCByAIJCEEEW2PI=",
+      "version_location": {
+        "offset": 23060513,
+        "bytes": 8
+      },
+      "module_location": {
+        "offset": 23060523,
+        "bytes": 5144
+      },
+      "module": {
+        "path": "command-line-arguments",
+        "main": null,
+        "dependencies": [
+          {
+            "path": "dario.cat/mergo",
+            "version": "v1.0.2",
+            "sum": "h1:85+piFYR1tMbRrLcDwR18y4UKJ3aH1Tbzi24VRW1TK8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/Masterminds/semver/v3",
+            "version": "v3.4.0",
+            "sum": "h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/STARRY-S/zip",
+            "version": "v0.2.3",
+            "sum": "h1:luE4dMvRPDOWQdeDdUxUoZkzUIpTccdKdhHHsQJ1fm4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/andybalholm/brotli",
+            "version": "v1.2.1",
+            "sum": "h1:R+f5xP285VArJDRgowrfb9DqL18yVK0gKAW/F+eTWro=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/betterleaks/betterleaks",
+            "version": "(devel)",
+            "sum": "",
+            "replacement": null
+          },
+          {
+            "path": "github.com/betterleaks/go-re2",
+            "version": "v1.11.0-betterleaks.3",
+            "sum": "h1:89efHsGJOOCl1KH6GxBtixZNBkNzYIlKPtmQJizCBXU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/plumbing",
+            "version": "v1.3.0",
+            "sum": "h1:pf9Itz1JOQgn7vEOE7v7nlEfBykYqvUYioC61TwWCFU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/sevenzip",
+            "version": "v1.6.2",
+            "sum": "h1:6/0mwj5KaRXpuf9iSiE+VpG7VpzFJ8D60P53VjxRv34=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/windows",
+            "version": "v1.0.1",
+            "sum": "h1:tF7K6KOluPYygXa3Z2594zxlkbKPAOvqr97etrGNIz4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/charlievieth/fastwalk",
+            "version": "v1.0.14",
+            "sum": "h1:3Eh5uaFGwHZd8EGwTjJnSpBkfwfsak9h6ICgnWlhAyg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/dlclark/regexp2",
+            "version": "v1.11.5",
+            "sum": "h1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/dsnet/compress",
+            "version": "v0.0.2-0.20230904184137-39efe44ab707",
+            "sum": "h1:2tV76y6Q9BB+NEBasnqvs7e49aEBFI8ejC89PSnWH+4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/expr-lang/expr",
+            "version": "v1.17.8",
+            "sum": "h1:W1loDTT+0PQf5YteHSTpju2qfUfNoBt4yw9+wOEU9VM=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/fatih/semgroup",
+            "version": "v1.2.0",
+            "sum": "h1:h/OLXwEM+3NNyAdZEpMiH1OzfplU09i2qXPVThGZvyg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/gitleaks/go-gitdiff",
+            "version": "v0.9.1",
+            "sum": "h1:ni6z6/3i9ODT685OLCTf+s/ERlWUNWQF4x1pvoNICw0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/go-sprout/sprout",
+            "version": "v1.0.3",
+            "sum": "h1:LLuz0D3aYazgbVTOwCVuMor3LOUVYinipXRIdjA/D+I=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/google/go-github/v72",
+            "version": "v72.0.0",
+            "sum": "h1:FcIO37BLoVPBO9igQQ6tStsv2asG4IPcYFi655PPvBM=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/google/go-querystring",
+            "version": "v1.1.0",
+            "sum": "h1:AnCroh3fv4ZBgVIf1Iwtovgjaw/GiKJo8M8yD/fhyJ8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/google/uuid",
+            "version": "v1.6.0",
+            "sum": "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/h2non/filetype",
+            "version": "v1.1.3",
+            "sum": "h1:FKkx9QbD7HR/zjK1Ia5XiBsq9zdLi5Kf3zGyFTAFkGg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/go-version",
+            "version": "v1.7.0",
+            "sum": "h1:5tqGy27NaOTB8yJKUZELlFAS/LTKJkrmONwQKeRZfjY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/golang-lru/v2",
+            "version": "v2.0.7",
+            "sum": "h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/klauspost/compress",
+            "version": "v1.18.6",
+            "sum": "h1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/klauspost/pgzip",
+            "version": "v1.2.6",
+            "sum": "h1:8RXeL5crjEUFnR2/Sn6GJNWtSQ3Dk8pq4CL3jvdDyjU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mattn/go-colorable",
+            "version": "v0.1.14",
+            "sum": "h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mattn/go-isatty",
+            "version": "v0.0.20",
+            "sum": "h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mholt/archives",
+            "version": "v0.1.6-0.20260429171216-ef71b7a32fae",
+            "sum": "h1:J5ek2lGxYgdh5SMMmlNTSKLmS1x2oJQla/V0NaAH7vo=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mikelolasagasti/xz",
+            "version": "v1.0.1",
+            "sum": "h1:Q2F2jX0RYJUG3+WsM+FJknv+6eVjsjXNDV0KJXZzkD0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/minio/minlz",
+            "version": "v1.1.1",
+            "sum": "h1:OGmft1V6AnI/Wme332U6bhG54nxEan+VFgkD7lat4KM=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mitchellh/copystructure",
+            "version": "v1.2.0",
+            "sum": "h1:vpKXTN4ewci03Vljg/q9QvCGUDttBOGBIa15WveJJGw=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mitchellh/reflectwalk",
+            "version": "v1.0.2",
+            "sum": "h1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/nwaples/rardecode/v2",
+            "version": "v2.2.2",
+            "sum": "h1:/5oL8dzYivRM/tqX9VcTSWfbpwcbwKG1QtSJr3b3KcU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/pelletier/go-toml/v2",
+            "version": "v2.3.1",
+            "sum": "h1:MYEvvGnQjeNkRF1qUuGolNtNExTDwct51yp7olPtrEc=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/pierrec/lz4/v4",
+            "version": "v4.1.26",
+            "sum": "h1:GrpZw1gZttORinvzBdXPUXATeqlJjqUG/D87TKMnhjY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/pkoukk/tiktoken-go",
+            "version": "v0.1.8",
+            "sum": "h1:85ENo+3FpWgAACBaEUVp+lctuTcYUO7BtmfhlN/QTRo=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/rrethy/ahocorasick",
+            "version": "v1.0.0",
+            "sum": "h1:YKkCB+E5PXc0xmLfMrWbfNht8vG9Re97IHSWZk/Lk8E=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/rs/zerolog",
+            "version": "v1.33.0",
+            "sum": "h1:1cU2KZkvPxNyfgEmhHAz/1A9Bz+llsdYzklWFzgp0r8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/shurcooL/githubv4",
+            "version": "v0.0.0-20260209031235-2402fdf4a9ed",
+            "sum": "h1:KT7hI8vYXgU0s2qaMkrfq9tCA1w/iEPgfredVP+4Tzw=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/shurcooL/graphql",
+            "version": "v0.0.0-20240915155400-7ee5256398cf",
+            "sum": "h1:o1uxfymjZ7jZ4MsgCErcwWGtVKSiNAXtS59Lhs6uI/g=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/sorairolake/lzip-go",
+            "version": "v0.3.8",
+            "sum": "h1:j5Q2313INdTA80ureWYRhX+1K78mUXfMoPZCw/ivWik=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/afero",
+            "version": "v1.15.0",
+            "sum": "h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/cast",
+            "version": "v1.10.0",
+            "sum": "h1:h2x0u2shc1QuLHfxi+cTJvs30+ZAHOGRic8uyGTDWxY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/cobra",
+            "version": "v1.10.1",
+            "sum": "h1:lJeBwCfmrnXthfAupyUTzJ/J4Nc1RsHC/mSRU2dll/s=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/pflag",
+            "version": "v1.0.10",
+            "sum": "h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/tetratelabs/wazero",
+            "version": "v1.12.0",
+            "sum": "h1:DuWcpNu/FzgEXgGBDp8J1Spc+CWOvvtvVyjKlaZopYU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/ulikunitz/xz",
+            "version": "v0.5.15",
+            "sum": "h1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/wasilibs/wazero-helpers",
+            "version": "v0.0.0-20250123031827-cd30c44769bb",
+            "sum": "h1:gQ+ZV4wJke/EBKYciZ2MshEouEHFuinB85dY3f5s1q8=",
+            "replacement": null
+          },
+          {
+            "path": "go.yaml.in/yaml/v3",
+            "version": "v3.0.4",
+            "sum": "h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=",
+            "replacement": null
+          },
+          {
+            "path": "go4.org",
+            "version": "v0.0.0-20260112195520-a5071408f32f",
+            "sum": "h1:ziUVAjmTPwQMBmYR1tbdRFJPtTcQUI12fH9QQjfb0Sw=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/crypto",
+            "version": "v0.53.0",
+            "sum": "h1:QZ4Muo8THX6CizN2vPPd5fBGHyogrdK9fG4wLPFUsto=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/exp",
+            "version": "v0.0.0-20250218142911-aa4b98e5adaa",
+            "sum": "h1:t2QcU6V556bFjYgu4L6C+6VrCPyJZ+eyRsABUPs1mz4=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/sync",
+            "version": "v0.21.0",
+            "sum": "h1:HLII4xRRTtCRkxYp4HNFF0Js/Og6q2i++KXbg0gHCwM=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/sys",
+            "version": "v0.46.0",
+            "sum": "h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/text",
+            "version": "v0.39.0",
+            "sum": "h1:UbZz4pLOvn600D6Oh6GGEI6VAmndrEBLv8/6BEXzyus=",
+            "replacement": null
+          }
+        ],
+        "settings": [
+          {
+            "key": "-buildmode",
+            "value": "exe"
+          },
+          {
+            "key": "-compiler",
+            "value": "gc"
+          },
+          {
+            "key": "-ldflags",
+            "value": "-s -w -X=github.com/betterleaks/betterleaks/version.Version=1.10.0"
+          },
+          {
+            "key": "DefaultGODEBUG",
+            "value": "tracebacklabels=0,x509sslcertoverrideplatform=0"
+          },
+          {
+            "key": "CGO_ENABLED",
+            "value": "0"
+          },
+          {
+            "key": "GOARCH",
+            "value": "amd64"
+          },
+          {
+            "key": "GOOS",
+            "value": "linux"
+          },
+          {
+            "key": "GOAMD64",
+            "value": "v1"
+          }
+        ],
+        "unparsed_lines": [],
+        "unparsed_line_bytes_base64": [],
+        "complete": true
+      }
+    },
+    "limitations": [
+      "Embedded build metadata is observed file content, not proof of compiler identity, dependency authenticity or runtime behavior.",
+      "Only Go build information is inspected; function names, source mappings, type metadata and decompiled code are not recovered.",
+      "Resource guards bound stable artifact reads and cumulative header searches to 256 MiB each, aggregate embedded strings to 1 MiB, structural table decoding to 16 MiB and complete metadata payloads to 8 MiB; these are not operating-system memory or CPU limits.",
+      "Dependency coverage is unknown because no main-module record was decoded from the embedded module information, as in GOPATH-mode builds. Decoded dependency records remain visible; an empty list does not establish the absence of dependencies."
+    ]
+  },
+  "confidence": "observed",
+  "authority": "shipped-artifact",
+  "environment": null,
+  "limitations": [
+    "Embedded build metadata is observed file content, not proof of compiler identity, dependency authenticity or runtime behavior.",
+    "Only Go build information is inspected; function names, source mappings, type metadata and decompiled code are not recovered.",
+    "Resource guards bound stable artifact reads and cumulative header searches to 256 MiB each, aggregate embedded strings to 1 MiB, structural table decoding to 16 MiB and complete metadata payloads to 8 MiB; these are not operating-system memory or CPU limits.",
+    "Dependency coverage is unknown because no main-module record was decoded from the embedded module information, as in GOPATH-mode builds. Decoded dependency records remain visible; an empty list does not establish the absence of dependencies."
+  ],
+  "relationship_coverage": null,
+  "locations": [
+    {
+      "kind": "artifact-path",
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/betterleaks"
+    },
+    {
+      "kind": "file-offset-range",
+      "start": 23060480,
+      "end": 23060512
+    }
+  ],
+  "evidence_links": []
+}

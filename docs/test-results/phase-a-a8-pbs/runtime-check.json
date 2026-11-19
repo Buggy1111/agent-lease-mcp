@@ -1,0 +1,32 @@
+{
+  "runtime": {
+    "python": "3.13.18",
+    "executable": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/venv/bin/python",
+    "sqlite": "3.53.1",
+    "package": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/venv/lib/python3.13/site-packages/agent_lease_mcp/__init__.py",
+    "fastmcp": "3.4.10"
+  },
+  "mcp_tool_count": 18,
+  "worker": {
+    "sqlite": "3.53.1"
+  },
+  "backup": {
+    "path": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/check/backups/room-20261103-174919-4dc165.db",
+    "integrity": "ok",
+    "backup_integrity": "ok"
+  },
+  "bridge_completed": true,
+  "broker_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/venv/bin/python"
+  },
+  "mcp_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/venv/bin/python"
+  },
+  "bridge_runtime": {
+    "sqlite": "3.53.1",
+    "executable": "/tmp/claude-1000/-home-buggy1111-dev/b5a1384f-493d-4eb3-92df-b6979e6ac2e9/scratchpad/pbs/venv/bin/python"
+  },
+  "integrity": "ok"
+}

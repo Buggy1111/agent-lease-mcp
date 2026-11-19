@@ -1,0 +1,18 @@
+[
+  {
+    "name": "gitleaks",
+    "archive_sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+    "elf_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+    "rea_evidence_id": "ev_cf566b722e21ce5d1c0a6bcf6582949941f44003900510eeb14542dd29ae1f23",
+    "archive_member_matches": true,
+    "executed_by_this_analysis": false
+  },
+  {
+    "name": "betterleaks",
+    "archive_sha256": "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe",
+    "elf_sha256": "d9deb306c80b489512bbca87c39bf4b5f529ce1ab43cd8e0aa444c603085db7e",
+    "rea_evidence_id": "ev_2bc463fbdf36cedf11d74d823f8ba75af45f1953a8cfbae16ffc8bcec3362cbd",
+    "archive_member_matches": true,
+    "executed_by_this_analysis": false
+  }
+]

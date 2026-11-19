@@ -1,0 +1,7 @@
+{
+  "commit": "9134485371fdd6d1c92c16562aa04d188c3f2125",
+  "source": "src/agent_lease_mcp/webui.py:PAGE_HTML",
+  "source_sha256": "116c5dfe32aa7ddc25b87bf1c44b50fd97a97841c957de4869fd8da80d5c4029",
+  "javascript_sha256": "0b266f3a2b422c6c447d21045ef856d39df9f199f73bbb57ef9a1c9277852b9c",
+  "execution": "none"
+}

@@ -1,0 +1,77 @@
+{
+  "reviewed_commit": "8774d5e11f86f0b41e19ba8e684e13a209eaf93c",
+  "checked_on": "2026-11-07",
+  "method": "GitHub read-only refs (annotated tags peeled) and fetch_file; no upstream code executed. Git blob IDs identify source files, not downloaded distribution artifacts.",
+  "sources": [
+    {
+      "repository": "terryyin/lizard",
+      "ref": "edbb09b6e962bfcb39e6f81a8e7610633f214967",
+      "path": "LICENSE.txt",
+      "git_blob_sha": "74a3411e382c8f1cb07ab5a755c3ca45a9cbb10e",
+      "url": "https://github.com/terryyin/lizard/blob/edbb09b6e962bfcb39e6f81a8e7610633f214967/LICENSE.txt",
+      "range": null
+    },
+    {
+      "repository": "coveragepy/coveragepy",
+      "ref": "d0d3e1d599938f251e9951eab84c0ebea671c6cb",
+      "path": "LICENSE.txt",
+      "git_blob_sha": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+      "url": "https://github.com/coveragepy/coveragepy/blob/d0d3e1d599938f251e9951eab84c0ebea671c6cb/LICENSE.txt",
+      "range": null
+    },
+    {
+      "repository": "betterleaks/betterleaks",
+      "ref": "8d77e1712fb06fd14444cc648686f1d5655e28a8",
+      "path": "cmd/root.go",
+      "git_blob_sha": "6db0c87ed611a5a1d9d7fb96164b40bc54f9742b",
+      "url": "https://github.com/betterleaks/betterleaks/blob/8d77e1712fb06fd14444cc648686f1d5655e28a8/cmd/root.go",
+      "range": [
+        65,
+        125
+      ]
+    },
+    {
+      "repository": "betterleaks/betterleaks",
+      "ref": "8d77e1712fb06fd14444cc648686f1d5655e28a8",
+      "path": "README.md",
+      "git_blob_sha": "e9bd59c5dcd21cb9323386b9eb732cb23268e563",
+      "url": "https://github.com/betterleaks/betterleaks/blob/8d77e1712fb06fd14444cc648686f1d5655e28a8/README.md",
+      "range": [
+        1,
+        95
+      ]
+    },
+    {
+      "repository": "semgrep/semgrep",
+      "ref": "ac37d1f6e47b17648b8f854d6e2f2d72fade2567",
+      "path": "LICENSE",
+      "git_blob_sha": "8000a6faacf471c537530805ab29523c7732e11a",
+      "url": "https://github.com/semgrep/semgrep/blob/ac37d1f6e47b17648b8f854d6e2f2d72fade2567/LICENSE",
+      "range": null
+    },
+    {
+      "repository": "semgrep/semgrep-rules",
+      "ref": "16b9e6d45f10649f6a531ec4838ed9924372c3bc",
+      "path": "LICENSE",
+      "git_blob_sha": "cd16fded1a1e713f65d43654bb64d0c47c997fbf",
+      "url": "https://github.com/semgrep/semgrep-rules/blob/16b9e6d45f10649f6a531ec4838ed9924372c3bc/LICENSE",
+      "range": null
+    },
+    {
+      "repository": "betterleaks/betterleaks",
+      "ref": "8d77e1712fb06fd14444cc648686f1d5655e28a8",
+      "path": "LICENSE",
+      "git_blob_sha": "1b6b705704f266126c8a11a65abb4bad7d470188",
+      "url": "https://github.com/betterleaks/betterleaks/blob/8d77e1712fb06fd14444cc648686f1d5655e28a8/LICENSE",
+      "range": null
+    },
+    {
+      "repository": "gitleaks/gitleaks",
+      "ref": "83d9cd684c87d95d656c1458ef04895a7f1cbd8e",
+      "path": "LICENSE",
+      "git_blob_sha": "3c270b36c539ca8fbc4cc1017d3cbb7be1e44bbc",
+      "url": "https://github.com/gitleaks/gitleaks/blob/83d9cd684c87d95d656c1458ef04895a7f1cbd8e/LICENSE",
+      "range": null
+    }
+  ]
+}

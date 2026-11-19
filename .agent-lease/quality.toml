@@ -1,0 +1,13 @@
+version = 1
+language = "python"
+
+# Same checks as CI. The OS sandbox replaces build's networked environment
+# creation; the operator must pin build+hatchling and their dependencies.
+[checks.tests]
+command = ["python", "-m", "pytest", "-q"]
+
+[checks.lint]
+command = ["python", "-m", "ruff", "check", "src", "tests"]
+
+[checks.build]
+command = ["python", "-m", "build", "--no-isolation"]

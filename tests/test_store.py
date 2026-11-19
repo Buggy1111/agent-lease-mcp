@@ -92,6 +92,35 @@ def test_concurrent_claims_have_exactly_one_winner(store: Store, tmp_path: Path)
     assert sum(r.ok for r in results) == 1, "nájem smí dostat právě jeden"
 
 
+def test_provider_state_is_typed_and_unknown_is_not_available(store: Store):
+    store.heartbeat("codex")
+    store.report_provider_state("codex", "unknown", "test", reason="signal absent")
+    assert not store.is_available("codex")
+
+    store.report_provider_state("codex", "available", "test")
+    assert store.is_available("codex")
+    assert store.clear_provider_state("codex")
+    assert store.provider_state("codex") is None
+
+
+def test_limited_bridge_does_not_overwrite_live_interactive_agent(store: Store):
+    store.heartbeat("claude-code")
+    store.heartbeat("claude-code-bridge")
+    store.report_provider_state("claude-code-bridge", "limited", "cli_error")
+
+    assert store.is_available("claude-code")
+    peers = {p["agent"]: p for p in store.peers()}
+    assert peers["claude-code"]["presence"] in ("idle", "busy")
+    assert peers["claude-code-bridge"]["presence"] == "rate-limited"
+
+
+def test_available_worker_is_an_execution_path_for_logical_agent(store: Store):
+    store.heartbeat("codex-bridge")
+    store.report_provider_state("codex-bridge", "available", "test")
+
+    assert store.is_available("codex")
+
+
 def test_messages_use_cursor(store: Store):
     first = store.say("claude", "beru si balicí skript")
     store.say("codex", "ok, nesahám")
@@ -191,6 +220,84 @@ def test_failed_task_can_retry_then_cancel(store: Store):
     assert not store.retry(message_id, "codex")
 
 
+def test_authorized_retry_can_make_a_deferred_pending_task_ready(store: Store):
+    message_id = store.send(
+        "michal", "codex", "otestuj", kind="task", not_before=time.time() + 3600,
+    )
+    assert store.lease_next("codex") is None
+
+    assert store.retry(message_id, "codex", actor="michal")
+    assert store.lease_next("codex").message_id == message_id
+    assert not store.retry(message_id, "codex")
+
+
+def test_lease_next_skips_task_blocked_by_foreign_claim(store: Store, tmp_path: Path):
+    blocked_path = str(tmp_path / "blocked.py")
+    free_path = str(tmp_path / "free.py")
+    first = store.send("michal", "codex", "blocked", kind="task", paths=[blocked_path])
+    second = store.send("michal", "codex", "independent", kind="task", paths=[free_path])
+    store.claim([blocked_path], agent="claude-code", purpose="editing")
+
+    delivery = store.lease_next("codex")
+
+    assert delivery.message_id == second
+    assert next(j for j in store.jobs("codex") if j["id"] == first)["state"] == "pending"
+
+
+def test_task_priority_is_stable_and_only_reorders_eligible_tasks(store: Store, tmp_path: Path):
+    low = store.send("michal", "codex", "low", kind="task", priority=-5)
+    high_old = store.send("michal", "codex", "high old", kind="task", priority=10)
+    high_new = store.send("michal", "codex", "high new", kind="task", priority=10)
+
+    assert store.lease_next("codex").message_id == high_old
+    assert store.lease_next("codex").message_id == high_new
+    assert store.lease_next("codex").message_id == low
+
+
+def test_task_metadata_rejected_for_chat(store: Store, tmp_path: Path):
+    with pytest.raises(ValueError):
+        store.send("michal", "codex", "chat", kind="chat", paths=[str(tmp_path)])
+
+
+def test_lease_next_can_ignore_tasks_before_activation(store: Store):
+    old = store.send("michal", "codex", "old", kind="task")
+    new = store.send("michal", "codex", "new", kind="task")
+
+    delivery = store.lease_next("codex", after_message_id=old)
+
+    assert delivery is not None and delivery.message_id == new
+    assert next(j for j in store.jobs("codex") if j["id"] == old)["state"] == "pending"
+
+
+def test_task_summary_separates_receipt_from_execution(store: Store):
+    unaccepted = store.send("michal", "codex", "one", kind="task")
+    accepted = store.send("michal", "codex", "two", kind="task")
+    store.accept(accepted, "codex", owner="s1")
+
+    assert store.task_summary("codex") == {
+        "pending": 2,
+        "unaccepted": 1,
+        "accepted_without_start": 1,
+        "leased": 0,
+        "started": 0,
+        "needs_review": 0,
+    }
+    assert unaccepted != accepted
+
+
+def test_activation_status_is_read_only(store: Store):
+    assert store.activation_status("codex") == {
+        "worker_after_message_id": None,
+        "failover_after_message_id": None,
+    }
+    store.worker_activation("codex")
+    store.failover_activation("codex")
+    assert store.activation_status("codex") == {
+        "worker_after_message_id": 0,
+        "failover_after_message_id": 0,
+    }
+
+
 def test_peer_goes_stale(store: Store):
     store.heartbeat("codex", status="kontrola")
     assert store.peers(stale_after=900)[0]["active"] is True
@@ -285,14 +392,68 @@ def test_database_files_are_owner_only(tmp_path):
     try:
         db = tmp_path / "fresh" / "room.db"
         store = Store(db)
-        store.say("a", "ahoj")  # vytvoří i -wal/-shm
+        store.say("a", "ahoj")
+        with store._connect() as con:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("UPDATE messages SET text='test' WHERE id=1")
+            journal = db.with_name(db.name + "-journal")
+            assert journal.exists() and stat.S_IMODE(journal.stat().st_mode) & 0o077 == 0
     finally:
         os.umask(old)
     assert stat.S_IMODE(db.parent.stat().st_mode) == 0o700
-    for suffix in ("", "-wal", "-shm"):
+    for suffix in ("", "-wal", "-shm", "-journal"):
         f = db.with_name(db.name + suffix)
         if f.exists():
             assert stat.S_IMODE(f.stat().st_mode) & 0o077 == 0, f"{f.name} je čitelná pro ostatní"
+
+
+def test_existing_wal_database_moves_to_safe_journal_mode_when_offline(tmp_path):
+    import sqlite3
+
+    from agent_lease_mcp.sqlite_migrate import migrate
+
+    db = tmp_path / "room.db"
+    with sqlite3.connect(db) as con:
+        assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        con.execute("CREATE TABLE previous (id INTEGER)")
+        con.execute("INSERT INTO previous VALUES (42)")
+    con.close()
+    with pytest.raises(sqlite3.OperationalError, match="stop all clients"):
+        Store(db)
+    with sqlite3.connect(db) as con:
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert con.execute("SELECT id FROM previous").fetchone()[0] == 42
+    con.close()
+    migrate(db)
+    store = Store(db)
+    with store._connect() as con:
+        assert con.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert con.execute("SELECT id FROM previous").fetchone()[0] == 42
+        assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_offline_journal_migration_will_not_create_a_database(tmp_path):
+    from agent_lease_mcp.sqlite_migrate import migrate
+
+    missing = tmp_path / "missing.db"
+    with pytest.raises(FileNotFoundError):
+        migrate(missing)
+    assert not missing.exists()
+
+
+def test_existing_deliveries_get_completion_hash_columns_without_losing_data(tmp_path):
+    db = tmp_path / "room.db"
+    store = Store(db)
+    mid = store.send("michal", "codex", "old task", kind="task")
+    with store._connect() as con:
+        con.execute("ALTER TABLE deliveries DROP COLUMN final_token_hash")
+        con.execute("ALTER TABLE deliveries DROP COLUMN final_payload_hash")
+    reopened = Store(db)
+    with reopened._connect() as con:
+        names = {row["name"] for row in con.execute("PRAGMA table_info(deliveries)")}
+        assert {"final_token_hash", "final_payload_hash"} <= names
+        row = con.execute("SELECT state FROM deliveries WHERE message_id=?", (mid,)).fetchone()
+        assert row[0] == "pending"
 
 
 def test_existing_permissive_database_is_tightened(tmp_path):
@@ -307,7 +468,9 @@ def test_existing_permissive_database_is_tightened(tmp_path):
 
 
 def test_input_bounds(tmp_path):
-    """APP-009: meze na text, krátká pole, LIMIT a délku lease."""
+    """APP-009: příliš dlouhé vstupy se odmítnou, LIMIT a délka lease mají strop."""
+    import time
+
     import pytest
 
     from agent_lease_mcp.config import MAX_SHORT_CHARS, MAX_TASK_LEASE_SECONDS, MAX_TEXT_CHARS
@@ -315,10 +478,10 @@ def test_input_bounds(tmp_path):
     store = Store(tmp_path / "room.db")
     with pytest.raises(ValueError):
         store.send("a", "b", "x" * (MAX_TEXT_CHARS + 1))
-    store.heartbeat("a", status="s" * 12_000)
-    assert len(next(p for p in store.peers() if p["agent"] == "a")["status"]) == MAX_SHORT_CHARS
-    result = store.claim([str(tmp_path / "f")], agent="a", purpose="p" * 12_000)
-    assert len(store.holder_of(result.granted[0]).purpose) == MAX_SHORT_CHARS
+    with pytest.raises(ValueError):
+        store.heartbeat("a", status="s" * (MAX_SHORT_CHARS + 1))
+    with pytest.raises(ValueError):
+        store.claim([str(tmp_path / "f")], agent="a", purpose="p" * (MAX_SHORT_CHARS + 1))
 
     for i in range(6):
         store.say("a", f"m{i}")
@@ -326,8 +489,6 @@ def test_input_bounds(tmp_path):
 
     store.send("a", "worker", "úkol", kind="task")
     delivery = store.lease_next("worker", lease_seconds=1_000_000_000)
-    import time
-
     assert delivery.lease_until - time.time() <= MAX_TASK_LEASE_SECONDS + 5
 
 
@@ -368,11 +529,11 @@ def test_foreign_jobs_hide_lease_tokens_and_unrelated_items(tmp_path):
     store.lease_next("worker")
 
     as_worker = store.jobs("worker", viewer="worker")
-    assert any(j["lease_token"] for j in as_worker), "adresát token vidí"
+    assert len(as_worker) == 2, "adresát vidí všechny svoje úkoly"
+    assert all("lease_token" not in j for j in as_worker), "token se ve výpisu nevrací nikdy"
 
     as_boss = store.jobs("worker", viewer="boss")
     assert [j["id"] for j in as_boss] == [mine], "odesílatel vidí jen svoje"
-    assert all(j["lease_token"] is None for j in as_boss)
 
     assert store.jobs("worker", viewer="stranger") == []
 
@@ -406,3 +567,40 @@ def test_retention_handles_addressed_chats_and_reply_chains(tmp_path):
     assert chat not in msgs, "netask s pending doručením se retenuje"
     assert root not in msgs and middle not in msgs
     assert msgs[fresh]["reply_to"] is None, "žádný visící odkaz"
+
+
+def test_auto_lease_respects_the_ttl_cap(tmp_path):
+    """Nox review: edit_gate musí mít stejný strop jako claim()."""
+    import time
+
+    from agent_lease_mcp.config import MAX_TTL_SECONDS, Settings
+
+    db = tmp_path / "room.db"
+    st = Store(db, settings=Settings(db, "a", 1_000_000_000))
+    target = str(tmp_path / "f.txt")
+    assert st.edit_gate(target, "a") is None  # nový auto-nájem
+    assert st.holder_of(target).expires_at - time.time() <= MAX_TTL_SECONDS + 5
+    assert st.edit_gate(target, "a") is None  # obnova
+    assert st.holder_of(target).expires_at - time.time() <= MAX_TTL_SECONDS + 5
+
+
+def test_prune_removes_receipts_and_screens_too(tmp_path):
+    """Nox review: retence nesmí nechat osiřelé potvrzení a screening."""
+    import sqlite3
+    import time
+
+    import pytest
+
+    db = tmp_path / "room.db"
+    st = Store(db)
+    mid = st.send("michal", "codex", "starý chat", kind="chat")
+    st.mark_seen("codex", [mid])
+    st.set_screen(mid, 0.1, 0.2)
+    with sqlite3.connect(db) as con:
+        con.execute("UPDATE messages SET sent_at=?", (time.time() - 40 * 86400,))
+    st.prune()
+    with sqlite3.connect(db) as con:
+        for table in ("receipts", "screens", "deliveries"):
+            assert con.execute(f"SELECT COUNT(*) FROM {table} WHERE message_id=?", (mid,)).fetchone()[0] == 0
+    with pytest.raises(ValueError):
+        st.prune(-1)

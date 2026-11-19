@@ -1,0 +1,451 @@
+{
+  "commits": {
+    "base": "8a451987cb29a0531b0345db2751c07d82fa0cfc",
+    "candidate": "9134485371fdd6d1c92c16562aa04d188c3f2125"
+  },
+  "source_sha256": {
+    "base": "99547a8414ac645f35c858748180dcc7ab8adb627619722ac651ccf05aaaea57",
+    "candidate": "3338578f5a582f4cc5da6203256b319f61f2cc808d6318520bc61d2c16ecfb37"
+  },
+  "cases": [
+    {
+      "case": "length-16-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-16-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-digit-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-letter-quote-''",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-16-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-16-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-digit-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-letter-quote-\"'\"",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-16-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-16-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-511-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-512-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-513-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-514-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-5001-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-digit-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "length-10000-late-letter-quote-'\"'",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "whitespace-8",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "whitespace-9",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "whitespace-40",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "whitespace-1000",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "code-sha256",
+      "detected": {
+        "base": true,
+        "candidate": false
+      },
+      "expected_candidate": false
+    },
+    {
+      "case": "code-uuid",
+      "detected": {
+        "base": true,
+        "candidate": false
+      },
+      "expected_candidate": false
+    },
+    {
+      "case": "code-vault",
+      "detected": {
+        "base": true,
+        "candidate": false
+      },
+      "expected_candidate": false
+    },
+    {
+      "case": "quoted-parentheses",
+      "detected": {
+        "base": true,
+        "candidate": true
+      },
+      "expected_candidate": true
+    },
+    {
+      "case": "whitespace-existing-limitation",
+      "detected": {
+        "base": false,
+        "candidate": false
+      },
+      "expected_candidate": false
+    },
+    {
+      "case": "short-value",
+      "detected": {
+        "base": false,
+        "candidate": false
+      },
+      "expected_candidate": false
+    }
+  ],
+  "timings": [
+    {
+      "case": "long-value",
+      "seconds": 0.093465854995884
+    },
+    {
+      "case": "long-nonsecret",
+      "seconds": 0.08983304300636519
+    },
+    {
+      "case": "many-candidates",
+      "seconds": 0.26223749999917345
+    },
+    {
+      "case": "long-name",
+      "seconds": 0.31663574999402044
+    }
+  ],
+  "review_diff_scan": {
+    "base": [],
+    "candidate": []
+  },
+  "status": "pass"
+}

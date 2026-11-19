@@ -1,0 +1,518 @@
+{
+  "evidence_id": "ev_cf566b722e21ce5d1c0a6bcf6582949941f44003900510eeb14542dd29ae1f23",
+  "subject": {
+    "name": "gitleaks",
+    "digest": {
+      "sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509"
+    },
+    "local_path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/gitleaks",
+    "format": "elf",
+    "architecture": "x86_64"
+  },
+  "provider": {
+    "id": "go-build-info",
+    "name": "REA Go build-information reader",
+    "version": "1"
+  },
+  "analysis_profile": null,
+  "predicate_type": "rea.analysis",
+  "operation": "inspect_go_binary",
+  "parameters": {
+    "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/gitleaks"
+  },
+  "raw_result": null,
+  "normalized_result": {
+    "artifact": {
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/gitleaks",
+      "sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "bytes": 21958840
+    },
+    "format": "elf",
+    "architecture": "amd64",
+    "bits": 64,
+    "byte_order": "little",
+    "build_info": {
+      "header_offset": 17883136,
+      "encoding": "inline",
+      "go_version": "go1.24.11",
+      "go_version_bytes_base64": "Z28xLjI0LjEx",
+      "module_text": "path\tcommand-line-arguments\ndep\tdario.cat/mergo\tv1.0.1\th1:Ra4+bf83h2ztPIQYNP99R6m+Y7KfnARDfID+a+vLl4s=\ndep\tgithub.com/BobuSumisu/aho-corasick\tv1.0.3\th1:uuf+JHwU9CHP2Vx+wAy6jcksJThhJS9ehR8a+4nPE9g=\ndep\tgithub.com/Masterminds/goutils\tv1.1.1\th1:5nUrii3FMTL5diU80unEVvNevw1nH4+ZV4DSLVJLSYI=\ndep\tgithub.com/Masterminds/semver/v3\tv3.3.0\th1:B8LGeaivUe71a5qox1ICM/JLl0NqZSW5CHyL+hmvYS0=\ndep\tgithub.com/Masterminds/sprig/v3\tv3.3.0\th1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe3tPhs=\ndep\tgithub.com/STARRY-S/zip\tv0.2.1\th1:pWBd4tuSGm3wtpoqRZZ2EAwOmcHK6XFf7bU9qcJXyFg=\ndep\tgithub.com/andybalholm/brotli\tv1.1.2-0.20250424173009-453214e765f3\th1:8PmGpDEZl9yDpcdEr6Odf23feCxK3LNUNMxjXg41pZQ=\ndep\tgithub.com/aymanbagabas/go-osc52/v2\tv2.0.1\th1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=\ndep\tgithub.com/bodgit/plumbing\tv1.3.0\th1:pf9Itz1JOQgn7vEOE7v7nlEfBykYqvUYioC61TwWCFU=\ndep\tgithub.com/bodgit/sevenzip\tv1.6.0\th1:a4R0Wu6/P1o1pP/3VV++aEOcyeBxeO/xE2Y9NSTrr6A=\ndep\tgithub.com/bodgit/windows\tv1.0.1\th1:tF7K6KOluPYygXa3Z2594zxlkbKPAOvqr97etrGNIz4=\ndep\tgithub.com/charmbracelet/lipgloss\tv0.5.0\th1:lulQHuVeodSgDez+3rGiuxlPVXSnhth442DATR2/8t8=\ndep\tgithub.com/dsnet/compress\tv0.0.2-0.20230904184137-39efe44ab707\th1:2tV76y6Q9BB+NEBasnqvs7e49aEBFI8ejC89PSnWH+4=\ndep\tgithub.com/fatih/semgroup\tv1.2.0\th1:h/OLXwEM+3NNyAdZEpMiH1OzfplU09i2qXPVThGZvyg=\ndep\tgithub.com/fsnotify/fsnotify\tv1.8.0\th1:dAwr6QBTBZIkG8roQaJjGof0pp0EeF+tNV7YBP3F/8M=\ndep\tgithub.com/gitleaks/go-gitdiff\tv0.9.1\th1:ni6z6/3i9ODT685OLCTf+s/ERlWUNWQF4x1pvoNICw0=\ndep\tgithub.com/google/uuid\tv1.6.0\th1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=\ndep\tgithub.com/h2non/filetype\tv1.1.3\th1:FKkx9QbD7HR/zjK1Ia5XiBsq9zdLi5Kf3zGyFTAFkGg=\ndep\tgithub.com/hashicorp/errwrap\tv1.1.0\th1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=\ndep\tgithub.com/hashicorp/go-multierror\tv1.1.1\th1:H5DkEtf6CXdFp0N0Em5UCwQpXMWke8IA0+lD48awMYo=\ndep\tgithub.com/hashicorp/go-version\tv1.7.0\th1:5tqGy27NaOTB8yJKUZELlFAS/LTKJkrmONwQKeRZfjY=\ndep\tgithub.com/hashicorp/golang-lru/v2\tv2.0.7\th1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=\ndep\tgithub.com/hashicorp/hcl\tv1.0.0\th1:0Anlzjpi4vEasTeNFn2mLJgTSwt0+6sfsiTG8qcWGx4=\ndep\tgithub.com/huandu/xstrings\tv1.5.0\th1:2ag3IFq9ZDANvthTwTiqSSZLjDc+BedvHPAp5tJy2TI=\ndep\tgithub.com/klauspost/compress\tv1.17.11\th1:In6xLpyWOi1+C7tXUUWv2ot1QvBjxevKAaI6IXrJmUc=\ndep\tgithub.com/klauspost/pgzip\tv1.2.6\th1:8RXeL5crjEUFnR2/Sn6GJNWtSQ3Dk8pq4CL3jvdDyjU=\ndep\tgithub.com/lucasb-eyer/go-colorful\tv1.2.0\th1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=\ndep\tgithub.com/magiconair/properties\tv1.8.9\th1:nWcCbLq1N2v/cpNsy5WvQ37Fb+YElfq20WJ/a8RkpQM=\ndep\tgithub.com/mattn/go-colorable\tv0.1.14\th1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=\ndep\tgithub.com/mattn/go-isatty\tv0.0.20\th1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=\ndep\tgithub.com/mattn/go-runewidth\tv0.0.14\th1:+xnbZSEeDbOIg5/mE6JF0w6n9duR1l3/WmbinWVwUuU=\ndep\tgithub.com/mholt/archives\tv0.1.2\th1:UBSe5NfYKHI1sy+S5dJsEsG9jsKKk8NJA4HCC+xTI4A=\ndep\tgithub.com/minio/minlz\tv1.0.0\th1:Kj7aJZ1//LlTP1DM8Jm7lNKvvJS2m74gyyXXn3+uJWQ=\ndep\tgithub.com/mitchellh/copystructure\tv1.2.0\th1:vpKXTN4ewci03Vljg/q9QvCGUDttBOGBIa15WveJJGw=\ndep\tgithub.com/mitchellh/mapstructure\tv1.5.0\th1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=\ndep\tgithub.com/mitchellh/reflectwalk\tv1.0.2\th1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=\ndep\tgithub.com/muesli/reflow\tv0.2.1-0.20210115123740-9e1d0d53df68\th1:y1p/ycavWjGT9FnmSjdbWUlLGvcxrY0Rw3ATltrxOhk=\ndep\tgithub.com/muesli/termenv\tv0.15.1\th1:UzuTb/+hhlBugQz28rpzey4ZuKcZ03MeKsoG7IJZIxs=\ndep\tgithub.com/nwaples/rardecode/v2\tv2.1.0\th1:JQl9ZoBPDy+nIZGb1mx8+anfHp/LV3NE2MjMiv0ct/U=\ndep\tgithub.com/pelletier/go-toml/v2\tv2.2.3\th1:YmeHyLY8mFWbdkNWwpr+qIL2bEqT0o95WSdkNHvL12M=\ndep\tgithub.com/pierrec/lz4/v4\tv4.1.21\th1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=\ndep\tgithub.com/rivo/uniseg\tv0.2.0\th1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=\ndep\tgithub.com/rs/zerolog\tv1.33.0\th1:1cU2KZkvPxNyfgEmhHAz/1A9Bz+llsdYzklWFzgp0r8=\ndep\tgithub.com/sagikazarmark/slog-shim\tv0.1.0\th1:diDBnUNK9N/354PgrxMywXnAwEr1QZcOr6gto+ugjYE=\ndep\tgithub.com/shopspring/decimal\tv1.4.0\th1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=\ndep\tgithub.com/sorairolake/lzip-go\tv0.3.5\th1:ms5Xri9o1JBIWvOFAorYtUNik6HI3HgBTkISiqu0Cwg=\ndep\tgithub.com/spf13/afero\tv1.12.0\th1:UcOPyRBYczmFn6yvphxkn9ZEOY65cpwGKb5mL36mrqs=\ndep\tgithub.com/spf13/cast\tv1.7.1\th1:cuNEagBQEHWN1FnbGEjCXL2szYEXqfJPbP2HNUaca9Y=\ndep\tgithub.com/spf13/cobra\tv1.9.1\th1:CXSaggrXdbHK9CF+8ywj8Amf7PBRmPCOJugH954Nnlo=\ndep\tgithub.com/spf13/pflag\tv1.0.6\th1:jFzHGLGAlb3ruxLB8MhbI6A8+AQX/2eW4qeyNZXNp2o=\ndep\tgithub.com/spf13/viper\tv1.19.0\th1:RWq5SEjt8o25SROyN3z2OrDB9l7RPd3lwTWU8EcEdcI=\ndep\tgithub.com/subosito/gotenv\tv1.6.0\th1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=\ndep\tgithub.com/tetratelabs/wazero\tv1.9.0\th1:IcZ56OuxrtaEz8UYNRHBrUa9bYeX9oVY93KspZZBf/I=\ndep\tgithub.com/therootcompany/xz\tv1.0.1\th1:CmOtsn1CbtmyYiusbfmhmkpAAETj0wBIH6kCYaX+xzw=\ndep\tgithub.com/ulikunitz/xz\tv0.5.12\th1:37Nm15o69RwBkXM0J6A5OlE67RZTfzUxTj8fB3dfcsc=\ndep\tgithub.com/wasilibs/go-re2\tv1.9.0\th1:kjAd8qbNvV4Ve2Uf+zrpTCrDHtqH4dlsRXktywo73JQ=\ndep\tgithub.com/wasilibs/wazero-helpers\tv0.0.0-20240620070341-3dff1577cd52\th1:OvLBa8SqJnZ6P+mjlzc2K7PM22rRUPE1x32G9DTPrC4=\ndep\tgithub.com/zricethezav/gitleaks/v8\t(devel)\t\ndep\tgo4.org\tv0.0.0-20230225012048-214862532bf5\th1:nifaUDeh+rPaBCMPMQHZmvJf+QdpLFnuQPwx+LxVmtc=\ndep\tgolang.org/x/crypto\tv0.35.0\th1:b15kiHdrGCHrP6LvwaQ3c03kgNhhiMgvlhxHQhmg2Xs=\ndep\tgolang.org/x/exp\tv0.0.0-20250218142911-aa4b98e5adaa\th1:t2QcU6V556bFjYgu4L6C+6VrCPyJZ+eyRsABUPs1mz4=\ndep\tgolang.org/x/sync\tv0.11.0\th1:GGz8+XQP4FvTTrjZPzNKTMFtSXH80RAzG+5ghFPgK9w=\ndep\tgolang.org/x/sys\tv0.30.0\th1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=\ndep\tgolang.org/x/text\tv0.22.0\th1:bofq7m3/HAFvbF51jz3Q9wLg3jkvSPuiZu/pD1XwgtM=\ndep\tgopkg.in/ini.v1\tv1.67.0\th1:Dgnx+6+nfE+IfzjUEISNeydPJh9AXNNsWbGP9KzCsOA=\ndep\tgopkg.in/yaml.v3\tv3.0.1\th1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=\nbuild\t-buildmode=exe\nbuild\t-compiler=gc\nbuild\t-ldflags=\"-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1\"\nbuild\t-tags=gore2regex\nbuild\tCGO_ENABLED=0\nbuild\tGOARCH=amd64\nbuild\tGOOS=linux\nbuild\tGOAMD64=v1\n",
+      "module_bytes_base64": "MHevDJJ0CAJB4cEH5tYY5nBhdGgJY29tbWFuZC1saW5lLWFyZ3VtZW50cwpkZXAJZGFyaW8uY2F0L21lcmdvCXYxLjAuMQloMTpSYTQrYmY4M2gyenRQSVFZTlA5OVI2bStZN0tmbkFSRGZJRCthK3ZMbDRzPQpkZXAJZ2l0aHViLmNvbS9Cb2J1U3VtaXN1L2Foby1jb3Jhc2ljawl2MS4wLjMJaDE6dXVmK0pId1U5Q0hQMlZ4K3dBeTZqY2tzSlRoaEpTOWVoUjhhKzRuUEU5Zz0KZGVwCWdpdGh1Yi5jb20vTWFzdGVybWluZHMvZ291dGlscwl2MS4xLjEJaDE6NW5VcmlpM0ZNVEw1ZGlVODB1bkVWdk5ldncxbkg0K1pWNERTTFZKTFNZST0KZGVwCWdpdGh1Yi5jb20vTWFzdGVybWluZHMvc2VtdmVyL3YzCXYzLjMuMAloMTpCOExHZWFpdlVlNzFhNXFveDFJQ00vSkxsME5xWlNXNUNIeUwraG12WVMwPQpkZXAJZ2l0aHViLmNvbS9NYXN0ZXJtaW5kcy9zcHJpZy92Mwl2My4zLjAJaDE6bVFoMFlyZzFYUG82dmpZWGd0ZjVPdGlqTkFLSlJOY1RkT09HWmUzdFBocz0KZGVwCWdpdGh1Yi5jb20vU1RBUlJZLVMvemlwCXYwLjIuMQloMTpwV0JkNHR1U0dtM3d0cG9xUlpaMkVBd09tY0hLNlhGZjdiVTlxY0pYeUZnPQpkZXAJZ2l0aHViLmNvbS9hbmR5YmFsaG9sbS9icm90bGkJdjEuMS4yLTAuMjAyNTA0MjQxNzMwMDktNDUzMjE0ZTc2NWYzCWgxOjhQbUdwREVabDl5RHBjZEVyNk9kZjIzZmVDeEszTE5VTk14alhnNDFwWlE9CmRlcAlnaXRodWIuY29tL2F5bWFuYmFnYWJhcy9nby1vc2M1Mi92Mgl2Mi4wLjEJaDE6SHdwUkhiRk1jWkxFVnI0MkQ0cDdYQnFqeXV4UUg1U01pRXJEVDRXa0oyaz0KZGVwCWdpdGh1Yi5jb20vYm9kZ2l0L3BsdW1iaW5nCXYxLjMuMAloMTpwZjlJdHoxSk9RZ243dkVPRTd2N25sRWZCeWtZcXZVWWlvQzYxVHdXQ0ZVPQpkZXAJZ2l0aHViLmNvbS9ib2RnaXQvc2V2ZW56aXAJdjEuNi4wCWgxOmE0UjBXdTYvUDFvMXBQLzNWVisrYUVPY3llQnhlTy94RTJZOU5TVHJyNkE9CmRlcAlnaXRodWIuY29tL2JvZGdpdC93aW5kb3dzCXYxLjAuMQloMTp0RjdLNktPbHVQWXlnWGEzWjI1OTR6eGxrYktQQU92cXI5N2V0ckdOSXo0PQpkZXAJZ2l0aHViLmNvbS9jaGFybWJyYWNlbGV0L2xpcGdsb3NzCXYwLjUuMAloMTpsdWxRSHVWZW9kU2dEZXorM3JHaXV4bFBWWFNuaHRoNDQyREFUUjIvOHQ4PQpkZXAJZ2l0aHViLmNvbS9kc25ldC9jb21wcmVzcwl2MC4wLjItMC4yMDIzMDkwNDE4NDEzNy0zOWVmZTQ0YWI3MDcJaDE6MnRWNzZ5NlE5QkIrTkVCYXNucXZzN2U0OWFFQkZJOGVqQzg5UFNuV0grND0KZGVwCWdpdGh1Yi5jb20vZmF0aWgvc2VtZ3JvdXAJdjEuMi4wCWgxOmgvT0xYd0VNKzNOTnlBZFpFcE1pSDFPemZwbFUwOWkycVhQVlRoR1p2eWc9CmRlcAlnaXRodWIuY29tL2Zzbm90aWZ5L2Zzbm90aWZ5CXYxLjguMAloMTpkQXdyNlFCVEJaSWtHOHJvUWFKakdvZjBwcDBFZUYrdE5WN1lCUDNGLzhNPQpkZXAJZ2l0aHViLmNvbS9naXRsZWFrcy9nby1naXRkaWZmCXYwLjkuMQloMTpuaTZ6Ni8zaTlPRFQ2ODVPTENUZitzL0VSbFdVTldRRjR4MXB2b05JQ3cwPQpkZXAJZ2l0aHViLmNvbS9nb29nbGUvdXVpZAl2MS42LjAJaDE6Tkl2YUpETU9zakhBOG4xakFoTFNnenJBenkxSGdyK2hOcmI1N2UrOTRGMD0KZGVwCWdpdGh1Yi5jb20vaDJub24vZmlsZXR5cGUJdjEuMS4zCWgxOkZLa3g5UWJEN0hSL3pqSzFJYTVYaUJzcTl6ZExpNUtmM3pHeUZUQUZrR2c9CmRlcAlnaXRodWIuY29tL2hhc2hpY29ycC9lcnJ3cmFwCXYxLjEuMAloMTpPeHJPZWg3NUVVWE1ZOFRCamFnMmZ6WEdaNDBMQjZJS3c0NVllR1VEWTJJPQpkZXAJZ2l0aHViLmNvbS9oYXNoaWNvcnAvZ28tbXVsdGllcnJvcgl2MS4xLjEJaDE6SDVEa0V0ZjZDWGRGcDBOMEVtNVVDd1FwWE1Xa2U4SUEwK2xENDhhd01Zbz0KZGVwCWdpdGh1Yi5jb20vaGFzaGljb3JwL2dvLXZlcnNpb24JdjEuNy4wCWgxOjV0cUd5MjdOYU9UQjh5SktVWkVMbEZBUy9MVEtKa3JtT053UUtlUlpmalk9CmRlcAlnaXRodWIuY29tL2hhc2hpY29ycC9nb2xhbmctbHJ1L3YyCXYyLjAuNwloMTphK2JzUTVydkdManpIdXd3NnRWeG96UFpGVmdoWGFIT3dGczRsdUxVSzJrPQpkZXAJZ2l0aHViLmNvbS9oYXNoaWNvcnAvaGNsCXYxLjAuMAloMTowQW5sempwaTR2RWFzVGVORm4ybUxKZ1RTd3QwKzZzZnNpVEc4cWNXR3g0PQpkZXAJZ2l0aHViLmNvbS9odWFuZHUveHN0cmluZ3MJdjEuNS4wCWgxOjJhZzNJRnE5WkRBTnZ0aFR3VGlxU1NaTGpEYytCZWR2SFBBcDV0SnkyVEk9CmRlcAlnaXRodWIuY29tL2tsYXVzcG9zdC9jb21wcmVzcwl2MS4xNy4xMQloMTpJbjZ4THB5V09pMStDN3RYVVVXdjJvdDFRdkJqeGV2S0FhSTZJWHJKbVVjPQpkZXAJZ2l0aHViLmNvbS9rbGF1c3Bvc3QvcGd6aXAJdjEuMi42CWgxOjhSWGVMNWNyakVVRm5SMi9TbjZHSk5XdFNRM0RrOHBxNENMM2p2ZER5alU9CmRlcAlnaXRodWIuY29tL2x1Y2FzYi1leWVyL2dvLWNvbG9yZnVsCXYxLjIuMAloMToxbm5wR09yaHlaWnVOeWZ1MVFqS2lVSUNRNzQrM0ZOQ042OUFqNks3bmtZPQpkZXAJZ2l0aHViLmNvbS9tYWdpY29uYWlyL3Byb3BlcnRpZXMJdjEuOC45CWgxOm5XY0NiTHExTjJ2L2NwTnN5NVd2UTM3RmIrWUVsZnEyMFdKL2E4UmtwUU09CmRlcAlnaXRodWIuY29tL21hdHRuL2dvLWNvbG9yYWJsZQl2MC4xLjE0CWgxOjlBOUxIU3FGLzdkeVZWWDZnMFU5Y3dtOXBHM2tQOWdTemN1SVBIUHNhSUU9CmRlcAlnaXRodWIuY29tL21hdHRuL2dvLWlzYXR0eQl2MC4wLjIwCWgxOnhmRDBpRHVFS25Ea2wwM3E0bGltQit2SCtHeExFdEwvamI0eFZKU1dXRVk9CmRlcAlnaXRodWIuY29tL21hdHRuL2dvLXJ1bmV3aWR0aAl2MC4wLjE0CWgxOit4bmJaU0VlRGJPSWc1L21FNkpGMHc2bjlkdVIxbDMvV21iaW5XVndVdVU9CmRlcAlnaXRodWIuY29tL21ob2x0L2FyY2hpdmVzCXYwLjEuMgloMTpVQlNlNU5mWUtISTFzeStTNWRKc0VzRzlqc0tLazhOSkE0SENDK3hUSTRBPQpkZXAJZ2l0aHViLmNvbS9taW5pby9taW5segl2MS4wLjAJaDE6S2o3YUpaMS8vTGxUUDFETThKbTdsTkt2dkpTMm03NGd5eVhYbjMrdUpXUT0KZGVwCWdpdGh1Yi5jb20vbWl0Y2hlbGxoL2NvcHlzdHJ1Y3R1cmUJdjEuMi4wCWgxOnZwS1hUTjRld2NpMDNWbGpnL3E5UXZDR1VEdHRCT0dCSWExNVd2ZUpKR3c9CmRlcAlnaXRodWIuY29tL21pdGNoZWxsaC9tYXBzdHJ1Y3R1cmUJdjEuNS4wCWgxOmplTXNaSVlFLzA5c1dMYXo0M1BMN0d5NlJ1TWpEMmVKVnl1YWM1WjJoZFk9CmRlcAlnaXRodWIuY29tL21pdGNoZWxsaC9yZWZsZWN0d2Fsawl2MS4wLjIJaDE6RzJMeldLaTUyNFBXZ2QzbUxIVjhZNWs3czZYVXZUMEdlZjZ6eFNJZVhhUT0KZGVwCWdpdGh1Yi5jb20vbXVlc2xpL3JlZmxvdwl2MC4yLjEtMC4yMDIxMDExNTEyMzc0MC05ZTFkMGQ1M2RmNjgJaDE6eTFwL3ljYXZXakdUOUZubVNqZGJXVWxMR3ZjeHJZMFJ3M0FUbHRyeE9oaz0KZGVwCWdpdGh1Yi5jb20vbXVlc2xpL3Rlcm1lbnYJdjAuMTUuMQloMTpVenVUYi8raGhsQnVnUXoyOHJwemV5NFp1S2NaMDNNZUtzb0c3SUpaSXhzPQpkZXAJZ2l0aHViLmNvbS9ud2FwbGVzL3JhcmRlY29kZS92Mgl2Mi4xLjAJaDE6SlFsOVpvQlBEeStuSVpHYjFteDgrYW5mSHAvTFYzTkUyTWpNaXYwY3QvVT0KZGVwCWdpdGh1Yi5jb20vcGVsbGV0aWVyL2dvLXRvbWwvdjIJdjIuMi4zCWgxOlltZUh5TFk4bUZXYmRrTld3cHIrcUlMMmJFcVQwbzk1V1Nka05IdkwxMk09CmRlcAlnaXRodWIuY29tL3BpZXJyZWMvbHo0L3Y0CXY0LjEuMjEJaDE6eU9WTUxiNnFTSURQNjdwbC81RjdSZXBlS1l1L1ZtVHlFWHZ1TUk1ZDltUT0KZGVwCWdpdGh1Yi5jb20vcml2by91bmlzZWcJdjAuMi4wCWgxOlMxcEQ5d2VaQnVKZEZtb3dOd2JwaTdCSjhUTmZ0eVVJbWovMFdRaTcyalk9CmRlcAlnaXRodWIuY29tL3JzL3plcm9sb2cJdjEuMzMuMAloMToxY1UyS1prdlB4TnlmZ0VtaEhBei8xQTlCeitsbHNkWXprbFdGemdwMHI4PQpkZXAJZ2l0aHViLmNvbS9zYWdpa2F6YXJtYXJrL3Nsb2ctc2hpbQl2MC4xLjAJaDE6ZGlEQm5VTks5Ti8zNTRQZ3J4TXl3WG5Bd0VyMVFaY09yNmd0byt1Z2pZRT0KZGVwCWdpdGh1Yi5jb20vc2hvcHNwcmluZy9kZWNpbWFsCXYxLjQuMAloMTpieGwzN1J3WEJrbG1UaTBDNzlKZlhDRUJEMWNxcUh0MGJiZ0JBR0ZwODFrPQpkZXAJZ2l0aHViLmNvbS9zb3JhaXJvbGFrZS9semlwLWdvCXYwLjMuNQloMTptczVYcmk5bzFKQklXdk9GQW9yWXRVTmlrNkhJM0hnQlRrSVNpcXUwQ3dnPQpkZXAJZ2l0aHViLmNvbS9zcGYxMy9hZmVybwl2MS4xMi4wCWgxOlVjT1B5UkJZY3ptRm42eXZwaHhrbjlaRU9ZNjVjcHdHS2I1bUwzNm1ycXM9CmRlcAlnaXRodWIuY29tL3NwZjEzL2Nhc3QJdjEuNy4xCWgxOmN1TkVhZ0JRRUhXTjFGbmJHRWpDWEwyc3pZRVhxZkpQYlAySE5VYWNhOVk9CmRlcAlnaXRodWIuY29tL3NwZjEzL2NvYnJhCXYxLjkuMQloMTpDWFNhZ2dyWGRiSEs5Q0YrOHl3ajhBbWY3UEJSbVBDT0p1Z0g5NTRObmxvPQpkZXAJZ2l0aHViLmNvbS9zcGYxMy9wZmxhZwl2MS4wLjYJaDE6akZ6SEdMR0FsYjNydXhMQjhNaGJJNkE4K0FRWC8yZVc0cWV5TlpYTnAybz0KZGVwCWdpdGh1Yi5jb20vc3BmMTMvdmlwZXIJdjEuMTkuMAloMTpSV3E1U0VqdDhvMjVTUk95TjN6Mk9yREI5bDdSUGQzbHdUV1U4RWNFZGNJPQpkZXAJZ2l0aHViLmNvbS9zdWJvc2l0by9nb3RlbnYJdjEuNi4wCWgxOjlObFREYzFGVHM0cXUwRERxN0FFdFRQTnc2U1ZtN3VCTXNVQ1VqQUJJZjg9CmRlcAlnaXRodWIuY29tL3RldHJhdGVsYWJzL3dhemVybwl2MS45LjAJaDE6SWNaNTZPdXhydGFFejhVWU5SSEJyVWE5YlllWDlvVlk5M0tzcFpaQmYvST0KZGVwCWdpdGh1Yi5jb20vdGhlcm9vdGNvbXBhbnkveHoJdjEuMC4xCWgxOkNtT3RzbjFDYnRteVlpdXNiZm1obWtwQUFFVGowd0JJSDZrQ1lhWCt4enc9CmRlcAlnaXRodWIuY29tL3VsaWt1bml0ei94egl2MC41LjEyCWgxOjM3Tm0xNW82OVJ3QmtYTTBKNkE1T2xFNjdSWlRmelV4VGo4ZkIzZGZjc2M9CmRlcAlnaXRodWIuY29tL3dhc2lsaWJzL2dvLXJlMgl2MS45LjAJaDE6a2pBZDhxYk52VjRWZTJVZit6cnBUQ3JESHRxSDRkbHNSWGt0eXdvNzNKUT0KZGVwCWdpdGh1Yi5jb20vd2FzaWxpYnMvd2F6ZXJvLWhlbHBlcnMJdjAuMC4wLTIwMjQwNjIwMDcwMzQxLTNkZmYxNTc3Y2Q1MgloMTpPdkxCYThTcUpuWjZQK21qbHpjMks3UE0yMnJSVVBFMXgzMkc5RFRQckM0PQpkZXAJZ2l0aHViLmNvbS96cmljZXRoZXphdi9naXRsZWFrcy92OAkoZGV2ZWwpCQpkZXAJZ280Lm9yZwl2MC4wLjAtMjAyMzAyMjUwMTIwNDgtMjE0ODYyNTMyYmY1CWgxOm5pZmFVRGVoK3JQYUJDTVBNUUhabXZKZitRZHBMRm51UVB3eCtMeFZtdGM9CmRlcAlnb2xhbmcub3JnL3gvY3J5cHRvCXYwLjM1LjAJaDE6YjE1a2lIZHJHQ0hyUDZMdndhUTNjMDNrZ05oaGlNZ3ZsaHhIUWhtZzJYcz0KZGVwCWdvbGFuZy5vcmcveC9leHAJdjAuMC4wLTIwMjUwMjE4MTQyOTExLWFhNGI5OGU1YWRhYQloMTp0MlFjVTZWNTU2YkZqWWd1NEw2Qys2VnJDUHlKWitleVJzQUJVUHMxbXo0PQpkZXAJZ29sYW5nLm9yZy94L3N5bmMJdjAuMTEuMAloMTpHR3o4K1hRUDRGdlRUcmpaUHpOS1RNRnRTWEg4MFJBekcrNWdoRlBnSzl3PQpkZXAJZ29sYW5nLm9yZy94L3N5cwl2MC4zMC4wCWgxOlFqa1N3UC8zNmEyMGpGWVdrU3VlMVl3WHpMbXNWNUdmcTdFaXk3MkMxdWM9CmRlcAlnb2xhbmcub3JnL3gvdGV4dAl2MC4yMi4wCWgxOmJvZnE3bTMvSEFGdmJGNTFqejNROXdMZzNqa3ZTUHVpWnUvcEQxWHdndE09CmRlcAlnb3BrZy5pbi9pbmkudjEJdjEuNjcuMAloMTpEZ254KzYrbmZFK0lmempVRUlTTmV5ZFBKaDlBWE5Oc1diR1A5S3pDc09BPQpkZXAJZ29wa2cuaW4veWFtbC52Mwl2My4wLjEJaDE6ZnhWbS9HekF6RVdxTEh1dmN0STkxS1M5aGhObW1XT29XdTBYVFlKUzdDQT0KYnVpbGQJLWJ1aWxkbW9kZT1leGUKYnVpbGQJLWNvbXBpbGVyPWdjCmJ1aWxkCS1sZGZsYWdzPSItcyAtdyAtWD1naXRodWIuY29tL3pyaWNldGhlemF2L2dpdGxlYWtzL3Y4L3ZlcnNpb24uVmVyc2lvbj04LjMwLjEiCmJ1aWxkCS10YWdzPWdvcmUycmVnZXgKYnVpbGQJQ0dPX0VOQUJMRUQ9MApidWlsZAlHT0FSQ0g9YW1kNjQKYnVpbGQJR09PUz1saW51eApidWlsZAlHT0FNRDY0PXYxCvkyQzGGGCByAIJCEEEW2PI=",
+      "version_location": {
+        "offset": 17883169,
+        "bytes": 9
+      },
+      "module_location": {
+        "offset": 17883180,
+        "bytes": 6110
+      },
+      "module": {
+        "path": "command-line-arguments",
+        "main": null,
+        "dependencies": [
+          {
+            "path": "dario.cat/mergo",
+            "version": "v1.0.1",
+            "sum": "h1:Ra4+bf83h2ztPIQYNP99R6m+Y7KfnARDfID+a+vLl4s=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/BobuSumisu/aho-corasick",
+            "version": "v1.0.3",
+            "sum": "h1:uuf+JHwU9CHP2Vx+wAy6jcksJThhJS9ehR8a+4nPE9g=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/Masterminds/goutils",
+            "version": "v1.1.1",
+            "sum": "h1:5nUrii3FMTL5diU80unEVvNevw1nH4+ZV4DSLVJLSYI=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/Masterminds/semver/v3",
+            "version": "v3.3.0",
+            "sum": "h1:B8LGeaivUe71a5qox1ICM/JLl0NqZSW5CHyL+hmvYS0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/Masterminds/sprig/v3",
+            "version": "v3.3.0",
+            "sum": "h1:mQh0Yrg1XPo6vjYXgtf5OtijNAKJRNcTdOOGZe3tPhs=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/STARRY-S/zip",
+            "version": "v0.2.1",
+            "sum": "h1:pWBd4tuSGm3wtpoqRZZ2EAwOmcHK6XFf7bU9qcJXyFg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/andybalholm/brotli",
+            "version": "v1.1.2-0.20250424173009-453214e765f3",
+            "sum": "h1:8PmGpDEZl9yDpcdEr6Odf23feCxK3LNUNMxjXg41pZQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/aymanbagabas/go-osc52/v2",
+            "version": "v2.0.1",
+            "sum": "h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/plumbing",
+            "version": "v1.3.0",
+            "sum": "h1:pf9Itz1JOQgn7vEOE7v7nlEfBykYqvUYioC61TwWCFU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/sevenzip",
+            "version": "v1.6.0",
+            "sum": "h1:a4R0Wu6/P1o1pP/3VV++aEOcyeBxeO/xE2Y9NSTrr6A=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/bodgit/windows",
+            "version": "v1.0.1",
+            "sum": "h1:tF7K6KOluPYygXa3Z2594zxlkbKPAOvqr97etrGNIz4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/charmbracelet/lipgloss",
+            "version": "v0.5.0",
+            "sum": "h1:lulQHuVeodSgDez+3rGiuxlPVXSnhth442DATR2/8t8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/dsnet/compress",
+            "version": "v0.0.2-0.20230904184137-39efe44ab707",
+            "sum": "h1:2tV76y6Q9BB+NEBasnqvs7e49aEBFI8ejC89PSnWH+4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/fatih/semgroup",
+            "version": "v1.2.0",
+            "sum": "h1:h/OLXwEM+3NNyAdZEpMiH1OzfplU09i2qXPVThGZvyg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/fsnotify/fsnotify",
+            "version": "v1.8.0",
+            "sum": "h1:dAwr6QBTBZIkG8roQaJjGof0pp0EeF+tNV7YBP3F/8M=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/gitleaks/go-gitdiff",
+            "version": "v0.9.1",
+            "sum": "h1:ni6z6/3i9ODT685OLCTf+s/ERlWUNWQF4x1pvoNICw0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/google/uuid",
+            "version": "v1.6.0",
+            "sum": "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/h2non/filetype",
+            "version": "v1.1.3",
+            "sum": "h1:FKkx9QbD7HR/zjK1Ia5XiBsq9zdLi5Kf3zGyFTAFkGg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/errwrap",
+            "version": "v1.1.0",
+            "sum": "h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/go-multierror",
+            "version": "v1.1.1",
+            "sum": "h1:H5DkEtf6CXdFp0N0Em5UCwQpXMWke8IA0+lD48awMYo=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/go-version",
+            "version": "v1.7.0",
+            "sum": "h1:5tqGy27NaOTB8yJKUZELlFAS/LTKJkrmONwQKeRZfjY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/golang-lru/v2",
+            "version": "v2.0.7",
+            "sum": "h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/hashicorp/hcl",
+            "version": "v1.0.0",
+            "sum": "h1:0Anlzjpi4vEasTeNFn2mLJgTSwt0+6sfsiTG8qcWGx4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/huandu/xstrings",
+            "version": "v1.5.0",
+            "sum": "h1:2ag3IFq9ZDANvthTwTiqSSZLjDc+BedvHPAp5tJy2TI=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/klauspost/compress",
+            "version": "v1.17.11",
+            "sum": "h1:In6xLpyWOi1+C7tXUUWv2ot1QvBjxevKAaI6IXrJmUc=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/klauspost/pgzip",
+            "version": "v1.2.6",
+            "sum": "h1:8RXeL5crjEUFnR2/Sn6GJNWtSQ3Dk8pq4CL3jvdDyjU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/lucasb-eyer/go-colorful",
+            "version": "v1.2.0",
+            "sum": "h1:1nnpGOrhyZZuNyfu1QjKiUICQ74+3FNCN69Aj6K7nkY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/magiconair/properties",
+            "version": "v1.8.9",
+            "sum": "h1:nWcCbLq1N2v/cpNsy5WvQ37Fb+YElfq20WJ/a8RkpQM=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mattn/go-colorable",
+            "version": "v0.1.14",
+            "sum": "h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mattn/go-isatty",
+            "version": "v0.0.20",
+            "sum": "h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mattn/go-runewidth",
+            "version": "v0.0.14",
+            "sum": "h1:+xnbZSEeDbOIg5/mE6JF0w6n9duR1l3/WmbinWVwUuU=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mholt/archives",
+            "version": "v0.1.2",
+            "sum": "h1:UBSe5NfYKHI1sy+S5dJsEsG9jsKKk8NJA4HCC+xTI4A=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/minio/minlz",
+            "version": "v1.0.0",
+            "sum": "h1:Kj7aJZ1//LlTP1DM8Jm7lNKvvJS2m74gyyXXn3+uJWQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mitchellh/copystructure",
+            "version": "v1.2.0",
+            "sum": "h1:vpKXTN4ewci03Vljg/q9QvCGUDttBOGBIa15WveJJGw=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mitchellh/mapstructure",
+            "version": "v1.5.0",
+            "sum": "h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/mitchellh/reflectwalk",
+            "version": "v1.0.2",
+            "sum": "h1:G2LzWKi524PWgd3mLHV8Y5k7s6XUvT0Gef6zxSIeXaQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/muesli/reflow",
+            "version": "v0.2.1-0.20210115123740-9e1d0d53df68",
+            "sum": "h1:y1p/ycavWjGT9FnmSjdbWUlLGvcxrY0Rw3ATltrxOhk=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/muesli/termenv",
+            "version": "v0.15.1",
+            "sum": "h1:UzuTb/+hhlBugQz28rpzey4ZuKcZ03MeKsoG7IJZIxs=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/nwaples/rardecode/v2",
+            "version": "v2.1.0",
+            "sum": "h1:JQl9ZoBPDy+nIZGb1mx8+anfHp/LV3NE2MjMiv0ct/U=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/pelletier/go-toml/v2",
+            "version": "v2.2.3",
+            "sum": "h1:YmeHyLY8mFWbdkNWwpr+qIL2bEqT0o95WSdkNHvL12M=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/pierrec/lz4/v4",
+            "version": "v4.1.21",
+            "sum": "h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/rivo/uniseg",
+            "version": "v0.2.0",
+            "sum": "h1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/rs/zerolog",
+            "version": "v1.33.0",
+            "sum": "h1:1cU2KZkvPxNyfgEmhHAz/1A9Bz+llsdYzklWFzgp0r8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/sagikazarmark/slog-shim",
+            "version": "v0.1.0",
+            "sum": "h1:diDBnUNK9N/354PgrxMywXnAwEr1QZcOr6gto+ugjYE=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/shopspring/decimal",
+            "version": "v1.4.0",
+            "sum": "h1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/sorairolake/lzip-go",
+            "version": "v0.3.5",
+            "sum": "h1:ms5Xri9o1JBIWvOFAorYtUNik6HI3HgBTkISiqu0Cwg=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/afero",
+            "version": "v1.12.0",
+            "sum": "h1:UcOPyRBYczmFn6yvphxkn9ZEOY65cpwGKb5mL36mrqs=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/cast",
+            "version": "v1.7.1",
+            "sum": "h1:cuNEagBQEHWN1FnbGEjCXL2szYEXqfJPbP2HNUaca9Y=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/cobra",
+            "version": "v1.9.1",
+            "sum": "h1:CXSaggrXdbHK9CF+8ywj8Amf7PBRmPCOJugH954Nnlo=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/pflag",
+            "version": "v1.0.6",
+            "sum": "h1:jFzHGLGAlb3ruxLB8MhbI6A8+AQX/2eW4qeyNZXNp2o=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/spf13/viper",
+            "version": "v1.19.0",
+            "sum": "h1:RWq5SEjt8o25SROyN3z2OrDB9l7RPd3lwTWU8EcEdcI=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/subosito/gotenv",
+            "version": "v1.6.0",
+            "sum": "h1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/tetratelabs/wazero",
+            "version": "v1.9.0",
+            "sum": "h1:IcZ56OuxrtaEz8UYNRHBrUa9bYeX9oVY93KspZZBf/I=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/therootcompany/xz",
+            "version": "v1.0.1",
+            "sum": "h1:CmOtsn1CbtmyYiusbfmhmkpAAETj0wBIH6kCYaX+xzw=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/ulikunitz/xz",
+            "version": "v0.5.12",
+            "sum": "h1:37Nm15o69RwBkXM0J6A5OlE67RZTfzUxTj8fB3dfcsc=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/wasilibs/go-re2",
+            "version": "v1.9.0",
+            "sum": "h1:kjAd8qbNvV4Ve2Uf+zrpTCrDHtqH4dlsRXktywo73JQ=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/wasilibs/wazero-helpers",
+            "version": "v0.0.0-20240620070341-3dff1577cd52",
+            "sum": "h1:OvLBa8SqJnZ6P+mjlzc2K7PM22rRUPE1x32G9DTPrC4=",
+            "replacement": null
+          },
+          {
+            "path": "github.com/zricethezav/gitleaks/v8",
+            "version": "(devel)",
+            "sum": "",
+            "replacement": null
+          },
+          {
+            "path": "go4.org",
+            "version": "v0.0.0-20230225012048-214862532bf5",
+            "sum": "h1:nifaUDeh+rPaBCMPMQHZmvJf+QdpLFnuQPwx+LxVmtc=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/crypto",
+            "version": "v0.35.0",
+            "sum": "h1:b15kiHdrGCHrP6LvwaQ3c03kgNhhiMgvlhxHQhmg2Xs=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/exp",
+            "version": "v0.0.0-20250218142911-aa4b98e5adaa",
+            "sum": "h1:t2QcU6V556bFjYgu4L6C+6VrCPyJZ+eyRsABUPs1mz4=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/sync",
+            "version": "v0.11.0",
+            "sum": "h1:GGz8+XQP4FvTTrjZPzNKTMFtSXH80RAzG+5ghFPgK9w=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/sys",
+            "version": "v0.30.0",
+            "sum": "h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=",
+            "replacement": null
+          },
+          {
+            "path": "golang.org/x/text",
+            "version": "v0.22.0",
+            "sum": "h1:bofq7m3/HAFvbF51jz3Q9wLg3jkvSPuiZu/pD1XwgtM=",
+            "replacement": null
+          },
+          {
+            "path": "gopkg.in/ini.v1",
+            "version": "v1.67.0",
+            "sum": "h1:Dgnx+6+nfE+IfzjUEISNeydPJh9AXNNsWbGP9KzCsOA=",
+            "replacement": null
+          },
+          {
+            "path": "gopkg.in/yaml.v3",
+            "version": "v3.0.1",
+            "sum": "h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=",
+            "replacement": null
+          }
+        ],
+        "settings": [
+          {
+            "key": "-buildmode",
+            "value": "exe"
+          },
+          {
+            "key": "-compiler",
+            "value": "gc"
+          },
+          {
+            "key": "-ldflags",
+            "value": "-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=8.30.1"
+          },
+          {
+            "key": "-tags",
+            "value": "gore2regex"
+          },
+          {
+            "key": "CGO_ENABLED",
+            "value": "0"
+          },
+          {
+            "key": "GOARCH",
+            "value": "amd64"
+          },
+          {
+            "key": "GOOS",
+            "value": "linux"
+          },
+          {
+            "key": "GOAMD64",
+            "value": "v1"
+          }
+        ],
+        "unparsed_lines": [],
+        "unparsed_line_bytes_base64": [],
+        "complete": true
+      }
+    },
+    "limitations": [
+      "Embedded build metadata is observed file content, not proof of compiler identity, dependency authenticity or runtime behavior.",
+      "Only Go build information is inspected; function names, source mappings, type metadata and decompiled code are not recovered.",
+      "Resource guards bound stable artifact reads and cumulative header searches to 256 MiB each, aggregate embedded strings to 1 MiB, structural table decoding to 16 MiB and complete metadata payloads to 8 MiB; these are not operating-system memory or CPU limits.",
+      "Dependency coverage is unknown because no main-module record was decoded from the embedded module information, as in GOPATH-mode builds. Decoded dependency records remain visible; an empty list does not establish the absence of dependencies."
+    ]
+  },
+  "confidence": "observed",
+  "authority": "shipped-artifact",
+  "environment": null,
+  "limitations": [
+    "Embedded build metadata is observed file content, not proof of compiler identity, dependency authenticity or runtime behavior.",
+    "Only Go build information is inspected; function names, source mappings, type metadata and decompiled code are not recovered.",
+    "Resource guards bound stable artifact reads and cumulative header searches to 256 MiB each, aggregate embedded strings to 1 MiB, structural table decoding to 16 MiB and complete metadata payloads to 8 MiB; these are not operating-system memory or CPU limits.",
+    "Dependency coverage is unknown because no main-module record was decoded from the embedded module information, as in GOPATH-mode builds. Decoded dependency records remain visible; an empty list does not establish the absence of dependencies."
+  ],
+  "relationship_coverage": null,
+  "locations": [
+    {
+      "kind": "artifact-path",
+      "path": "/home/buggy1111/dev/work/agent-lease-b7-ready-9134485/pilot/tooldeps/bin/gitleaks"
+    },
+    {
+      "kind": "file-offset-range",
+      "start": 17883136,
+      "end": 17883168
+    }
+  ],
+  "evidence_links": []
+}
