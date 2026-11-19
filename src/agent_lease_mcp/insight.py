@@ -32,7 +32,7 @@ def snapshot(db_path: Path) -> Iterator[sqlite3.Connection]:
     with tempfile.TemporaryDirectory(prefix="agent-lease-insight-") as tmp:
         os.chmod(tmp, 0o700)
         copy = Path(tmp) / "room.db"
-        src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        src = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
         dst = sqlite3.connect(copy)
         try:
             src.backup(dst)
@@ -171,13 +171,17 @@ def harness_findings(home: Path) -> list[dict]:
     return found
 
 
-_ERROR_KIND = re.compile(r"^([a-z][a-z0-9 _-]{0,30}):")
+# Předpony, které do `last_error` píše sám agent-lease; nic jiného se do zprávy nekopíruje.
+ERROR_KINDS = ("research", "bridge", "fix", "budget", "checkpoint", "failover", "timeout")
 
 
 def error_kind(last_error: str | None) -> str:
-    """Bezpečná kategorie důvodu (předpona „research:“, „timeout:“ …), nikdy surový text."""
-    m = _ERROR_KIND.match((last_error or "").strip().lower())
-    return m.group(1) if m else ("bez důvodu" if not (last_error or "").strip() else "jiný")
+    """Kategorie ze seznamu známých hodnot, jinak obecně „jiný“; nikdy surový text."""
+    text = (last_error or "").strip().lower()
+    if not text:
+        return "bez důvodu"
+    head = text.split(":", 1)[0] if ":" in text else ""
+    return head if head in ERROR_KINDS else "jiný"
 
 
 def room_findings(con: sqlite3.Connection, since: float) -> list[dict]:
@@ -284,6 +288,31 @@ def _search(con: sqlite3.Connection, query: str, project: str, k: int, *, retire
                                           include_retired=retired, limit=k)
 
 
+def _summary(results: list[dict]) -> dict:
+    scored = [r for r in results if not r["outdated_case"]]
+    n = len(scored)
+    return {
+        "cases": len(results), "scored": n, "outdated_cases": len(results) - n,
+        "precision": sum(r["precision"] for r in scored) / n if n else 0.0,
+        "recall": sum(r["recall"] for r in scored) / n if n else 0.0,
+        "mrr": sum(r["rr"] for r in scored) / n if n else 0.0,
+        "wrong_recall": sum(bool(r["wrong_recall"]) for r in scored),
+        "unverified_returned": sum(len(r["unverified_returned"]) for r in scored),
+        "retired_diag": sum(bool(r["retired_diag"]) for r in results),
+    }
+
+
+def comparable(report: dict, baseline: dict) -> tuple[dict, dict, int]:
+    """Souhrny obou běhů na PRŮNIKU bodovaných případů (změna sady nesmí zkreslit průměry)."""
+    def scored(rep):
+        return {c.get("key"): c for c in rep.get("cases", []) if c.get("key") and not c.get("outdated_case")}
+    now, old = scored(report), scored(baseline)
+    common = sorted(now.keys() & old.keys())
+    if not common:
+        raise ValueError("baseline shares no scored case with this run; not comparable")
+    return _summary([now[k] for k in common]), _summary([old[k] for k in common]), len(common)
+
+
 def recall_bench(con: sqlite3.Connection, cases: list[dict]) -> dict:
     """
     Relevantní = ID v `expect`; případ je „zastaralý“, když očekávaný záznam už neexistuje,
@@ -306,7 +335,7 @@ def recall_bench(con: sqlite3.Connection, cases: list[dict]) -> dict:
         first = next((n for n, i in enumerate(ids, 1) if i in expect), None)
         diag = _search(con, c["query"], c["project"], c["k"], retired=True)
         results.append({
-            "query": c["query"], "k": c["k"], "returned": ids, "statuses": statuses,
+            "key": cases_fingerprint([c]), "query": c["query"], "k": c["k"], "returned": ids, "statuses": statuses,
             "outdated_case": outdated,
             "precision": len(relevant) / len(ids) if ids else (1.0 if not expect else 0.0),
             "recall": len(set(relevant)) / len(expect) if expect else 1.0,
@@ -315,37 +344,28 @@ def recall_bench(con: sqlite3.Connection, cases: list[dict]) -> dict:
             "unverified_returned": [h["id"] for h in hits if h["status"] == "unverified"],
             "retired_diag": [h["id"] for h in diag if h["status"] in ("stale", "rejected")],
         })
-    scored = [r for r in results if not r["outdated_case"]]
-    n = len(scored)
-    summary = {
-        "cases": len(results), "scored": n, "outdated_cases": len(results) - n,
-        "precision": sum(r["precision"] for r in scored) / n if n else 0.0,
-        "recall": sum(r["recall"] for r in scored) / n if n else 0.0,
-        "mrr": sum(r["rr"] for r in scored) / n if n else 0.0,
-        "wrong_recall": sum(bool(r["wrong_recall"]) for r in scored),
-        "unverified_returned": sum(len(r["unverified_returned"]) for r in scored),
-        "retired_diag": sum(bool(r["retired_diag"]) for r in results),
-    }
+    summary = _summary(results)
     return {"kind": "recall-bench", "generated_at": time.time(), "fingerprint": cases_fingerprint(cases),
             "summary": summary, "cases": results}
 
 
 def recall_markdown(report: dict, baseline: dict | None = None) -> str:
-    s = report["summary"]
-    if baseline and baseline.get("fingerprint") != report["fingerprint"]:
-        raise ValueError("baseline was measured on different cases or parameters; not comparable")
+    s, base, common = report["summary"], None, 0
+    if baseline:
+        s, base, common = comparable(report, baseline)
     lines = ["# Recall benchmark paměti (D1)", "",
              ("Režim jako u agenta: ověřené první, vyřazené jen na vyžádání. Neověřené záznamy jsou "
               "tvrzení, ne fakta; benchmark je jen počítá, nepovyšuje."), "",
-             f"Sada `{report['fingerprint']}`.", "",
+             f"Sada `{report['fingerprint']}`." + (f" Srovnání s baseline jen na průniku {common} bodovaných "
+                                                    "případů (stejný dotaz i parametry)." if baseline else ""), "",
              "| metrika | hodnota |" + (" baseline | rozdíl |" if baseline else ""),
              "| --- | --- |" + (" --- | --- |" if baseline else "")]
     for key in ("cases", "scored", "outdated_cases", "precision", "recall", "mrr", "wrong_recall",
                 "unverified_returned", "retired_diag"):
         val = s[key]
         row = f"| {key} | {val:.3f} |" if isinstance(val, float) else f"| {key} | {val} |"
-        if baseline:
-            old = baseline["summary"].get(key)
+        if base:
+            old = base.get(key)
             if isinstance(old, (int, float)):
                 row += f" {old:.3f} | {val - old:+.3f} |" if isinstance(val, float) else f" {old} | {val - old:+d} |"
             else:
@@ -367,47 +387,58 @@ MIN_SAMPLE = 5
 
 def efficiency(con: sqlite3.Connection, since: float) -> dict:
     """
-    Kohorta: úkoly odeslané od `since`. Atribuce: každý pokus se počítá příjemci, který ho
-    spustil (`task_usage.recipient`); při failoveru má úkol doručenku u každého příjemce zvlášť.
-    „Dokončeno“ = stav doručení `succeeded`, NE ověřená správnost. Neznámé tokeny a neznámá
-    cena se vedou zvlášť; skupina s neznámou hodnotou nemá průměr na dokončení.
+    Kohorta: úkoly odeslané od `since`. Všechny historické pokusy úkolu se čtou přes
+    `message_id` (failover přepíše příjemce doručenky, starší pokusy jiného příjemce se tím
+    neztratí). Pokus se počítá skupině příjemce × model (skutečný; u nehlášeného pokusu
+    požadovaný) × druh, ve které běžel. „Dokončení“ (stav doručení `succeeded`, NE ověřená
+    správnost) dostane jen poslední pokus finálního příjemce. Pokus bez reportu nebo s
+    neúplnými tokeny (`_NO_TOKENS`) znamená neznámé tokeny; skupina pak nemá průměr.
     """
+    from ._usage import _NO_TOKENS, _TOKENS
     tables = _tables(con)
     if not {"task_usage", "deliveries", "messages"} <= tables:
-        return {"kind": "efficiency", "generated_at": time.time(), "groups": [], "unreported": 0}
+        return {"kind": "efficiency", "generated_at": time.time(), "groups": []}
+    final = {r["message_id"]: r for r in con.execute(
+        "SELECT d.message_id, d.recipient, d.state, d.updated_at, m.sent_at, m.kind FROM deliveries d "
+        "JOIN messages m ON m.id=d.message_id WHERE m.sent_at>=?", (since,))}
     rows = con.execute(
-        "SELECT u.message_id, u.recipient, u.source, COALESCE(u.model, '?') AS model, "
-        "COALESCE(u.requested_model, '') AS requested, "
-        "u.input_tokens, u.output_tokens, u.cache_read_tokens, u.cache_creation_tokens, u.cost_usd, "
-        "d.state, m.kind, m.sent_at, d.updated_at "
-        "FROM task_usage u JOIN deliveries d ON d.message_id=u.message_id AND d.recipient=u.recipient "
-        "JOIN messages m ON m.id=u.message_id WHERE m.sent_at>=?", (since,)).fetchall()
-    token_cols = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")
-    groups: dict[tuple, dict] = {}
-    unreported = 0
+        f"SELECT u.message_id, u.recipient, u.attempt, u.at, u.source, u.model, u.requested_model, u.cost_usd, "
+        f"({_TOKENS}) AS tokens, {_NO_TOKENS} AS no_tokens FROM task_usage u "
+        "JOIN messages m ON m.id=u.message_id WHERE m.sent_at>=? ORDER BY u.message_id, u.at, u.attempt",
+        (since,)).fetchall()
+    last_of_final: dict[int, tuple] = {}
     for r in rows:
-        if r["source"] == "unreported":
-            unreported += 1
+        d = final.get(r["message_id"])
+        if d is not None and r["recipient"] == d["recipient"]:
+            last_of_final[r["message_id"]] = (r["recipient"], r["attempt"], r["at"])
+    groups: dict[tuple, dict] = {}
+    for r in rows:
+        d = final.get(r["message_id"])
+        if d is None:
             continue
-        model = r["model"] if not r["requested"] or r["requested"] == r["model"] \
-            else f"{r['model']} (chtěno {r['requested']})"
-        g = groups.setdefault((r["recipient"], model, r["kind"]), {
-            "recipient": r["recipient"], "model": model, "kind": r["kind"], "tasks": {}, "attempts": 0,
-            "tokens": 0, "tokens_unknown": 0, "cost_usd": 0.0, "cost_unknown": 0})
+        unreported = r["source"] == "unreported"
+        model = (r["model"] if not unreported else None) or r["requested_model"] or "?"
+        if not unreported and r["requested_model"] and r["requested_model"] != r["model"]:
+            model = f"{r['model']} (chtěno {r['requested_model']})"
+        g = groups.setdefault((r["recipient"], model, d["kind"]), {
+            "recipient": r["recipient"], "model": model, "kind": d["kind"], "tasks": set(), "completed": [],
+            "attempts": 0, "tokens": 0, "tokens_unknown": 0, "unreported": 0, "cost_usd": 0.0, "cost_unknown": 0})
+        g["tasks"].add(r["message_id"])
         g["attempts"] += 1
-        if all(r[c] is None for c in token_cols):
+        g["unreported"] += unreported
+        if unreported or r["no_tokens"]:
             g["tokens_unknown"] += 1
         else:
-            g["tokens"] += sum(r[c] or 0 for c in token_cols)
+            g["tokens"] += r["tokens"]
         if r["cost_usd"] is None:
             g["cost_unknown"] += 1
         else:
             g["cost_usd"] += r["cost_usd"]
-        g["tasks"][r["message_id"]] = (r["state"], max(0.0, (r["updated_at"] or 0) - (r["sent_at"] or 0)))
+        if d["state"] == "succeeded" and last_of_final.get(r["message_id"]) == (r["recipient"], r["attempt"], r["at"]):
+            g["completed"].append(max(0.0, (d["updated_at"] or 0) - (d["sent_at"] or 0)))
     out = []
     for g in groups.values():
-        tasks = g.pop("tasks")
-        done = [d for st, d in tasks.values() if st == "succeeded"]
+        tasks, done = g.pop("tasks"), g.pop("completed")
         g.update({
             "task_count": len(tasks), "completed": len(done),
             "completion_rate": len(done) / len(tasks) if tasks else 0.0,
@@ -419,13 +450,13 @@ def efficiency(con: sqlite3.Connection, since: float) -> dict:
         })
         out.append(g)
     out.sort(key=lambda g: (g["kind"], g["recipient"], g["model"]))
-    return {"kind": "efficiency", "generated_at": time.time(), "groups": out, "unreported": unreported}
+    return {"kind": "efficiency", "generated_at": time.time(), "groups": out}
 
 
 def efficiency_markdown(report: dict, days: float) -> str:
     lines = [f"# Efektivita úkolů odeslaných za posledních {days:g} dní (D10)", "",
              ("„Dokončeno“ je stav doručení (`succeeded`), ne ověřená správnost; cena na dokončení je proto "
-             "jen popisná. Pokus se počítá příjemci, který ho spustil. Žádná univerzální hodnota ani "
+             "jen popisná. Pokus se počítá příjemci, který ho spustil; dokončení jen poslednímu pokusu finálního příjemce. Žádná univerzální hodnota ani "
              f"automatická volba modelu; skupiny s méně než {MIN_SAMPLE} dokončenými se neporovnávají."), ""]
     if not report["groups"]:
         lines.append("Žádná změřená data.")
@@ -442,6 +473,6 @@ def efficiency_markdown(report: dict, days: float) -> str:
                          f"{fmt(g['tokens_per_completion'], ',.0f')} | {fmt(g['cost_per_completion'], '.4f')} | "
                          f"{g['tokens_unknown']} | {g['cost_unknown']} | {fmt(g['median_seconds'], '.0f')} | "
                          f"{'malý vzorek' if g['small_sample'] else ''} |")
-    if report["unreported"]:
-        lines += ["", f"Pokusy bez reportu spotřeby: {report['unreported']} (nezapočítané)."]
+    if any(g["unreported"] for g in report["groups"]):
+        lines += ["", "Pokusy bez reportu spotřeby jsou mezi neznámými tokeny; jejich skupina nemá průměr."]
     return redact("\n".join(lines) + "\n")

@@ -50,6 +50,7 @@ def _room(tmp_path: Path) -> Path:
     con = sqlite3.connect(db)
     for mid, state, attempts, err in ((1, "needs_review", 1, f"research: client changed {SECRET}"),
                                       (2, "failed", 4, f"Traceback {SECRET}"),
+                                      (4, "failed", 1, f"{SECRET}: boom"),
                                       (3, "expired", 0, "")):
         con.execute("INSERT INTO messages(id, agent, text, sent_at, recipient, kind) VALUES (?,?,?,?,?,?)",
                     (mid, "michal", "t", now, "codex", "task"))
@@ -92,6 +93,10 @@ def test_self_audit_cli_offline_writes_private_file(broken_home, tmp_path, monke
     assert SECRET not in out.read_text()
     assert hashlib.sha256(db.read_bytes()).hexdigest() == db_hash
     assert not (tmp_path / "no-broker.sock").exists()
+    # --out nikdy nepřepíše existující soubor (ani DB)
+    assert cli_main(["self-audit", "--out", str(db)]) == 1
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == db_hash
+    assert cli_main(["self-audit", "--out", str(out)]) == 1
 
 
 # ── D9 ──────────────────────────────────────────────────────────────────────
@@ -134,9 +139,15 @@ def test_recall_bench_metrics_follow_agent_search(memory):
     assert s["precision"] == 0.75 and s["recall"] == 1.0 and s["wrong_recall"] == 1
     md = insight.recall_markdown(rep, rep)
     assert "| precision | 0.750 | 0.750 | +0.000 |" in md
-    other = dict(rep, fingerprint="different")
+    # baseline jen s prvním případem: srovnává se na průniku, ne průměr jiné sady
+    with insight.snapshot(db) as con:
+        base = insight.recall_bench(con, cases[:1])
+    md = insight.recall_markdown(rep, base)
+    assert "průniku 1" in md and "| precision | 0.500 | 0.500 | +0.000 |" in md
+    with insight.snapshot(db) as con:
+        unrelated = insight.recall_bench(con, [dict(cases[1], k=3)])
     with pytest.raises(ValueError, match="not comparable"):
-        insight.recall_markdown(rep, other)
+        insight.recall_markdown(rep, unrelated)
 
 
 def test_recall_cases_file_validation(tmp_path):
@@ -162,40 +173,58 @@ def test_recall_bench_cli_uses_snapshot(memory, tmp_path, monkeypatch):
 # ── D10 ─────────────────────────────────────────────────────────────────────
 
 
-def test_efficiency_per_completed_task(tmp_path):
+def test_efficiency_failover_retry_and_unknown(tmp_path):
     db = tmp_path / "room.db"
     Store(db)
     now = time.time()
     con = sqlite3.connect(db)
+    full = {"input_tokens": 100, "output_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0}
 
-    def task(mid, recipient, state, usage_rows):
+    def task(mid, final_recipient, state, attempts):
         con.execute("INSERT INTO messages(id, agent, text, sent_at, recipient, kind) VALUES (?,?,?,?,?,?)",
-                    (mid, "michal", "t", now - 100, recipient, "task"))
+                    (mid, "michal", "t", now - 100, final_recipient, "task"))
         con.execute("INSERT INTO deliveries(message_id, recipient, state, attempts, updated_at) VALUES (?,?,?,?,?)",
-                    (mid, recipient, state, len(usage_rows), now))
-        for n, (source, model, tokens, cost) in enumerate(usage_rows, 1):
-            con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, input_tokens, "
-                        "output_tokens, cost_usd) VALUES (?,?,?,?,?,?,?,?,?)",
-                        (mid, recipient, n, now, source, model, tokens, 0 if tokens is not None else None, cost))
+                    (mid, final_recipient, state, len(attempts), now))
+        for n, (recipient, source, model, requested, tokens, cost) in enumerate(attempts, 1):
+            cols = {**{k: None for k in full}, **(tokens or {})}
+            con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source, model, requested_model, "
+                        "input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (mid, recipient, n, now - 50 + n, source, model, requested, *cols.values(), cost))
 
-    task(1, "claude-code", "succeeded", [("claude-json", "opus", 1000, 0.10)])
-    task(2, "claude-code", "succeeded", [("claude-json", "opus", 500, 0.20), ("claude-json", "opus", 500, 0.10)])
-    task(3, "claude-code", "failed", [("claude-json", "opus", 3000, 0.30)])
-    task(4, "codex", "succeeded", [("codex-jsonl", "gpt", 800, None)])
-    task(5, "codex", "succeeded", [("unreported", None, None, None)])
+    # 1: failover codex → claude-code; starší pokus codexu se neztratí, dokončení dostane jen claude-code
+    task(1, "claude-code", "succeeded", [("codex", "codex-jsonl", "gpt", None, {**full, "cache_creation_tokens": None}, None),
+                                          ("claude-code", "claude-json", "opus", None, full, 0.1)])
+    # 2: retry s jiným modelem; dokončení dostane jen poslední (sonnet)
+    task(2, "claude-code", "succeeded", [("claude-code", "claude-json", "opus", None, full, 0.1),
+                                          ("claude-code", "claude-json", "sonnet", None, full, 0.2)])
+    # 3: částečné tokeny (claude bez cache_creation) → neznámé
+    task(3, "claude-code", "succeeded", [("claude-code", "claude-json", "haiku", None, {**full, "cache_creation_tokens": None}, 0.1)])
+    # 4: nehlášený pokus s požadovaným modelem opus blokuje průměr skupiny opus
+    task(4, "claude-code", "failed", [("claude-code", "unreported", None, "opus", None, None)])
     con.commit()
     con.close()
     with insight.snapshot(db) as c:
         rep = insight.efficiency(c, now - 3600)
-    g = {x["recipient"]: x for x in rep["groups"]}
-    cc = g["claude-code"]
-    assert cc["task_count"] == 3 and cc["completed"] == 2 and cc["attempts"] == 4
-    assert cc["tokens_per_completion"] == 2500 and cc["cost_per_completion"] == pytest.approx(0.35)
-    assert cc["small_sample"] is True
-    assert g["codex"]["cost_unknown"] == 1 and g["codex"]["cost_per_completion"] is None
-    assert rep["unreported"] == 1
+    g = {(x["recipient"], x["model"]): x for x in rep["groups"]}
+    codex = g[("codex", "gpt")]
+    assert codex["attempts"] == 1 and codex["completed"] == 0 and codex["tokens_unknown"] == 0  # codex bez cache_creation je úplný
+    opus = g[("claude-code", "opus")]
+    assert opus["task_count"] == 3 and opus["completed"] == 1 and opus["unreported"] == 1
+    assert opus["tokens_unknown"] == 1 and opus["tokens_per_completion"] is None
+    sonnet = g[("claude-code", "sonnet")]
+    assert sonnet["completed"] == 1 and sonnet["tokens_per_completion"] == 100 and sonnet["cost_per_completion"] == 0.2
+    haiku = g[("claude-code", "haiku")]
+    assert haiku["completed"] == 1 and haiku["tokens_unknown"] == 1 and haiku["tokens_per_completion"] is None
     md = insight.efficiency_markdown(rep, 30)
-    assert "ne ověřená správnost" in md and "malý vzorek" in md
+    assert "ne ověřená správnost" in md and "malý vzorek" in md and "bez reportu" in md
+
+
+def test_error_kind_allowlist():
+    assert insight.error_kind("research: client changed") == "research"
+    assert insight.error_kind(f"{SECRET}: boom") == "jiný"
+    assert insight.error_kind("Traceback (most recent call last)") == "jiný"
+    assert insight.error_kind("") == "bez důvodu"
 
 
 # ── D11 ─────────────────────────────────────────────────────────────────────

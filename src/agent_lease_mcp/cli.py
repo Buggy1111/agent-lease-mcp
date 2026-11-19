@@ -83,7 +83,11 @@ def _report(args) -> int:
         text = redact(_json.dumps(report, ensure_ascii=False, indent=2)) + "\n"
     if args.out:
         out = _Path(args.out)
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        try:  # jen nový soubor: --out nikdy nepřepíše vstup, DB ani konfiguraci
+            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            print(f"{out} already exists; choose a new file", file=sys.stderr)
+            return 1
         with os.fdopen(fd, "w") as f:
             f.write(text)
     else:
