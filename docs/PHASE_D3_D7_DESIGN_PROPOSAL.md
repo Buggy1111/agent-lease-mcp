@@ -1,6 +1,6 @@
 # Fáze D3–D7 – výzkumný tým: návrh
 
-**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** 2. verze po oponentuře Noxe (#29), ke schválení Michalem. **Není to souhlas s implementací.**
+**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** 3. verze po dvou kolech oponentury Noxe (#29), ke schválení Michalem. **Není to souhlas s implementací.**
 
 Roadmapa: D3 výzkumný tým (paralelní rešerše, rozdělení témat, deduplikace, syntéza), D4 průzkum konkurence a známých problémů, D5 ověřování a archivace v `docs/research/` s vazbou na D1, D6 porovnání variant před programováním, D7 rozpočet výzkumu.
 
@@ -41,9 +41,9 @@ Stav výzkumu: `running` → `synthesizing` → `done` | `partial` | `failed` | 
 - **Spuštění syntézy:** jedna funkce `_research_advance(id)` v jedné transakci `BEGIN IMMEDIATE`: podmíněně převede `running` → `synthesizing`, zapíše rozhodný čas (`cutoff_at`) a seznam použitých podúkolů a založí **právě jednu** zprávu syntézy, jejíž ID uloží do stejného řádku. Volá ji dokončení podúkolu i pravidelná kontrola termínu; druhé volání nic neudělá (`rowcount = 0`). Pád mezi kroky nemůže nastat, protože jsou v jedné transakci.
 - **Cutoff:** počítají se podúkoly ve stavu `succeeded` k okamžiku `cutoff_at`. Nedokončené podúkoly se ve stejné transakci zruší (stávající `cancel`).
 - **Bez použitelného výsledku:** žádný podúkol `succeeded` → `failed`, syntéza se nezakládá.
-- **Syntéza** má vlastní termín (výchozí 30 min). Po něm nebo při selhání → `partial` se surovými výsledky částí.
-- **Ruční zrušení** (zadavatel nebo člověk): podmíněně do `cancelled` a zruší podúkoly i syntézu, ať běží nebo čeká.
-- **Obnova po restartu:** kontrola termínů běží i při startu brokera; výzkum `running` po termínu se posune stejnou funkcí.
+- **Termíny jsou pevné časy v DB**, ne odpočet v paměti: `deadline_at` (části) se zapíše při založení, `synth_deadline_at` (výchozí +30 min) ve stejné transakci jako přechod do `synthesizing`. Po `synth_deadline_at` nebo při selhání syntézy → `partial` se surovými výsledky částí. Restart na tom nic nemění.
+- **Ruční zrušení** (zadavatel nebo člověk): podmíněně do `cancelled` a zruší podúkoly i syntézu, ať běží nebo čeká. Zrušení výzkumu **nevolá** veřejné `cancel` pro každou zprávu (to otevírá vlastní `BEGIN IMMEDIATE` a čeká na `launch_gate`). Transakční část zrušení doručenek se vyčlení do interní funkce nad *stejným* spojením; přechod výzkumu i zrušení všech jeho doručenek jsou jedna transakce. Bariéra `with launch_gate(): pass` (počkat, až doběhne případné spuštění, které začalo před zrušením) proběhne **až po commitu**, stejně jako dnes v `cancel` a `set_mode`. Totéž platí pro zrušení nedokončených částí při cutoffu.
+- **Obnova po restartu:** kontrola termínů běží i při startu brokera; výzkum `running` po `deadline_at` a `synthesizing` po `synth_deadline_at` se posune stejnými funkcemi.
 - **Limit souběhu** se kontroluje ve stejné transakci jako vložení nového výzkumu (`SELECT count(*) … WHERE state IN ('running','synthesizing')`).
 
 ## 4. Druhy (D4, D6) = šablony zadání, ne nový kód
@@ -66,10 +66,11 @@ Výstup podúkolu má pevný tvar (JSON blok): `findings: [{claim, kind: fact|pr
 | Tokeny na podúkol | stávající `AGENT_LEASE_TASK_BUDGET_*` (C3) | – | operátor |
 | Mez dalších startů výzkumu | součet vykázané spotřeby (`task_usage`) všech pokusů podúkolů, náhradníků i syntézy | prostředí brokera | operátor |
 
-**Poctivě: první verze nemá tvrdý strop.** C3 účtuje až po reportu klienta, takže mez jen zastaví *další* starty; běžící pokusy ji mohou překročit (nejvýš o souběh × spotřeba jednoho pokusu). Pravidla:
+**Poctivě: první verze nemá tvrdý strop.** C3 účtuje až po reportu klienta, takže mez jen zastaví *další* starty; běžící pokusy ji mohou překročit o neomezenou částku, protože klienti dnes neumožňují vynutit maximum jednoho běhu. Pravidla:
 
-- Před každým startem pokusu (nový, opakování, failover, syntéza) se sečte vykázaná spotřeba výzkumu. Mez dosažená → pokus se nespustí.
-- **Neznámá spotřeba** (pokus bez reportu, `unreported`) → žádné další starty, dokud se nevyjasní.
+- **Kontrola meze a registrace pokusu jsou jedna transakce** (`BEGIN IMMEDIATE`): sečíst spotřebu výzkumu, zkontrolovat mez a vložit řádek pokusu (`begin_usage`). Dva souběžné starty tak nemohou oba projít na stejném zbytku. Platí pro nový pokus, opakování, failover i syntézu.
+- Stav pokusu v evidenci: `running` (založen, běh nekončil), `reported` (spotřeba známa), `unknown` (běh skončil bez metriky). `running` i `unknown` se počítají jako neznámá spotřeba.
+- **Neznámá spotřeba** → žádné další starty pro tento výzkum. Pokus `running` se po skončení změní na `reported` nebo `unknown`. Pokus `unknown` je konečný: výzkum skončí `partial` s důvodem „spotřeba neznámá“ a pokračovat může jen člověk ve webu.
 - Mez dosažená před syntézou → `partial` s dostupnými výsledky, syntéza se nespustí.
 - Tvrdý strop (rezervace maxima pokusu před startem) je samostatný krok, až klienti umožní vynutit maximum jednoho běhu.
 - Placené vyhledávání má vlastní schválení a rozpočet (§ 7); v první verzi je web vypnutý.
@@ -86,8 +87,15 @@ Překročení limitu je odmítnutí při zadání nebo bezpečné zastavení (zr
 ## 7. Režimy a bezpečnost
 
 - Základní režim: výzkum nelze zahájit (workery stejně neběží). Inteligentní a Autonomní: povoleno.
-- **Profil schopností vynucuje broker, ne prompt.** Operátorský soubor `research.toml` vedle DB (jako `fix-runner.toml`, agent ho nezmění) určí, kteří příjemci smí dělat výzkum a s jakým profilem. Profil `research-readonly` = výchozí read-only příkaz bridge a **vypnutý web**: Codex s `-c web_search="disabled"`, Claude Code v plan mode s `--disallowedTools` pro WebSearch/WebFetch a zapisující nástroje. Vlastní příkaz operátora profil nesplňuje.
+- **Schopnosti uzavírá prostředí běhu, ne prompt ani přepínač webu.** Allowlist příjemců ani vypnutí vestavěného hledání nestačí: klient by zdědil MCP servery a konektory z konfigurace (včetně samotného agent-lease, tedy zápisu do brokeru) a síť přes příkazy shellu. Proto každý výzkumný běh (část i syntéza) běží stejnou cestou jako zápisové opravy C1c, jen bez zápisu do repozitáře:
+  - **bwrap sandbox** (`fix_runner.sandbox_argv`): vidí jen systémové adresáře, program, prázdný pracovní adresář běhu a, pokud výzkum uvádí repozitář, jeho kopii **jen pro čtení**. Adresář s DB a socketem brokera je skrytý, takže žádný zápis do místnosti.
+  - **Jednorázový HOME jen s přihlašovacími soubory** (`auth.json`, `.credentials.json`), bez `config.toml`, `settings.json` a `.claude.json` z uživatelova HOME. Konfiguraci vygeneruje bridge: žádné MCP servery, žádné konektory, žádné hooky.
+  - **Codex:** `exec --sandbox read-only` (příkazy shellu bez sítě), `-c web_search="disabled"`, prázdné `mcp_servers`.
+  - **Claude Code:** `--tools Read,Grep,Glob` (žádný Bash ani zápis), `--strict-mcp-config` s prázdnou MCP konfigurací, bez konektorů claude.ai, plan mode.
+  - Síť zůstává jen pro spojení klienta s jeho modelem; sandbox ji kvůli tomu nevypíná, příkazy a nástroje ji mít nebudou.
+- Operátorský soubor `research.toml` vedle DB (jako `fix-runner.toml`, agent ho nezmění) určí, kteří příjemci smí výzkum dělat. Příjemce s vlastním příkazem operátora (ne výchozí CLI) profil nesplňuje.
 - Výběr příjemce, opakování i **failover** smí použít jen příjemce s tímto profilem; jinak podúkol skončí `needs_review` („research: profile“). Platí stejně pro syntézu.
+- **Ověření na obou klientech, i po failoveru:** jednotkové testy skládají přesný příkaz a HOME. Živá sonda pak u Codexu i Claude Code spustí výzkumný běh a z výstupu klienta doloží seznam nástrojů. Musí v něm být jen povolené čtení, žádné MCP, žádný shell s sítí. Sonda běží i v roli náhradníka. Bez úspěšné sondy na daném klientovi ho `research.toml` nesmí povolit.
 - Web (profil `research-web`) až po Michalově souhlasu a po ověření skutečného chování přesného příkazu bridge.
 - Výsledky se do promptu syntézy vkládají ohraničeně jako data s pokynem, že jde o nedůvěryhodný obsah; vstup syntézy je omezený (8 KB na podúkol, 48 KB celkem, i pro nestrukturovaný výstup).
 - Redakce tajemství (`redact`) na vstupu i výstupu jako u D1; zdroje jen `http(s)` URL.
@@ -116,6 +124,9 @@ Překročení limitu je odmítnutí při zadání nebo bezpečné zastavení (zr
 - Souběh: dokončení posledního podúkolu současně s kontrolou termínu → právě jedna syntéza. Restart po termínu → výzkum se posune. Dva souběžné starty na hraně limitu souběhu → přijat jen jeden. Zrušení během syntézy → `cancelled`, pozdní výsledek syntézy stav nepřepíše. Žádný úspěšný podúkol → `failed` bez syntézy.
 - 9 podtémat nebo termín nad strop → odmítnuto. Mez spotřeby dosažená → žádný další start (ani failover, ani syntéza), stav `partial`. Pokus bez reportu spotřeby → žádný další start. Dva současné pokusy → přesah nejvýš o spotřebu běžících pokusů, další start zablokován.
 - Příjemce bez profilu `research-readonly` (i jako náhradník při failoveru) → podúkol nespuštěn, `needs_review`.
+- Složený příkaz a HOME pro Codex i Claude Code: žádný konfigurační soubor s MCP, skrytý adresář brokera, repozitář jen pro čtení. Pokus o zápis do repozitáře a o připojení k socketu brokera z běhu selže. Živá sonda nástrojů na obou klientech (i jako náhradník) před povolením v `research.toml`.
+- Zrušení výzkumu během spouštění části: po návratu zrušení se žádná část už nespustí (bariéra po commitu). Restart během syntézy: po `synth_deadline_at` → `partial`.
+- Pokus skončený bez metriky → `unknown`, výzkum `partial` („spotřeba neznámá“), žádný další start.
 - Duplicitní zdroje (lišící se jen `utm_*`, koncovým `/`, `#fragment`) se v souhrnu sloučí.
 - Dokončený výzkum nic nezapíše do D1.
 - Základní režim: `research start` odmítnuto. Zrušení výzkumu zruší i podúkoly.
