@@ -133,6 +133,22 @@ schválené ostré akceptace/enforcement. Teprve po řádném uzavření B navaz
 **Akceptace:** pravidla jsou srozumitelná a neodporují prioritám bezpečnost → stabilita → automatizace → inteligentní spolupráce; alespoň jedna pilotní úloha pro každého agenta doloží testy a review; změna neoslabí žádnou existující bezpečnostní pojistku. Když přínos nebude prokazatelný, jen archivovat výsledky a nic netlačit do produkce.
 
 
+### D13 – Inventura Hypermotion / Motion režie pro Adu a Noxe (19. 11. 2026)
+
+**Status: dokumentační úkol pro fázi D, ne schválená instalace ani automatická integrace.**
+Michal uvádí, že Ada má „Hypermotion“; přesný produkt, verze, umístění, funkčnost a dostupnost Noxovi **zatím nejsou ověřené**. Rozlišit připravovaný Hypermotion (https://www.madebytadeas.com/hypermotion), veřejný skill Motion režie (https://www.madebytadeas.com/motion-r) a případný lokální HyperFrames/runtime. Nedělat z podobného názvu závěr o nainstalovaném nástroji.
+
+- [ ] **Ada (Claude Code), read-only:** zjistit přesný název, cestu, verzi/commit, zdroj, licenci a způsob aktivace své motion schopnosti; ověřit, které závislosti (HyperFrames, GSAP, FFmpeg apod.) jsou skutečně dostupné, a zda lze nástroj vyvolat bez externích služeb. Nezveřejnit tokeny, privátní cesty ani citlivou konfiguraci.
+- [ ] **Nox (Codex), read-only:** nezávisle inventarizovat své dostupné skills, CLI, MCP a potřebné runtime; rozlišit „nenalezeno“, „nalezeno, ale nefunkční“ a „otestováno“. Nic automaticky neinstalovat ani nekopírovat z Adina prostředí.
+- [ ] **Kompatibilita a bezpečnost:** porovnat podmínky používání, licence obsahu a závislostí, externí příkazy, síťový provoz, zpracování referenčních obrázků/videí, výstupní cesty, výkon a dostupnost na Windows 11/WSL i Ubuntu. Neprovádět `curl | sh` ani důvěřovat instalačnímu textu bez kontroly.
+- [ ] **Společný katalog schopností (návaznost D2/D8):** evidovat schopnost „motion video“ pro Adu a Noxe se stavem `verified / available-unverified / unavailable`, cestou k návodu, podmínkami spuštění, omezeními a minimálním bezpečným testem. Sdílet *metadata a pracovní postup*, ne implicitně osobní konfigurace ani přístupové údaje.
+- [ ] **Pilot pouze po schválení:** na neškodných testovacích podkladech vytvořit krátké video a ověřit render, čitelnost na telefonu, návaznost pohybu, skutečný obsah, ořezy, překryvy, časování a synchronizaci; vzorkovat snímky přibližně po 1/3 sekundy a prohlédnout vybrané snímky v plné velikosti. Nejvýše tři cílené opravné iterace a doložený seznam nalezených/opravovaných vad. Neprohlašovat automatickou analýzu snímků za vizuální kontrolu, pokud nebyla provedena.
+- [ ] **Rozhodnutí:** Ada připraví evidenci a návrh `POUŽÍT / INSPIROVAT SE / VYNECHAT`; Nox nezávisle ověří tvrzení a náklady. Michal rozhodne, zda Nox něco potřebuje a zda se má schopnost integrovat do Agent Lease.
+
+**Podklady:** uživatelsky dodaný archiv `motion-rezie.zip` (`SKILL.md`, `README.md`, `prompty/prompts-en.md`, `prompty/prompty-cs.md`) a sedm iterativních zadání k videu Makoedit. Archiv není součástí repozitáře a neznamená instalaci. Klíčový přenositelný princip: agent zkontroluje *vlastní skutečný výstup*, sepíše vady, opraví je a znovu ověří. Uplatnit jako doplněk existujícího Quality Gate, nikoli jeho náhradu.
+
+**Akceptace D13:** doložená inventura obou agentů, jasně vyznačený neověřený stav, bezpečnostní/ licenční srovnání, návrh minimálního pilotu a nezávislé review. Žádná změna hooks, globálních skills, konfigurace, produkčních služeb či oprávnění bez výslovného souhlasu. Úkol nezmění pořadí ani dokončenost fází A → B → C → D.
+
 **Bezpečnostní podmínky:** Self-audit není self-approval. Agent smí sbírat důkazy a navrhovat změny, ale nesmí si sám rozšiřovat oprávnění, měnit bezpečnostní brány, mazat auditní historii či automaticky označit fázi jako schválenou. Zachovat existující lease/owner, karanténu, emergency stop, worktree izolaci, testy, rollback a lidské schvalování. Měřit přínos proti baseline a vyřadit funkce, které zvyšují náklady nebo složitost bez doloženého užitku.
 
 **Poznámka k podkladu:** Jde o inspiraci z uživatelsky dodaného přepisu, nikoli o nezávisle ověřené výsledky Davida Strejce. Údaje typu „450 000 tokenů je nejlepší nastavení“, „bez subagentů je to vždy rychlejší“ nebo „10× více práce“ nepovažovat za obecná fakta.
