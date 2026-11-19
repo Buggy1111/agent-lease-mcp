@@ -496,23 +496,24 @@ def test_verification_uses_commit_not_worktree(env):
     assert v["ok"], v                                   # rozhodl obsah commitu, ne podvrh
 
 
-def test_switch_to_basic_after_start_never_launches_the_fix_agent(env, monkeypatch):
-    """D2 × C: Základní režim přepnutý po ack(STARTED) zastaví i zápisovou opravu pod launch_gate."""
+def test_switch_to_basic_during_preparation_is_caught_under_the_launch_gate(env, monkeypatch):
+    """D2 × C: přepnutí po kontrole režimu, ale před spuštěním → launch_gate nic nespustí, bez syncu."""
     from agent_lease_mcp.bridge import Bridge
     marker = env["tmp"] / "agent-ran"
     store, mid, cmd = _bridge_env(env, monkeypatch, f"open({str(marker)!r}, 'w').write('x')\n")
-    real_ack = store.ack
+    real_prepare_home = fix_runner.prepare_home
 
-    def ack_then_basic(*a, **kw):
-        ok = real_ack(*a, **kw)
-        if ok and str(a[2] if len(a) > 2 else kw.get("state")).lower().endswith("started"):
-            store.set_mode("michal", "basic", "noc")
-        return ok
+    def prepare_then_basic(*a, **kw):
+        home = real_prepare_home(*a, **kw)
+        store.set_mode("michal", "basic", "noc")
+        return home
 
-    store.ack = ack_then_basic
+    monkeypatch.setattr(fix_runner, "prepare_home", prepare_then_basic)
+    synced = []
+    monkeypatch.setattr(fix_runner, "sync_credentials", lambda *a, **kw: synced.append(a))
     assert Bridge(store, "codex", cmd, lease_seconds=30).step()
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
-    assert not marker.exists()
+    assert not marker.exists() and synced == []
     assert job["state"] == "needs_review" and job["last_error"] == "fix: mode", job
     assert not git("branch", "--list", "agent-fix/*", cwd=env["repo"])
 
@@ -525,7 +526,12 @@ def test_fix_agent_never_launches_outside_the_autonomous_mode(env, monkeypatch, 
     store, mid, cmd = _bridge_env(env, monkeypatch, f"open({str(marker)!r}, 'w').write('x')\n")
     with store._connect() as con:
         con.execute("UPDATE control SET value=? WHERE key='mode'", (mode,))
+    synced = []
+    monkeypatch.setattr(fix_runner, "sync_credentials", lambda *a, **kw: synced.append(a))
     Bridge(store, "codex", cmd, lease_seconds=30).step()
+    assert synced == []
+    fixes = env["tmp"] / "fixes"
+    assert not fixes.exists() or not list(fixes.iterdir())  # ani klon, ani HOME se nepřipravily
     job = next(j for j in store.jobs("codex") if j["id"] == mid)
     assert not marker.exists()
     if mode == "basic":

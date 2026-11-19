@@ -909,6 +909,9 @@ class Bridge:
                 raise subprocess.SubprocessError(result.output)
             return subprocess.CompletedProcess(argv, result.returncode, result.output.encode(), b"")
 
+        # D2: mimo Autonomní režim nic nepřipravovat (klon, HOME, přihlášení); znovu i pod launch_gate
+        if self.store.mode()["mode"] != "autonomous":
+            return hold("mode", "not started: write-mode fixes run only in the autonomous mode.")
         try:
             base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             clone = fix_runner.prepare(Path(scope["repo"]), scope["base_commit"], workdir)
@@ -963,10 +966,12 @@ class Bridge:
         except BaseException:
             self._cleanup_blocked = True
             raise
-        try:  # jen obnovené přihlášení zpět (rotující refresh token), nikdy konfigurace CLI
-            fix_runner.sync_credentials(run_home, real_home, fix_runner.CRED_SYNC.get(self.agent, ()))
-        except OSError as exc:
-            print(f"[agent-lease-bridge] credential sync failed: {exc}", file=sys.stderr)
+        # Nic se nespustilo (režim) → kopie přihlášení je stará a nesmí přepsat novější stav.
+        if not fix_blocked_by_mode:
+            try:  # jen obnovené přihlášení zpět (rotující refresh token), nikdy konfigurace CLI
+                fix_runner.sync_credentials(run_home, real_home, fix_runner.CRED_SYNC.get(self.agent, ()))
+            except OSError as exc:
+                print(f"[agent-lease-bridge] credential sync failed: {exc}", file=sys.stderr)
         try:  # spotřeba zápisového běhu jde do stejné evidence a stropů jako běžné úkoly (C3)
             if result.usage and report_key:
                 self.store.record_usage(mid, self.agent, token, result.usage, report_key=report_key)

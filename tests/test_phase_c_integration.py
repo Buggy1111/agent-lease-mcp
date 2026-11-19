@@ -41,6 +41,8 @@ def test_fix_run_uses_write_command_with_pinned_model_and_records_usage(env, mon
     store, mid, tmp = env
     monkeypatch.setenv("AGENT_LEASE_FIX_DIR", str(tmp / "fixes"))
     monkeypatch.delenv("AGENT_LEASE_FIX_COMMAND", raising=False)
+    with store._connect() as con:  # opravy běží jen v Autonomním (D2); v testu obejdeme zámek režimu
+        con.execute("INSERT INTO control(key, value, changed_by, changed_at) VALUES('mode','autonomous','michal',0)")
     seen = {}
 
     def fake_run(command, prompt, **kw):
