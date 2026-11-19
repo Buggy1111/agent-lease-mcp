@@ -44,6 +44,53 @@ def parse_until(text: str) -> float:
         return datetime.fromisoformat(text).timestamp()
 
 
+def _report(args) -> int:
+    """D8–D11: jen čtení (snímek DB, konfigurace, zdrojáky); výstup na stdout nebo do --out."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    from . import health, insight
+    db = Settings.from_env().db_path
+    if args.cmd == "self-audit":
+        report = insight.self_audit(_Path.home(), db, args.days)
+        text = insight.self_audit_markdown(report)
+    elif args.cmd == "recall-bench":
+        cases = insight.load_cases(_Path(args.cases))
+        source = _Path(args.db) if args.db else db
+        if not source.exists():
+            print(f"no database at {source}", file=sys.stderr)
+            return 1
+        with insight.snapshot(source) as con:
+            report = insight.recall_bench(con, cases)
+        baseline = _json.loads(_Path(args.baseline).read_text()) if args.baseline else None
+        try:
+            text = insight.recall_markdown(report, baseline)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif args.cmd == "efficiency":
+        if not db.exists():
+            print(f"no database at {db}", file=sys.stderr)
+            return 1
+        with insight.snapshot(db) as con:
+            report = insight.efficiency(con, time.time() - args.days * 86400)
+        text = insight.efficiency_markdown(report, args.days)
+    else:
+        report = health.analyze(_Path(args.path))
+        text = health.markdown(report)
+    if args.json:
+        from .hygiene import redact
+        text = redact(_json.dumps(report, ensure_ascii=False, indent=2)) + "\n"
+    if args.out:
+        out = _Path(args.out)
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent-lease",
@@ -177,6 +224,20 @@ def main(argv: list[str] | None = None) -> int:
     p_doctor = sub.add_parser("doctor", help="check installation, delivery and worker health")
     p_doctor.add_argument("--json", action="store_true", help="machine-readable diagnostics")
 
+    p_audit = sub.add_parser("self-audit", help="D8: read-only harness and room audit with proposals")
+    p_audit.add_argument("--days", type=float, default=7)
+    p_recall = sub.add_parser("recall-bench", help="D9: measure shared-memory (D1) search on a case set")
+    p_recall.add_argument("cases")
+    p_recall.add_argument("--db", default=None, help="test DB instead of a snapshot of the room DB")
+    p_recall.add_argument("--baseline", default=None, help="earlier --json report on the same cases")
+    p_eff = sub.add_parser("efficiency", help="D10: tokens, cost and time per completed task")
+    p_eff.add_argument("--days", type=float, default=30)
+    p_health = sub.add_parser("health", help="D11: duplicates, dead-code candidates, import cycles (read-only)")
+    p_health.add_argument("path", nargs="?", default=".")
+    for p_rep in (p_audit, p_recall, p_eff, p_health):
+        p_rep.add_argument("--json", action="store_true")
+        p_rep.add_argument("--out", default=None, help="write the report to a file instead of stdout")
+
     p_bridge = sub.add_parser("bridge", help="autonomous worker for one agent's queue")
     p_bridge.add_argument("--agent", required=True)
     p_bridge.add_argument("--command", default=None)
@@ -240,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         from .doctor import run_doctor
 
         return run_doctor(json_output=args.json)
+    if args.cmd in ("self-audit", "recall-bench", "efficiency", "health"):
+        return _report(args)
     if args.cmd == "broker":
         from .broker import main as broker_main
 
