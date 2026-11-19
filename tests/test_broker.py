@@ -367,6 +367,30 @@ def test_open_store_waits_for_a_restarting_broker(tmp_path: Path, monkeypatch):
             servers[0].server_close()
 
 
+def test_open_store_waits_through_socket_replacement(tmp_path: Path, monkeypatch):
+    from agent_lease_mcp import broker as broker_mod
+
+    settings = Settings(tmp_path / "room.db", "codex", 1800)
+    monkeypatch.delenv("AGENT_LEASE_SOCKET", raising=False)
+    monkeypatch.delenv("AGENT_LEASE_REQUIRE_BROKER", raising=False)
+    sock = broker_mod.default_socket_path(settings)
+    sock.touch()
+    probes = []
+
+    def restarting(path):
+        probes.append(path)
+        if len(probes) == 1:
+            path.unlink()
+            return False
+        path.touch()
+        return True
+
+    monkeypatch.setattr(broker_mod, "ping", restarting)
+    monkeypatch.setattr(broker_mod.time, "sleep", lambda _: None)
+    assert isinstance(broker_mod.open_store(settings), RemoteStore)
+    assert len(probes) == 2
+
+
 def test_open_store_falls_back_when_a_stale_socket_never_answers(tmp_path: Path, monkeypatch):
     from agent_lease_mcp.broker import default_socket_path
     from agent_lease_mcp.store import Store

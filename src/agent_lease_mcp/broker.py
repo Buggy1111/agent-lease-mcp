@@ -346,7 +346,8 @@ def open_store(settings: Settings | None = None, *, restart_wait: float = 3.0):
         while True:
             if ping(path):
                 return RemoteStore(settings, path)
-            if time.monotonic() >= deadline or not path.exists():
+            # Restart briefly removes the old socket before binding its replacement.
+            if time.monotonic() >= deadline:
                 break
             time.sleep(0.2)
     return Store(settings=settings)
