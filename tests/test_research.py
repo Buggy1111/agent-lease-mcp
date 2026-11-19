@@ -575,3 +575,31 @@ def test_attestation_is_private_and_removed_on_failure(store: Store):
     rr.record_attestation(store.db_path, "claude-code", "k2")
     path.chmod(0o644)
     assert rr.attested_keys(store.db_path) == {}
+
+
+def test_revoked_attestation_is_seen_under_the_launch_gate(store: Store, monkeypatch, tmp_path: Path):
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: True)
+    ident = {"path": "/opt/claude", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
+    launched = []
+
+    def fake_run(command, prompt, **kw):
+        rr.record_attestation(store.db_path, "claude-code", None)   # operátor odvolal po převzetí
+        if not kw["can_launch"]():
+            return bridge_mod.RunResult(False, "", aborted=True)
+        launched.append(1)
+        return bridge_mod.RunResult(True, "x")
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    rid = start(store, n=2)["id"]
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.step() and not launched
+    part = next(p for p in r(store, rid)["parts"] if p["state"] == "needs_review")
+    assert delivery(store, part["message_id"])["last_error"] == "research: client changed"

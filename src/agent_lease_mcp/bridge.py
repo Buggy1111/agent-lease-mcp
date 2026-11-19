@@ -591,6 +591,16 @@ class Bridge:
             return None
         return {**identity, "key": key}
 
+    def _research_still_attested(self) -> bool:
+        """Pořád ta binárka, kterou ověřila sonda, a potvrzení operátora (čteno znovu) platí."""
+        if self._research_identity is None:
+            return False
+        now = research_runner.client_identity(self.agent)
+        attested = research_runner.attested_keys(self.store.db_path).get(self.agent) or {}
+        key = self._research_identity["key"]
+        return (now is not None and research_runner.profile_key(self.agent, now) == key
+                and attested.get("key") == key)
+
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
         self._starts = [t for t in self._starts if t > cutoff]
@@ -769,6 +779,7 @@ class Bridge:
         if scope is not None:
             return self._run_fix(mid, token, delivery, prompt, scope, tick, report_key)
         blocked_by_mode: list[bool] = []
+        blocked_by_research: list[bool] = []
         command, wrap, research_env = self.command, None, None
         if is_research:
             try:
@@ -776,10 +787,7 @@ class Bridge:
                     Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR")
                          or Path.home() / ".cache" / "agent-lease-research"),
                     self.agent, Path.home(), mid, exe=self._research_identity["path"])
-                # těsně před během: pořád stejná binárka, jakou ověřila sonda
-                now_identity = research_runner.client_identity(self.agent)
-                if now_identity is None or research_runner.profile_key(self.agent, now_identity) != \
-                        self._research_identity["key"]:
+                if not self._research_still_attested():
                     research_runner.finish(research_env, self.agent, Path.home())
                     self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                         f"Research #{mid} not started: the client changed after its probe.",
@@ -817,6 +825,10 @@ class Bridge:
                 # takže proces buď vznikl před přepnutím (doběhne), nebo nevznikne vůbec.
                 if self.store.mode()["mode"] == "basic":
                     blocked_by_mode.append(True)
+                    return False
+                # D3: potvrzení sondy (znovu z disku) i binárka pod launch_gate (review #30)
+                if research_env is not None and not self._research_still_attested():
+                    blocked_by_research.append(True)
                     return False
                 return self.store.holds(mid, self.agent, token)
 
@@ -865,6 +877,11 @@ class Bridge:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                 f"Task #{mid} stopped by the emergency stop; waiting for review.",
                                 error="emergency stop")
+            return True
+        if result.aborted and blocked_by_research:
+            self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                f"Research #{mid} not started: the client or its probe changed before launch.",
+                                error="research: client changed")
             return True
         if result.aborted and blocked_by_mode:
             # Základní režim přepnut mezi startem a spuštěním: proces nevznikl. Stejně jako u pauzy
