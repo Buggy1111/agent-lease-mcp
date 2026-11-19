@@ -569,32 +569,29 @@ class Bridge:
         # D3: výzkum jen výchozí CLI s ověřeným profilem, ne vlastní příkaz ani callable runner
         self.research_capable = (runner is None and command == DEFAULT_COMMANDS.get(agent)
                                  and research_runner.supported(agent))
-        self._probe: tuple[str, bool] | None = None   # (otisk verze+profilu, prošla sonda)
-        self._version: str | None = None
-        self._version_at = float("-inf")
+        self._probe: tuple[str, bool] | None = None   # (otisk binárky+profilu, prošla sonda)
+        self._research_identity: dict | None = None
 
-    def _research_ready(self) -> bool:
+    def _research_ready(self) -> dict | None:
         """
-        Výzkum jen po úspěšné sondě hranice čtení pro PŘESNĚ tuto verzi klienta a profil
-        (review #30). Změna verze = nová sonda; neúspěch se pamatuje, ať sonda nejede pořád dokola.
+        Výzkum jen po úspěšné sondě pro PŘESNOU binárku klienta (cesta + SHA-256) a profil
+        (review #30). Vrací ověřenou identitu, se kterou se pak i spouští; jiná binárka =
+        nová sonda. Neúspěch se pamatuje, ať sonda nejede pořád dokola.
         """
-        now = time.monotonic()
-        if self._probe is None or now - self._version_at > 60:   # verzi ověřit nejvýš jednou za minutu
-            self._version, self._version_at = research_runner.client_version(self.agent), now
-        version = self._version
-        if version is None:
-            return False
-        key = research_runner.profile_key(self.agent, version)
+        identity = research_runner.client_identity(self.agent)
+        if identity is None:
+            return None
+        key = research_runner.profile_key(self.agent, identity)
         if self._probe is None or self._probe[0] != key:
             result = research_runner.probe(
                 self.agent, Path.home(),
                 Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR") or Path.home() / ".cache" / "agent-lease-research"),
-                (str(self.store.db_path.parent),))
+                (str(self.store.db_path.parent),), exe=identity["path"])
             self._probe = (key, bool(result.get("ok")))
             if not result.get("ok"):
                 print(f"[agent-lease-bridge] research probe failed ({result.get('reason')}); "
-                      "research stays off for this client version", file=sys.stderr)
-        return self._probe[1]
+                      "research stays off for this client binary", file=sys.stderr)
+        return identity if self._probe[1] else None
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -665,8 +662,9 @@ class Bridge:
             skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
         is_research = False
-        if (delivery is None and self.research_capable and self.store.research_pending(self.agent)
-                and self._research_ready()):
+        if delivery is None and self.research_capable and self.store.research_pending(self.agent):
+            self._research_identity = self._research_ready()
+        if delivery is None and self._research_identity is not None:
             delivery = self.store.lease_next(
                 self.agent, lease_seconds=self.lease_seconds,
                 after_message_id=self.after_message_id, skip_accepted=True, worker=True,
@@ -779,7 +777,16 @@ class Bridge:
                 research_env = research_runner.prepare(
                     Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR")
                          or Path.home() / ".cache" / "agent-lease-research"),
-                    self.agent, Path.home(), mid)
+                    self.agent, Path.home(), mid, exe=self._research_identity["path"])
+                # těsně před během: pořád stejná binárka, jakou ověřila sonda
+                now_identity = research_runner.client_identity(self.agent)
+                if now_identity is None or research_runner.profile_key(self.agent, now_identity) != \
+                        self._probe[0]:
+                    research_runner.finish(research_env, self.agent, Path.home())
+                    self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                        f"Research #{mid} not started: the client changed after its probe.",
+                                        error="research: client changed")
+                    return True
             except OSError as exc:
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Research #{mid} not started: isolated environment failed.",

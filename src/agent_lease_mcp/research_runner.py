@@ -20,6 +20,7 @@ import ctypes.util
 import json
 import os
 import secrets
+import shlex
 import shutil
 import struct
 import uuid
@@ -38,7 +39,7 @@ def supported(agent: str) -> bool:
     return agent in RESEARCH_COMMANDS and Path(fix_runner.BWRAP).exists()
 
 
-def prepare(base_dir: Path, agent: str, real_home: Path, mid: int) -> dict:
+def prepare(base_dir: Path, agent: str, real_home: Path, mid: int, exe: str | None = None) -> dict:
     """Pracovní adresář běhu: prázdný `scratch`, HOME jen s přihlášením a vygenerovanou konfigurací."""
     base_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     workdir = base_dir / f"{mid}-{uuid.uuid4().hex[:8]}"
@@ -60,6 +61,8 @@ def prepare(base_dir: Path, agent: str, real_home: Path, mid: int) -> dict:
     for f in (mcp_config, claude_dir / "settings.json"):
         f.chmod(0o600)
     command = RESEARCH_COMMANDS[agent].replace("{mcp_config}", str(mcp_config))
+    if exe:  # přesně ta binárka, kterou ověřila sonda (ne to, na co ukazuje PATH teď)
+        command = shlex.quote(exe) + " " + command.split(" ", 1)[1]
     return {"workdir": workdir, "scratch": scratch, "run_home": run_home, "command": command}
 
 
@@ -143,28 +146,49 @@ def _tool_events(output: str) -> tuple[dict, dict]:
     return uses, results
 
 
-def profile_key(agent: str, version: str) -> str:
-    """Otisk verze klienta a profilu běhu; sonda platí jen pro přesně tenhle otisk."""
+PROFILE_VERSION = 2  # zvýšit při každé změně prepare()/wrap(): stará sonda pak neplatí
+_SHA_CACHE: dict[tuple, str] = {}
+
+
+def client_identity(agent: str) -> dict | None:
+    """
+    Konkrétní spustitelný soubor klienta (cesta po rozbalení odkazů + otisk obsahu). Sonda i běh
+    používají právě tuto cestu, takže upgrade klienta nikdy nedostane úkol bez vlastní sondy.
+    """
     import hashlib
-    return hashlib.sha256(json.dumps([agent, version, RESEARCH_COMMANDS.get(agent),
-                                      CREDENTIALS.get(agent), PROFILE_VERSION]).encode()).hexdigest()
-
-
-PROFILE_VERSION = 1  # zvýšit při každé změně prepare()/wrap(): stará sonda pak neplatí
-
-
-def client_version(agent: str) -> str | None:
-    import subprocess
     exe = RESEARCH_COMMANDS.get(agent, "").split(" ", 1)[0]
-    try:
-        out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=20, check=False)
-    except (OSError, subprocess.SubprocessError):
+    found = shutil.which(exe) if exe else None
+    if not found:
         return None
-    return (out.stdout.strip()[:200] or None) if out.returncode == 0 else None
+    path = Path(found).resolve()
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    key = (str(path), st.st_ino, st.st_size, st.st_mtime_ns)
+    if key not in _SHA_CACHE:
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+        except OSError:
+            return None
+        _SHA_CACHE.clear()
+        _SHA_CACHE[key] = digest.hexdigest()
+    return {"path": str(path), "sha256": _SHA_CACHE[key], "stat": key}
+
+
+def profile_key(agent: str, identity: dict) -> str:
+    """Otisk binárky klienta a profilu běhu; sonda platí jen pro přesně tenhle otisk."""
+    import hashlib
+    return hashlib.sha256(json.dumps([agent, identity["path"], identity["sha256"],
+                                      RESEARCH_COMMANDS.get(agent), CREDENTIALS.get(agent),
+                                      PROFILE_VERSION]).encode()).hexdigest()
 
 
 def probe(agent: str, real_home: Path, base_dir: Path, hide_abs: tuple[str, ...], *,
-          timeout: float = 300) -> dict:
+          timeout: float = 300, exe: str | None = None) -> dict:
     """
     Sonda v přesném profilu běhu, jen se syntetickými značkami (nikdy se skutečným přihlášením).
     Projde, jen když: model na nástrojové vrstvě zkusil číst chráněnou značku a dostal chybu,
@@ -174,7 +198,7 @@ def probe(agent: str, real_home: Path, base_dir: Path, hide_abs: tuple[str, ...]
     from .bridge import run_command
     if not supported(agent):
         return {"ok": False, "reason": f"{agent}: no research profile or bubblewrap missing"}
-    env = prepare(base_dir, agent, real_home, 0)
+    env = prepare(base_dir, agent, real_home, 0, exe=exe)
     try:
         control = env["scratch"] / "control.txt"
         canary = env["run_home"] / "canary.txt"

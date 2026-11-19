@@ -343,7 +343,8 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))      # nikdy skutečné přihlášení
     (tmp_path / "empty-home").mkdir()
     monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
-    monkeypatch.setattr(rr, "client_version", lambda agent: "2.0.0")
+    ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
     probes = []
     monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(1) or {"ok": True})
     seen = []
@@ -363,12 +364,12 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     assert b.research_capable and b.step()
     command, wrap = seen[0]
     assert "--tools Read,Grep,Glob" in command and wrap is not None
+    assert command.startswith("/opt/claude-2.0.0 ")                 # přesně ověřená binárka
     assert r(store, rid)["parts"][0]["state"] == "succeeded"
     assert not list((tmp_path / "runs").iterdir())                  # pracovní adresář uklizen
     assert probes == [1]                                            # sonda jen jednou pro verzi
     assert b.step() and probes == [1]
-    monkeypatch.setattr(rr, "client_version", lambda agent: "2.0.1")
-    b._version_at = float("-inf")
+    ident["sha256"] = "b" * 64                                     # upgrade klienta
     rid2 = start(store, n=2)["id"]
     monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(2) or {"ok": False, "reason": "x"})
     assert not b.step() and probes == [1, 2]                        # nová verze → nová sonda → nic
@@ -512,3 +513,43 @@ def test_probe_passes_only_with_a_denied_canary_attempt_and_a_seen_control(monke
     assert not _probe_env(monkeypatch, tmp_path / "3", skipped)["checks"]["canary_attempt_denied"]
     blind_r = _probe_env(monkeypatch, tmp_path / "4", blind)
     assert not blind_r["checks"]["watch_saw_control"] and not blind_r["ok"]
+
+
+def test_client_changed_between_probe_and_run_is_not_started(store: Store, monkeypatch, tmp_path: Path):
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: True)
+    monkeypatch.setattr(rr, "probe", lambda *a, **k: {"ok": True})
+    shas = iter(["a" * 64, "b" * 64, "b" * 64])
+    monkeypatch.setattr(rr, "client_identity",
+                        lambda agent: {"path": "/opt/claude", "sha256": next(shas), "stat": ()})
+    ran = []
+    monkeypatch.setattr(bridge_mod, "run_command", lambda *a, **k: ran.append(1))
+    rid = start(store, n=2)["id"]
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.step() and not ran
+    part = next(p for p in r(store, rid)["parts"] if p["state"] == "needs_review")
+    assert delivery(store, part["message_id"])["last_error"] == "research: client changed"
+    assert not list((tmp_path / "runs").iterdir())
+
+
+def test_client_identity_pins_the_resolved_binary(tmp_path: Path, monkeypatch):
+    from agent_lease_mcp import research_runner as rr
+    real = tmp_path / "versions" / "1.0"
+    real.parent.mkdir()
+    real.write_bytes(b"#!/bin/sh\necho 1\n")
+    real.chmod(0o755)
+    link = tmp_path / "bin" / "claude"
+    link.parent.mkdir()
+    link.symlink_to(real)
+    monkeypatch.setenv("PATH", str(link.parent))
+    a = rr.client_identity("claude-code")
+    assert a["path"] == str(real)
+    real.write_bytes(b"#!/bin/sh\necho 2\n")
+    assert rr.client_identity("claude-code")["sha256"] != a["sha256"]
+    env = rr.prepare(tmp_path / "runs", "claude-code", tmp_path, 1, exe=a["path"])
+    assert env["command"].startswith(str(real) + " -p ")
