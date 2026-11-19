@@ -1016,10 +1016,10 @@ class Bridge:
             return stopped()
         branch = f"agent-fix/{mid}-{res['commit'][:8]}"
         try:
-            with launch_gate(self.store.db_path):
-                if not owns_task():
-                    raise fix_runner.VerificationStopped("task ownership lost before publishing")
-                fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch)
+            if not owns_task():
+                return stopped()
+            fix_runner.publish(Path(scope["repo"]), clone, res["commit"], branch,
+                               gate=lambda: launch_gate(self.store.db_path), can_publish=owns_task)
         except fix_runner.VerificationStopped:
             return stopped()
         except (OSError, ValueError, subprocess.SubprocessError) as exc:

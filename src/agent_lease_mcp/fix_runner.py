@@ -31,6 +31,7 @@ import re
 import shutil
 import stat
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path, PurePosixPath
 
 from .secret_scan import scan_diff
@@ -47,11 +48,12 @@ _GIT_SAFE = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
              "-c", "protocol.file.allow=always", "-c", "commit.gpgsign=false")
 
 
-def _git(*args: str, cwd: Path | str, check: bool = True, input: bytes | None = None) -> subprocess.CompletedProcess:
+def _git(*args: str, cwd: Path | str, check: bool = True, input: bytes | None = None,
+         timeout: float = 120) -> subprocess.CompletedProcess:
     env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
            "HOME": "/nonexistent", "LC_ALL": "C"}
     return subprocess.run(["git", *_GIT_SAFE, *args], cwd=cwd, env=env, input=input,
-                          capture_output=True, check=check, timeout=120)
+                          capture_output=True, check=check, timeout=timeout)
 
 
 def prepare(repo: Path, base_commit: str, workdir: Path) -> Path:
@@ -328,12 +330,19 @@ def verify_regression(clone: Path, base_commit: str, commit: str, files: list[st
     return {"ok": True, "reason": "", "tests": tests}
 
 
-def publish(repo: Path, clone: Path, commit: str, branch: str) -> str:
-    """Stáhne ověřený commit z klonu do větve `branch` hlavního repa; nic neslučuje."""
+def publish(repo: Path, clone: Path, commit: str, branch: str, *, gate=None, can_publish=None) -> str:
+    """Transfer objects first, then publish the branch while the task still owns its lease."""
     if not branch.startswith("agent-fix/") or ".." in branch or any(c in branch for c in " ~^:?*[\\"):
         raise ValueError("branch must be agent-fix/<name>")
-    _git("fetch", "--quiet", "--no-tags", str(Path(clone).resolve()), f"{commit}:refs/heads/{branch}", cwd=repo)
-    return _git("rev-parse", f"refs/heads/{branch}", cwd=repo).stdout.decode().strip()
+    # Keep the potentially slow fetch out of the gate and leave FETCH_HEAD and all refs alone.
+    _git("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance",
+         "--refmap=", str(Path(clone).resolve()), commit, cwd=repo)
+    with gate() if gate else nullcontext():
+        if can_publish is not None and not can_publish():
+            raise VerificationStopped("task ownership lost before publishing")
+        # A create-only update cannot overwrite an existing branch or follow a symbolic ref.
+        _git("update-ref", "--no-deref", f"refs/heads/{branch}", commit, "", cwd=repo, timeout=2)
+    return commit
 
 
 def cleanup(workdir: Path) -> None:
