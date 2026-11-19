@@ -1,6 +1,6 @@
 # Fáze D3–D7 – výzkumný tým: návrh
 
-**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** 4. verze po třech kolech oponentury Noxe (#29), ke schválení Michalem. **Není to souhlas s implementací.**
+**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** schváleno Michalem 19. 11. 2026 po eskalaci #29 („ano máš mé schválení“) s doporučením: v1 jen Claude Code, Codex pro výzkum vypnutý do doložení hranice čtení; canary přes skutečné odmítnutí čtení a IN_OPEN, ne výstup. Limity 4/60/2, web vypnutý, bez meze spotřeby v `research.toml` se výzkum nespustí.
 
 Roadmapa: D3 výzkumný tým (paralelní rešerše, rozdělení témat, deduplikace, syntéza), D4 průzkum konkurence a známých problémů, D5 ověřování a archivace v `docs/research/` s vazbou na D1, D6 porovnání variant před programováním, D7 rozpočet výzkumu.
 

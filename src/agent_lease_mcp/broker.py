@@ -55,8 +55,10 @@ METHODS = frozenset({
     "begin_usage", "record_usage", "usage_summary",
     # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.
     "fix_task",
+    # D3: výzkum. Zrušení jen s actor (zadavatel); bez actor ruší jen člověk ve webu.
+    "research_start", "research_cancel", "research_get", "research_list", "research_archive",
 })
-_NEEDS_ACTOR = frozenset({"retry", "cancel"})
+_NEEDS_ACTOR = frozenset({"retry", "cancel", "research_cancel"})
 _NEEDS_VIEWER = frozenset({"jobs", "outcome"})
 _TYPES = {"Claim": Claim, "ClaimResult": ClaimResult, "Delivery": Delivery}
 _MAX_LINE = 1_000_000
@@ -338,6 +340,11 @@ def main(argv: list[str] | None = None) -> int:
 
     last_backup = [store.last_backup_at()]  # platná záloha mladší 24 h → restart nezálohuje
 
+    try:  # D3: obnova po restartu – termíny výzkumů z DB hned, ne až po prvním ticku
+        store.research_sweep()
+    except Exception as exc:  # noqa: BLE001
+        print(f"research_sweep: {exc}", file=sys.stderr)
+
     def sweeper() -> None:
         import time as _t
         while True:
@@ -362,6 +369,10 @@ def main(argv: list[str] | None = None) -> int:
                 store.expire_stale_chats()
             except Exception as exc:  # noqa: BLE001
                 print(f"expire_stale_chats: {exc}", file=sys.stderr)
+            try:
+                store.research_sweep()
+            except Exception as exc:  # noqa: BLE001
+                print(f"research_sweep: {exc}", file=sys.stderr)
             try:
                 store.review_stale_sweep()
             except Exception as exc:  # noqa: BLE001

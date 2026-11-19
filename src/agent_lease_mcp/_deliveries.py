@@ -255,6 +255,21 @@ class DeliveriesMixin:
                                        f"Task #{candidate['id']} not started: {hold}.",
                                        candidate["id"], now)
                     continue
+                research = self._research_hold(con, candidate["id"], recipient, starting=False)
+                if research and research[0] == "wait":
+                    continue
+                if research:
+                    # D3: výzkum mimo profil, rozpočet nebo už skončil – nespustit (§ 5, § 7)
+                    con.execute(
+                        "UPDATE deliveries SET state='needs_review', last_error=?, updated_at=? "
+                        "WHERE message_id=? AND recipient=? AND state='pending'",
+                        (research[1], now, candidate["id"], recipient),
+                    )
+                    self._insert_event(con, "broker", candidate["agent"],
+                                       f"Task #{candidate['id']} not started: {research[1]}.",
+                                       candidate["id"], now)
+                    self._research_after_hold(con, candidate["id"], now)
+                    continue
                 if start and self._checkpoint_hold(con, candidate["id"], recipient,
                                                    candidate["attempts"] + 1, workspace,
                                                    candidate["agent"], now):
@@ -347,6 +362,10 @@ class DeliveriesMixin:
                 # C1a: politiku a schválení opravy ověřit znovu i těsně před startem;
                 # mezi převzetím a startem je mohl člověk odebrat (Nox, review #13)
                 hold = self._fix_hold(con, message_id, recipient, next_attempt=False)
+                research = self._research_hold(con, message_id, recipient, starting=True)
+                if research and research[0] == "wait":
+                    return False  # jiný pokus výzkumu běží; lease propadne, úkol počká ve frontě
+                hold = hold or (research[1] if research else None)
                 if hold:
                     now = time.time()
                     con.execute(
@@ -356,6 +375,7 @@ class DeliveriesMixin:
                     )
                     self._insert_event(con, "broker", att["agent"],
                                        f"Task #{message_id} not started: {hold}.", message_id, now)
+                    self._research_after_hold(con, message_id, now)
                     return False
             clear_lease = state_value in terminal
             cur = con.execute(
@@ -413,7 +433,9 @@ class DeliveriesMixin:
                 "VALUES(?,?,?,?,?,?)",
                 (recipient, result_text, now, row["sender"], MessageKind.RESULT.value, message_id),
             )
+            self._research_on_complete(con, message_id, state_value, result_text, now)
         self._signal(row["sender"])
+        self._flush_research_signals()
         return True
 
     # ── nouzové zastavení (fáze A10) ─────────────────────────────────────────
