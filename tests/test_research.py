@@ -345,8 +345,8 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
     ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
     monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
-    probes = []
-    monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(1) or {"ok": True})
+    monkeypatch.setattr(rr, "probe", lambda *a, **k: pytest.fail("bridge must not run the probe itself"))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
     seen = []
 
     def fake_run(command, prompt, **kw):
@@ -367,12 +367,10 @@ def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypat
     assert command.startswith("/opt/claude-2.0.0 ")                 # přesně ověřená binárka
     assert r(store, rid)["parts"][0]["state"] == "succeeded"
     assert not list((tmp_path / "runs").iterdir())                  # pracovní adresář uklizen
-    assert probes == [1]                                            # sonda jen jednou pro verzi
-    assert b.step() and probes == [1]
-    ident["sha256"] = "b" * 64                                     # upgrade klienta
+    assert b.step()
+    ident["sha256"] = "b" * 64                                     # upgrade klienta bez nové sondy
     rid2 = start(store, n=2)["id"]
-    monkeypatch.setattr(rr, "probe", lambda *a, **k: probes.append(2) or {"ok": False, "reason": "x"})
-    assert not b.step() and probes == [1, 2]                        # nová verze → nová sonda → nic
+    assert not b.step()                                             # nic se nepřevezme ani nespustí
     assert all(p["state"] == "pending" for p in r(store, rid2)["parts"])
 
 
@@ -481,6 +479,10 @@ def _probe_env(monkeypatch, tmp_path, behaviour):
     return rr.probe("claude-code", home, tmp_path / "runs", ())
 
 
+DENIED = ("<tool_use_error>File is in a directory that is denied by your permission settings."
+          "</tool_use_error>")
+
+
 def _read(i, path):
     return {"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": i, "name": "Read", "input": {"file_path": str(path)}}]}}
@@ -494,7 +496,11 @@ def _res(i, err, text):
 def test_probe_passes_only_with_a_denied_canary_attempt_and_a_seen_control(monkeypatch, tmp_path: Path):
     def good(control, canary):
         return [_read("a", control), _res("a", False, control.read_text()),
-                _read("b", canary), _res("b", True, "Permission to read denied")]
+                _read("b", canary), _res("b", True, DENIED)]
+
+    def missing(control, canary):                       # obecná chyba čtení není odmítnutí oprávněním
+        return [_read("a", control), _res("a", False, control.read_text()),
+                _read("b", canary), _res("b", True, "<tool_use_error>File does not exist.</tool_use_error>")]
 
     def leaked(control, canary):
         return [_read("a", control), _res("a", False, control.read_text()),
@@ -505,12 +511,13 @@ def test_probe_passes_only_with_a_denied_canary_attempt_and_a_seen_control(monke
 
     def blind(control, canary):                         # kontrolní značka „přečtena“ bez otevření
         return [_read("a", control), _res("a", False, "CONTROL-?"),
-                _read("b", canary), _res("b", True, "denied")]
+                _read("b", canary), _res("b", True, DENIED)]
 
     assert _probe_env(monkeypatch, tmp_path / "1", good)["ok"]
     bad = _probe_env(monkeypatch, tmp_path / "2", leaked)
     assert not bad["ok"] and not bad["checks"]["canary_not_opened"]
     assert not _probe_env(monkeypatch, tmp_path / "3", skipped)["checks"]["canary_attempt_denied"]
+    assert not _probe_env(monkeypatch, tmp_path / "5", missing)["checks"]["canary_attempt_denied"]
     blind_r = _probe_env(monkeypatch, tmp_path / "4", blind)
     assert not blind_r["checks"]["watch_saw_control"] and not blind_r["ok"]
 
@@ -522,7 +529,8 @@ def test_client_changed_between_probe_and_run_is_not_started(store: Store, monke
     monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
     (tmp_path / "empty-home").mkdir()
     monkeypatch.setattr(rr, "supported", lambda agent: True)
-    monkeypatch.setattr(rr, "probe", lambda *a, **k: {"ok": True})
+    rr.record_attestation(store.db_path, "claude-code",
+                          rr.profile_key("claude-code", {"path": "/opt/claude", "sha256": "a" * 64}))
     shas = iter(["a" * 64, "b" * 64, "b" * 64])
     monkeypatch.setattr(rr, "client_identity",
                         lambda agent: {"path": "/opt/claude", "sha256": next(shas), "stat": ()})
@@ -553,3 +561,17 @@ def test_client_identity_pins_the_resolved_binary(tmp_path: Path, monkeypatch):
     assert rr.client_identity("claude-code")["sha256"] != a["sha256"]
     env = rr.prepare(tmp_path / "runs", "claude-code", tmp_path, 1, exe=a["path"])
     assert env["command"].startswith(str(real) + " -p ")
+
+
+def test_attestation_is_private_and_removed_on_failure(store: Store):
+    from agent_lease_mcp import research_runner as rr
+    rr.record_attestation(store.db_path, "claude-code", "k1")
+    path = store.db_path.parent / rr.ATTESTATION
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert rr.attested_keys(store.db_path)["claude-code"]["key"] == "k1"
+    rr.record_attestation(store.db_path, "claude-code", None)
+    assert rr.attested_keys(store.db_path) == {}
+    path.chmod(0o644)                                   # čitelný pro ostatní → neplatí
+    rr.record_attestation(store.db_path, "claude-code", "k2")
+    path.chmod(0o644)
+    assert rr.attested_keys(store.db_path) == {}

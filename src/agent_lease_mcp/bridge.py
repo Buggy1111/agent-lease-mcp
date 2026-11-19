@@ -569,29 +569,27 @@ class Bridge:
         # D3: výzkum jen výchozí CLI s ověřeným profilem, ne vlastní příkaz ani callable runner
         self.research_capable = (runner is None and command == DEFAULT_COMMANDS.get(agent)
                                  and research_runner.supported(agent))
-        self._probe: tuple[str, bool] | None = None   # (otisk binárky+profilu, prošla sonda)
+        self._probe_warned: str | None = None
         self._research_identity: dict | None = None
 
     def _research_ready(self) -> dict | None:
         """
-        Výzkum jen po úspěšné sondě pro PŘESNOU binárku klienta (cesta + SHA-256) a profil
-        (review #30). Vrací ověřenou identitu, se kterou se pak i spouští; jiná binárka =
-        nová sonda. Neúspěch se pamatuje, ať sonda nejede pořád dokola.
+        Výzkum jen s operátorskou sondou (`agent-lease research-probe`) pro PŘESNOU binárku
+        klienta (cesta + SHA-256) a profil (review #30). Bridge sám sondu nespouští, takže
+        nic neutrácí mimo bránu režimu a rozpočtu. Vrací ověřenou identitu, se kterou se spouští.
         """
         identity = research_runner.client_identity(self.agent)
         if identity is None:
             return None
         key = research_runner.profile_key(self.agent, identity)
-        if self._probe is None or self._probe[0] != key:
-            result = research_runner.probe(
-                self.agent, Path.home(),
-                Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR") or Path.home() / ".cache" / "agent-lease-research"),
-                (str(self.store.db_path.parent),), exe=identity["path"])
-            self._probe = (key, bool(result.get("ok")))
-            if not result.get("ok"):
-                print(f"[agent-lease-bridge] research probe failed ({result.get('reason')}); "
-                      "research stays off for this client binary", file=sys.stderr)
-        return identity if self._probe[1] else None
+        attested = research_runner.attested_keys(self.store.db_path).get(self.agent) or {}
+        if attested.get("key") != key:
+            if self._probe_warned != key:
+                print("[agent-lease-bridge] research waits: no operator probe for this client binary "
+                      f"({identity['path']}); run `agent-lease research-probe`", file=sys.stderr)
+                self._probe_warned = key
+            return None
+        return {**identity, "key": key}
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -781,7 +779,7 @@ class Bridge:
                 # těsně před během: pořád stejná binárka, jakou ověřila sonda
                 now_identity = research_runner.client_identity(self.agent)
                 if now_identity is None or research_runner.profile_key(self.agent, now_identity) != \
-                        self._probe[0]:
+                        self._research_identity["key"]:
                     research_runner.finish(research_env, self.agent, Path.home())
                     self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                         f"Research #{mid} not started: the client changed after its probe.",

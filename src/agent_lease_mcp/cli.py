@@ -286,9 +286,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "research-probe":
         from pathlib import Path as _Path
 
-        from .research_runner import probe
+        from .research_runner import client_identity, probe, profile_key, record_attestation
+        identity = client_identity(args.agent)
+        if identity is None:
+            print(f"FAIL: {args.agent} client not found", file=sys.stderr)
+            return 1
         result = probe(args.agent, _Path.home(), _Path.home() / ".cache" / "agent-lease-research",
-                       (str(store.db_path.parent),))
+                       (str(store.db_path.parent),), exe=identity["path"])
+        # potvrzení platí jen pro tuto binárku a profil; neúspěch staré potvrzení smaže
+        record_attestation(store.db_path, args.agent,
+                           profile_key(args.agent, identity) if result["ok"] else None)
+        print(f" binary {identity['path']} sha256 {identity['sha256'][:16]}…")
         for name, ok in result.get("checks", {}).items():
             print(f" {'✔' if ok else '✘'} {name}")
         print(f"PASS: {args.agent} may be listed in research.toml" if result["ok"]

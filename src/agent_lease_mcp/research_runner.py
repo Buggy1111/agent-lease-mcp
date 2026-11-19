@@ -19,6 +19,7 @@ import ctypes
 import ctypes.util
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -146,6 +147,8 @@ def _tool_events(output: str) -> tuple[dict, dict]:
     return uses, results
 
 
+_DENIED = re.compile(r"denied by your permission settings", re.IGNORECASE)
+ATTESTATION = "research-probe.json"
 PROFILE_VERSION = 2  # zvýšit při každé změně prepare()/wrap(): stará sonda pak neplatí
 _SHA_CACHE: dict[tuple, str] = {}
 
@@ -226,7 +229,9 @@ def probe(agent: str, real_home: Path, base_dir: Path, hide_abs: tuple[str, ...]
             "run_ok": result.ok,
             "control_read_by_tool": any(not err and marker in text for err, text in control_tries),
             "watch_saw_control": "control" in opened,
-            "canary_attempt_denied": bool(canary_tries) and all(err for err, _ in canary_tries),
+            # odmítnutí OPRÁVNĚNÍM, ne obecná chyba čtení (chybějící soubor apod.)
+            "canary_attempt_denied": bool(canary_tries) and all(
+                err and _DENIED.search(text) for err, text in canary_tries),
             "canary_not_opened": "canary" not in opened,
             "canary_not_in_output": token not in result.output,
         }
@@ -236,3 +241,29 @@ def probe(agent: str, real_home: Path, base_dir: Path, hide_abs: tuple[str, ...]
         finish(env, agent, real_home)
 
 
+
+
+def attested_keys(db_path: Path) -> dict:
+    """Výsledky operátorské sondy (soubor vedle DB, soukromý, jako research.toml)."""
+    from .quality_runner import SetupRequired, policy_bytes
+    try:
+        data = json.loads(policy_bytes(db_path, ATTESTATION).decode())
+    except (OSError, ValueError, UnicodeError, SetupRequired):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_attestation(db_path: Path, agent: str, key: str | None) -> None:
+    """Zapíše (nebo při neúspěchu smaže) potvrzení sondy pro `agent`; jen CLI operátora."""
+    import time as _time
+    data = attested_keys(db_path)
+    if key is None:
+        data.pop(agent, None)
+    else:
+        data[agent] = {"key": key, "at": _time.time()}
+    path = db_path.resolve().parent / ATTESTATION
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
