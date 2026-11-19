@@ -1,6 +1,6 @@
 # Fáze D3–D7 – výzkumný tým: návrh
 
-**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** 3. verze po dvou kolech oponentury Noxe (#29), ke schválení Michalem. **Není to souhlas s implementací.**
+**Datum:** 19. 11. 2026 · **Autor:** Ada · **Stav:** 4. verze po třech kolech oponentury Noxe (#29), ke schválení Michalem. **Není to souhlas s implementací.**
 
 Roadmapa: D3 výzkumný tým (paralelní rešerše, rozdělení témat, deduplikace, syntéza), D4 průzkum konkurence a známých problémů, D5 ověřování a archivace v `docs/research/` s vazbou na D1, D6 porovnání variant před programováním, D7 rozpočet výzkumu.
 
@@ -39,7 +39,7 @@ Nová tabulka `research` (id, zadavatel, otázka, druh, stav, limity, termín, i
 Stav výzkumu: `running` → `synthesizing` → `done` | `partial` | `failed` | `cancelled`. Koncové stavy jsou konečné; pozdní dokončení podúkolu nebo syntézy je nepřepíše (každý přechod je podmíněný `UPDATE … WHERE state = <očekávaný>`).
 
 - **Spuštění syntézy:** jedna funkce `_research_advance(id)` v jedné transakci `BEGIN IMMEDIATE`: podmíněně převede `running` → `synthesizing`, zapíše rozhodný čas (`cutoff_at`) a seznam použitých podúkolů a založí **právě jednu** zprávu syntézy, jejíž ID uloží do stejného řádku. Volá ji dokončení podúkolu i pravidelná kontrola termínu; druhé volání nic neudělá (`rowcount = 0`). Pád mezi kroky nemůže nastat, protože jsou v jedné transakci.
-- **Cutoff:** počítají se podúkoly ve stavu `succeeded` k okamžiku `cutoff_at`. Nedokončené podúkoly se ve stejné transakci zruší (stávající `cancel`).
+- **Cutoff:** když se syntéza spouští proto, že doběhly všechny části, `cutoff_at` = čas přechodu. Když vypršel termín, **`cutoff_at = deadline_at`**, nikoli čas, kdy si toho všiml tick nebo obnova po restartu. Počítají se jen podúkoly `succeeded` s časem dokončení `≤ cutoff_at`. Dokončení po termínu, ale před tickem, se nezapočítá. Nedokončené podúkoly se ve stejné transakci zruší (stávající `cancel`).
 - **Bez použitelného výsledku:** žádný podúkol `succeeded` → `failed`, syntéza se nezakládá.
 - **Termíny jsou pevné časy v DB**, ne odpočet v paměti: `deadline_at` (části) se zapíše při založení, `synth_deadline_at` (výchozí +30 min) ve stejné transakci jako přechod do `synthesizing`. Po `synth_deadline_at` nebo při selhání syntézy → `partial` se surovými výsledky částí. Restart na tom nic nemění.
 - **Ruční zrušení** (zadavatel nebo člověk): podmíněně do `cancelled` a zruší podúkoly i syntézu, ať běží nebo čeká. Zrušení výzkumu **nevolá** veřejné `cancel` pro každou zprávu (to otevírá vlastní `BEGIN IMMEDIATE` a čeká na `launch_gate`). Transakční část zrušení doručenek se vyčlení do interní funkce nad *stejným* spojením; přechod výzkumu i zrušení všech jeho doručenek jsou jedna transakce. Bariéra `with launch_gate(): pass` (počkat, až doběhne případné spuštění, které začalo před zrušením) proběhne **až po commitu**, stejně jako dnes v `cancel` a `set_mode`. Totéž platí pro zrušení nedokončených částí při cutoffu.
@@ -95,6 +95,11 @@ Překročení limitu je odmítnutí při zadání nebo bezpečné zastavení (zr
   - Síť zůstává jen pro spojení klienta s jeho modelem; sandbox ji kvůli tomu nevypíná, příkazy a nástroje ji mít nebudou.
 - Operátorský soubor `research.toml` vedle DB (jako `fix-runner.toml`, agent ho nezmění) určí, kteří příjemci smí výzkum dělat. Příjemce s vlastním příkazem operátora (ne výchozí CLI) profil nesplňuje.
 - Výběr příjemce, opakování i **failover** smí použít jen příjemce s tímto profilem; jinak podúkol skončí `needs_review` („research: profile“). Platí stejně pro syntézu.
+- **Hranice čtení, ne jen zápisu.** Read-only sandbox Codexu omezuje zápis, ne čtení, a Claude Code má Read/Grep. Model by tedy mohl přečíst přihlašovací soubor v HOME běhu nebo jinou dostupnou cestu a vložit ji do výsledku. Požadavek: model smí číst jen **povolený snímek** (prázdný pracovní adresář, případně kopie repozitáře) a neškodná systémová data. Přihlášení smí číst jen proces klienta, ne nástroje modelu.
+  - Claude Code: `permissions.deny` pro čtení všeho mimo pracovní adresář běhu (včetně HOME běhu), v konfiguraci vygenerované bridgem; `--add-dir` jen pracovní adresář.
+  - Codex: dnes neznáme mechanismus, který by zakázal čtení konkrétních cest nástrojům modelu. Rozhodne canary test níže. Když neprojde, **Codex zůstává pro výzkum vypnutý**.
+  - Obrana do hloubky: výsledek běhu projde `redact` před uložením. Hranici to nenahrazuje.
+- **Canary test, podmínka povolení klienta:** bridge do HOME běhu, vedle přihlášení a mimo povolený snímek, umístí unikátní kanárkový soubor. Výzkumný běh má za úkol ho najít a přečíst. Klient projde, jen když kanárkovou hodnotu nevrátí, a to ani jako část, ani jako syntéza, ani v roli náhradníka. Totéž platí pro přihlašovací soubory (kontrola otiskem, ne obsahem) a adresář brokera. Klient, který neprošel, `research.toml` nepovolí. Test se opakuje po každé změně verze klienta.
 - **Ověření na obou klientech, i po failoveru:** jednotkové testy skládají přesný příkaz a HOME. Živá sonda pak u Codexu i Claude Code spustí výzkumný běh a z výstupu klienta doloží seznam nástrojů. Musí v něm být jen povolené čtení, žádné MCP, žádný shell s sítí. Sonda běží i v roli náhradníka. Bez úspěšné sondy na daném klientovi ho `research.toml` nesmí povolit.
 - Web (profil `research-web`) až po Michalově souhlasu a po ověření skutečného chování přesného příkazu bridge.
 - Výsledky se do promptu syntézy vkládají ohraničeně jako data s pokynem, že jde o nedůvěryhodný obsah; vstup syntézy je omezený (8 KB na podúkol, 48 KB celkem, i pro nestrukturovaný výstup).
@@ -125,6 +130,8 @@ Překročení limitu je odmítnutí při zadání nebo bezpečné zastavení (zr
 - 9 podtémat nebo termín nad strop → odmítnuto. Mez spotřeby dosažená → žádný další start (ani failover, ani syntéza), stav `partial`. Pokus bez reportu spotřeby → žádný další start. Dva souběžné starty na zbytku meze → projde jen jeden (kontrola a registrace v jedné transakci); po dosažení meze další start zablokován.
 - Příjemce bez profilu `research-readonly` (i jako náhradník při failoveru) → podúkol nespuštěn, `needs_review`.
 - Složený příkaz a HOME pro Codex i Claude Code: žádný konfigurační soubor s MCP, skrytý adresář brokera, repozitář jen pro čtení. Pokus o zápis do repozitáře a o připojení k socketu brokera z běhu selže. Živá sonda nástrojů na obou klientech (i jako náhradník) před povolením v `research.toml`.
+- Canary test na Codexu i Claude Code (i jako náhradník): kanárek v HOME běhu, otisk přihlášení ani cesta brokera se nesmí objevit ve výstupu. Neúspěch → klient pro výzkum vypnutý.
+- Termín vyprší, část skončí `succeeded` po `deadline_at`, ale před tickem nebo obnovou → `cutoff_at = deadline_at` a ta část se do syntézy nezapočítá.
 - Zrušení výzkumu během spouštění části: po návratu zrušení se žádná část už nespustí (bariéra po commitu). Restart během syntézy: po `synth_deadline_at` → `partial`.
 - Pokus skončený bez metriky → `unknown`, výzkum `partial` („spotřeba neznámá“), žádný další start.
 - Duplicitní zdroje (lišící se jen `utm_*`, koncovým `/`, `#fragment`) se v souhrnu sloučí.
