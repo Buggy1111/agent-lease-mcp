@@ -299,6 +299,14 @@ def _checkout(src: Path, commit: str, dest: Path) -> Path:
     return dest
 
 
+def _test_failure(proc: subprocess.CompletedProcess) -> bool:
+    """Selhání testu, ne prostředí: signál (<0, 128+), nespustitelný příkaz (126/127) ani chyba bwrap se nepočítá."""
+    if not 0 < proc.returncode < 126:
+        return False
+    out = (proc.stdout or b"") + (proc.stderr or b"")
+    return not any(line.startswith(b"bwrap: ") for line in out.splitlines())
+
+
 def verify_regression(clone: Path, base_commit: str, commit: str, files: list[str], test_argv: list[str],
                       workdir: Path, *, timeout: int = 900, supervisor=None,
                       can_continue=None, **sandbox_kw) -> dict:
@@ -327,6 +335,8 @@ def verify_regression(clone: Path, base_commit: str, commit: str, files: list[st
     check_owner()
     if old.returncode == 0:
         return {"ok": False, "reason": "the new test passes without the fix (not a regression test)", "tests": tests}
+    if not _test_failure(old):
+        return {"ok": False, "reason": f"the base run did not fail as a test (exit {old.returncode})", "tests": tests}
     return {"ok": True, "reason": "", "tests": tests}
 
 

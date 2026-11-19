@@ -570,3 +570,39 @@ def test_fix_agent_never_launches_outside_the_autonomous_mode(env, monkeypatch, 
         assert job["state"] == "pending", job  # Základní: bridge úkol vůbec nepřevezme
     else:
         assert job["state"] == "needs_review" and job["last_error"] == "fix: mode", job
+
+
+@pytest.mark.parametrize("base_exit", ["os.kill(os.getpid(), 9)", "sys.exit(127)",
+                                       "print('bwrap: Can\\'t mount'); sys.exit(1)"])
+def test_base_environment_failure_is_not_a_failing_regression_test(env, base_exit):
+    """P3: signál, nespustitelný příkaz ani chyba bwrap na základu nejsou „test selhal“."""
+    clone = fix_runner.prepare(env["repo"], env["base"], env["tmp"] / "rv")
+    (clone / "src" / "app.py").write_text('print("fixed")\n')
+    (clone / "src" / "test_app.py").write_text(
+        'import os,pathlib,sys\nif "fixed" in pathlib.Path("src/app.py").read_text(): sys.exit(0)\n'
+        f'{base_exit}\n')
+    res = fix_runner.collect(clone, env["base"], [], "fix")
+    v = fix_runner.verify_regression(clone, env["base"], res["commit"], res["files"],
+                                     [sys.executable, "src/test_app.py"], env["tmp"] / "rv",
+                                     home=env["home"], run_home=None)
+    assert not v["ok"] and "did not fail as a test" in v["reason"], v
+
+
+def test_foreign_fence_during_test_does_not_block_the_worker(env, monkeypatch):
+    """P3: FileExistsError z plotu při testu = nic nespuštěno → bez trvalého zablokování."""
+    from agent_lease_mcp.bridge import Bridge
+    code = 'import pathlib,sys\nsys.exit(0 if "fixed" in pathlib.Path("src/app.py").read_text() else 1)\n'
+    store, mid, command = _bridge_env(env, monkeypatch, _regression_body(code))
+    bridge = Bridge(store, "codex", command, lease_seconds=30, read_only=False)
+    real_acquire, calls = bridge._run_fence.acquire, []
+
+    def acquire(*a, **kw):
+        calls.append(1)
+        if len(calls) > 1:              # 1. = běh agenta, 2. = první test
+            raise FileExistsError("foreign fence")
+        return real_acquire(*a, **kw)
+
+    monkeypatch.setattr(bridge._run_fence, "acquire", acquire)
+    assert bridge.step()
+    job = next(j for j in store.jobs("codex") if j["id"] == mid)
+    assert job["state"] != "succeeded" and not bridge._cleanup_blocked, job
