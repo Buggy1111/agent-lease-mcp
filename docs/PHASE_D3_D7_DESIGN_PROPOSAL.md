@@ -122,7 +122,7 @@ Překročení limitu je odmítnutí při zadání nebo bezpečné zastavení (zr
 
 - Výzkum s 3 podtématy založí 3 podúkoly; po jejich dokončení vznikne právě jedna syntéza; souhrn odděluje fakta od návrhů.
 - Souběh: dokončení posledního podúkolu současně s kontrolou termínu → právě jedna syntéza. Restart po termínu → výzkum se posune. Dva souběžné starty na hraně limitu souběhu → přijat jen jeden. Zrušení během syntézy → `cancelled`, pozdní výsledek syntézy stav nepřepíše. Žádný úspěšný podúkol → `failed` bez syntézy.
-- 9 podtémat nebo termín nad strop → odmítnuto. Mez spotřeby dosažená → žádný další start (ani failover, ani syntéza), stav `partial`. Pokus bez reportu spotřeby → žádný další start. Dva současné pokusy → přesah nejvýš o spotřebu běžících pokusů, další start zablokován.
+- 9 podtémat nebo termín nad strop → odmítnuto. Mez spotřeby dosažená → žádný další start (ani failover, ani syntéza), stav `partial`. Pokus bez reportu spotřeby → žádný další start. Dva souběžné starty na zbytku meze → projde jen jeden (kontrola a registrace v jedné transakci); po dosažení meze další start zablokován.
 - Příjemce bez profilu `research-readonly` (i jako náhradník při failoveru) → podúkol nespuštěn, `needs_review`.
 - Složený příkaz a HOME pro Codex i Claude Code: žádný konfigurační soubor s MCP, skrytý adresář brokera, repozitář jen pro čtení. Pokus o zápis do repozitáře a o připojení k socketu brokera z běhu selže. Živá sonda nástrojů na obou klientech (i jako náhradník) před povolením v `research.toml`.
 - Zrušení výzkumu během spouštění části: po návratu zrušení se žádná část už nespustí (bariéra po commitu). Restart během syntézy: po `synth_deadline_at` → `partial`.
