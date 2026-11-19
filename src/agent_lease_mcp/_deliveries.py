@@ -41,9 +41,9 @@ from .workspace import matches as workspace_matches
 MODES = ("basic", "intelligent", "autonomous")
 DEFAULT_MODE = "intelligent"
 MEMORY_MODES = ("intelligent", "autonomous")
-# shortcut: autonomní režim je zamčený napevno, dokud není nasazená fáze C (bridge.repair) a nemá
-# kontrolu předpokladů v `doctor`; pak zámek nahradit tou kontrolou.
-MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený: fáze C (opravy ve worktree, rozpočty) ještě není nasazená."}
+# shortcut: autonomní režim je zamčený napevno, dokud ho Michal výslovně neodemkne (fáze C je nasazená
+# od 19. 11.); pak zámek nahradit kontrolou předpokladů v `doctor`.
+MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený, dokud ho vlastník výslovně neodemkne."}
 
 class DeliveriesMixin:
     @staticmethod
