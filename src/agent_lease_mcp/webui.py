@@ -182,6 +182,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
+            if parts.path == "/api/research":
+                if not self._session_ok():
+                    return self._reject(403, "bad token")
+                runs = [store.research_get(r["id"]) for r in store.research_list(20)]
+                return self._json_response({"research": [r for r in runs if r]})
             if parts.path == "/api/quality-log":
                 if not self._session_ok():
                     return self._reject(403, "bad token")
@@ -249,6 +254,14 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._json_response(result)
             if parts.path in ("/api/knowledge-add", "/api/knowledge-verdict"):
                 return self._handle_knowledge_write(parts.path.endswith("add"))
+            if parts.path == "/api/research-cancel":
+                data = self._read_json()
+                if data is None:
+                    return
+                try:  # člověk (actor=None) smí zrušit kterýkoli výzkum
+                    return self._json_response({"cancelled": store.research_cancel(int(data["id"]))})
+                except (KeyError, TypeError, ValueError):
+                    return self._reject(400, "id required")
             self._reject(404, "not found")
 
         # ── handlery ────────────────────────────────────────────────────
@@ -965,7 +978,7 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 <div id="shell">
   <header id="masthead">
     <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
-    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="memory">◈ Paměť</button><button data-view="settings">⚙ Nastavení</button></nav>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="memory">◈ Paměť</button><button data-view="research">⌕ Výzkum</button><button data-view="settings">⚙ Nastavení</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
   <div id="overviewView" data-view-panel="overview">
@@ -1013,6 +1026,8 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 </div>
   <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
+  <section class="view-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><div class="view-header"><div><h2 id="researchTitle" class="view-title" tabindex="-1">⌕ Výzkumný tým</h2><p class="view-subtitle">Části běží izolovaně jen pro čtení, pak jedna syntéza. Zjištění jsou neověřená, dokud je někdo nepotvrdí v paměti.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+    <section class="panel"><div class="panel-body"><div id="rsList" role="status">Načítám…</div></div></section></section>
   <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">◈ Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <div class="kb-grid"><section class="panel"><div class="panel-title"><h2>Záznamy</h2></div><div class="panel-body"><div class="kb-tools"><label class="search"><span class="sr-only">Hledat v paměti</span><input id="kbQuery" type="search" placeholder="Hledat příznak, chybu, příčinu…"></label><select id="kbStatus" aria-label="Stav"><option value="">Všechny stavy</option><option value="verified">Ověřené</option><option value="unverified">Neověřené</option><option value="rejected">Zamítnuté</option><option value="stale">Zastaralé</option></select></div><div id="kbList" role="status">Načítám…</div></div></section>
     <section class="panel"><div class="panel-title"><h2>Nový záznam</h2></div><div class="panel-body kb-form"><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000"></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200"></label><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><button class="btn detail" id="kbAdd" type="button">Uložit jako neověřené</button><p class="note">Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p></div></section></div></section>
@@ -1773,8 +1788,26 @@ function renderMode(m) {
   });
 }
 function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => renderMode(s.mode)).catch(() => {}); }
+const RS_LABEL = {running:"běží",synthesizing:"syntéza",done:"hotovo",partial:"částečně",failed:"selhalo",cancelled:"zrušeno"};
+function loadResearch() {
+  fetch("/api/research").then(r => r.ok ? r.json() : Promise.reject(r)).then(d => renderResearch(d.research))
+    .catch(() => { document.getElementById("rsList").textContent = "Výzkum se nepodařilo načíst."; });
+}
+function renderResearch(runs) {
+  const el = document.getElementById("rsList");
+  if (!runs.length) { el.innerHTML = '<p class="note">Zatím žádný výzkum. Zadává ho agent nástrojem <code>research</code>; bez <code>research.toml</code> s mezí spotřeby se nespustí.</p>'; return; }
+  el.innerHTML = runs.map(r => `<article class="kb-entry" data-id="${r.id}"><div class="kb-actions"><strong>#${r.id}</strong><span class="kb-state ${r.state === "done" ? "verified" : r.state === "running" || r.state === "synthesizing" ? "unverified" : "stale"}">${esc(RS_LABEL[r.state] || r.state)}</span><span class="note">${esc(r.kind)} · zadal ${esc(r.requester)} · ${esc(String(r.spend_tokens))}/${esc(String(r.budget_tokens))} tokenů${r.reason ? " · " + esc(r.reason) : ""}</span></div>
+    <dl><dt>Otázka</dt><dd>${esc(r.question)}</dd><dt>Části</dt><dd>${r.parts.filter(p => p.role === "part").map(p => `${esc(p.topic)} (${esc(p.state || "?")})`).join(" · ")}</dd>${r.summary ? `<dt>Souhrn (neověřený)</dt><dd style="white-space:pre-wrap">${esc(r.summary)}</dd>` : ""}</dl>
+    ${r.state === "running" || r.state === "synthesizing" ? '<div class="kb-actions"><button class="btn" data-rs-cancel>✕ Zrušit</button></div>' : ""}</article>`).join("");
+  el.querySelectorAll("[data-rs-cancel]").forEach(b => b.onclick = () => {
+    if (!confirm("Zrušit výzkum včetně běžících částí a syntézy?")) return;
+    b.disabled = true;
+    post("/api/research-cancel", {id: Number(b.closest(".kb-entry").dataset.id)}).then(() => loadResearch());
+  });
+}
 function showView(view,{focus=true}={}) {
   if(view==="settings")loadMode();
+  if(view==="research")loadResearch();
   if(view==="memory")loadKnowledge();
   if(drawer.open){drawer.close();restorePanels();}
   currentView=view;

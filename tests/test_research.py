@@ -423,3 +423,24 @@ def test_bridge_service_cgroup_is_recognised(monkeypatch):
     assert not broker_mod._is_research_bridge(Sock(), "codex")
     monkeypatch.setattr(broker_mod, "Path", fake_path("/user.slice/session-3.scope"))
     assert not broker_mod._is_research_bridge(Sock(), "claude-code")
+
+
+def test_web_research_view_needs_session_and_human_can_cancel(tmp_path: Path):
+    from test_webui import authenticated_handler, call_handler
+
+    from agent_lease_mcp.webui import SESSION_COOKIE
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    policy(store)
+    rid = start(store, n=2)["id"]
+    status, _ = call_handler(store, settings, "secret", "GET", "/api/research")
+    assert status == 403
+    handler = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session"}
+    status, raw = call_handler(store, settings, "secret", "GET", "/api/research", headers=cookie,
+                               handler_type=handler)
+    assert status == 200 and json.loads(raw)["research"][0]["id"] == rid
+    status, raw = call_handler(store, settings, "secret", "POST", "/api/research-cancel", headers=cookie,
+                               body={"id": rid}, handler_type=handler)
+    assert status == 200 and json.loads(raw)["cancelled"] is True
+    assert store.research_get(rid)["state"] == "cancelled"

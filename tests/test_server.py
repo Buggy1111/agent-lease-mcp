@@ -16,7 +16,7 @@ EXPECTED_TOOLS = {
     "claim", "release", "owner", "say", "send", "jobs", "next_task", "ack", "retry",
     "cancel",
     "inbox", "room", "history", "wait", "checkpoint", "emergency_stop",
-    "review", "verdict", "knowledge",
+    "review", "verdict", "knowledge", "research",
 }
 
 
@@ -443,3 +443,12 @@ def test_knowledge_tool_add_search_and_no_self_verdict(server):
     assert server.knowledge("search", query="hook blocks")["results"][0]["id"] == entry["id"]
     with pytest.raises(PermissionError):
         server.knowledge("verdict", knowledge_id=entry["id"], verdict="verified", evidence="me")
+
+
+def test_research_tool_is_scoped_to_the_caller(server):
+    with pytest.raises(PermissionError):
+        server.research("start", question="q", subtopics=["a", "b"])   # bez research.toml
+    assert server.research("list") == {"research": []}
+    with pytest.raises(ValueError):
+        server.research("show")
+    assert server.research("show", research_id=999) == {"research": None}
