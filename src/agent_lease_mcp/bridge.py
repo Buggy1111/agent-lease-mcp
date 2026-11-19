@@ -41,7 +41,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from . import fix_runner, jev, workspace
+from . import fix_runner, jev, research_runner, workspace
 from .broker import database_busy, open_store
 from .cgroup import CgroupWatchdog, CommandCgroup
 from .config import Settings
@@ -565,6 +565,9 @@ class Bridge:
         self._cleanup_blocked = False
         self._run_fence = RunFence(self.store.db_path, self.agent)
         self._fence_reported = False
+        # D3: výzkum jen výchozí CLI s ověřeným profilem, ne vlastní příkaz ani callable runner
+        self.research_capable = (runner is None and command == DEFAULT_COMMANDS.get(agent)
+                                 and research_runner.supported(agent))
 
     def _budget_left(self) -> bool:
         cutoff = time.time() - 3600
@@ -634,6 +637,14 @@ class Bridge:
             after_message_id=self.after_message_id,
             skip_accepted=True, defer_if_present=self.interactive_grace, worker=True,
         )
+        is_research = False
+        if delivery is None and self.research_capable:
+            delivery = self.store.lease_next(
+                self.agent, lease_seconds=self.lease_seconds,
+                after_message_id=self.after_message_id, skip_accepted=True, worker=True,
+                research=True,
+            )
+            is_research = delivery is not None
         if delivery is None:
             return False
         token = delivery.lease_token or ""
@@ -734,6 +745,23 @@ class Bridge:
         if scope is not None:
             return self._run_fix(mid, token, delivery, prompt, scope, tick, report_key)
         blocked_by_mode: list[bool] = []
+        command, wrap, research_env = self.command, None, None
+        if is_research:
+            try:
+                research_env = research_runner.prepare(
+                    Path(os.environ.get("AGENT_LEASE_RESEARCH_DIR")
+                         or Path.home() / ".cache" / "agent-lease-research"),
+                    self.agent, Path.home(), mid)
+            except OSError as exc:
+                self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
+                                    f"Research #{mid} not started: isolated environment failed.",
+                                    error=f"research: environment ({str(exc)[:120]})")
+                return True
+            command = research_env["command"]
+            wrap = research_runner.wrap(research_env, Path.home(),
+                                        (str(self.store.db_path.parent),))
+            if self.requested_model:
+                command = with_model(self.agent, command, self.requested_model)
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
@@ -760,18 +788,23 @@ class Bridge:
                 return self.store.holds(mid, self.agent, token)
 
             try:
-                result = run_command(self.command, prompt,
+                result = run_command(command, prompt,
                                      timeout=self.max_runtime or self.timeout, on_tick=tick,
                                      gate=lambda: launch_gate(self.store.db_path),
                                      can_launch=can_launch,
                                      use_cgroup=self.use_cgroup,
                                      on_cgroup_created=self._run_fence.record_cgroup,
                                      idle_timeout=self.timeout if self.max_runtime else None,
-                                     progress=self._checkpoint_progress(mid))
+                                     progress=self._checkpoint_progress(mid), wrap=wrap)
             except BaseException:
                 # Even an unexpected exception cannot prove the command is gone.
                 self._cleanup_blocked = True
                 raise
+            if research_env is not None and not result.cleanup_failed:
+                try:  # jen po potvrzeném konci procesu: obnovené přihlášení zpět, adresář pryč
+                    research_runner.finish(research_env, self.agent, Path.home())
+                except OSError as exc:
+                    print(f"[agent-lease-bridge] research cleanup: {exc}", file=sys.stderr)
             if not result.cleanup_failed:
                 try:
                     self._run_fence.release()

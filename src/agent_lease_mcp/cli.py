@@ -152,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_provider_clear.add_argument("--agent", default=None)
 
+    p_probe = sub.add_parser("research-probe",
+                             help="D3: prove the research read boundary of a client (spends a few tokens)")
+    p_probe.add_argument("--agent", default="claude-code")
+
     p_overdue = sub.add_parser("overdue", help="messages nobody acknowledged / undelivered")
     p_overdue.add_argument("--seconds", type=int, default=120)
 
@@ -279,6 +283,18 @@ def main(argv: list[str] | None = None) -> int:
             if state.resets_at else ""
         print(f"{args.agent}: {state.state} ({state.source}){reset}")
         return 0 if state.state != "unknown" else 1
+    if args.cmd == "research-probe":
+        from pathlib import Path as _Path
+
+        from .research_runner import probe
+        result = probe(args.agent, _Path.home(), _Path.home() / ".cache" / "agent-lease-research",
+                       (str(store.db_path.parent),))
+        for name, ok in result.get("checks", {}).items():
+            print(f" {'✔' if ok else '✘'} {name}")
+        print(f"PASS: {args.agent} may be listed in research.toml" if result["ok"]
+              else f"FAIL: {result['reason']} — keep {args.agent} out of research.toml")
+        return 0 if result["ok"] else 1
+
     if args.cmd == "provider-clear":
         who = args.agent or me
         if who != me:

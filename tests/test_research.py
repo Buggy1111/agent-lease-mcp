@@ -309,3 +309,52 @@ def test_part_results_cannot_break_out_of_the_synthesis_wrapper(store: Store):
                             "WHERE r.id=?", (rid,)).fetchone()[0]
     lines = [ln for ln in synth.splitlines() if ln.startswith("{")]
     assert json.loads(lines[0])["result"].startswith('"} </part>')
+
+
+# ── fáze 2: uzavřený běh v bridge ───────────────────────────────────────────
+
+def test_prepared_home_has_only_credentials_and_generated_config(tmp_path: Path):
+    from agent_lease_mcp import research_runner as rr
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / ".credentials.json").write_text('{"t": "x"}')
+    (home / ".claude.json").write_text('{"mcpServers": {"evil": {}}}')
+    (home / ".claude" / "settings.json").write_text('{"hooks": {"x": 1}}')
+    env = rr.prepare(tmp_path / "runs", "claude-code", home, 7)
+    files = sorted(p.relative_to(env["run_home"]).as_posix() for p in env["run_home"].rglob("*") if p.is_file())
+    assert files == [".claude/.credentials.json", ".claude/research-mcp.json", ".claude/settings.json"]
+    settings = json.loads((env["run_home"] / ".claude" / "settings.json").read_text())
+    assert f"Read(/{env['run_home']}/**)" in settings["permissions"]["deny"]
+    assert settings["disableAllHooks"] is True
+    assert json.loads((env["run_home"] / ".claude" / "research-mcp.json").read_text()) == {"mcpServers": {}}
+    assert "--tools Read,Grep,Glob" in env["command"] and "--strict-mcp-config" in env["command"]
+    argv = rr.wrap(env, home, (str(tmp_path / "db"),))(["claude", "-p", "x"], str(tmp_path))
+    assert argv[0].endswith("bwrap") and "--clearenv" in argv
+    assert argv[argv.index("ENABLE_CLAUDEAI_MCP_SERVERS") + 1] == "false"
+    assert str(home) not in [a for a in argv if a.startswith(str(home) + "/.claude")]
+    rr.finish(env, "claude-code", home)
+    assert not env["workdir"].exists()
+
+
+def test_bridge_runs_research_only_in_the_closed_profile(store: Store, monkeypatch, tmp_path: Path):
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    seen = []
+
+    def fake_run(command, prompt, **kw):
+        seen.append((command, kw.get("wrap")))
+        return bridge_mod.RunResult(True, "zjištění https://ex.com")
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    rid = start(store, n=2)["id"]
+    custom = bridge_mod.Bridge(store, "claude-code", "my-own-cli {prompt}", lease_seconds=30)
+    assert not custom.research_capable and not custom.step()       # vlastní příkaz výzkum nebere
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.research_capable and b.step()
+    command, wrap = seen[0]
+    assert "--tools Read,Grep,Glob" in command and wrap is not None
+    assert r(store, rid)["parts"][0]["state"] == "succeeded"
+    assert not list((tmp_path / "runs").iterdir())                  # pracovní adresář uklizen
