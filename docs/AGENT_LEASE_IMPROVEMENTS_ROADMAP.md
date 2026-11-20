@@ -8,6 +8,15 @@
 **Nic z toho se neimplementuje bez Michalova schválení.** Každá fáze = samostatné commity s testy,
 review druhým agentem, nasazení až po zelených testech.
 
+> **Aktuální stav (20. 11. 2026, podle [nezávislého ověření Noxe 19. 11.](NOX_VERIFICATION_2026-11-19.md)):**
+> nasazené jsou dosud implementované části fází A–D (runtime `0175752`); **celý plán A–D dokončený není**. Fázi B uzavřel Michal 11. 11.
+> ([schválení](PHASE_B_OWNER_APPROVAL_2026-11-11.md)). **Záměrně vypnuto do rozhodnutí Michala:**
+> ostrá Quality Gate B7 (chybí `quality-runner.toml`), autonomní opravy C (zámek režimu, chybí
+> `fix-runner.toml`), výzkumný tým D3–D7 (chybí `research.toml` a probe). Web se spouští na
+> vyžádání (`agent-lease web --open`). D12/D13 a katalog schopností jsou jen omezené piloty
+> (bez plného A/B měření a plné vizuální akceptace D13). Otevřené: plný restart Windows (A11), známá omezení
+> A5/A9/A10 vůči procesům stejného uživatele. Níže je původní plán; věty o „otevřené B“ jsou historické.
+
 ---
 
 ## Fáze A – P0: „nikdy dvakrát, bezpečně hodiny bez dozoru“
@@ -52,7 +61,7 @@ proveden 2×, žádný osiřelý proces, každý přerušený úkol buď obnoven
 Kandidát B7 na `main` (7. 11. 2026): [runner a kontrakt](PHASE_B7_2_RUNNER.md),
 [validace](test-results/b7-2/validation.json), [aktivace a rollback](PHASE_B7_ACTIVATION_PLAN.md).
 Michal výslovně schválil přenesení kandidáta na `main`; produkční aktivace tím
-neprobíhá. **Fáze B zůstává otevřená.** Po obnovení Adiny kapacity musí dokončení
+neprobíhá. **Fáze B zůstává otevřená** *(historické — 11. 11. ji uzavřel Michal)*. Po obnovení Adiny kapacity musí dokončení
 schválit **Ada i Nox** podle pravidel nezávislého review a ověřených bran, včetně
 schválené ostré akceptace/enforcement. Teprve po řádném uzavření B navazuje C.
 

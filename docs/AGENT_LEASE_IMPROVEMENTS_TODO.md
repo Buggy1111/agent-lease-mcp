@@ -254,13 +254,13 @@ po review #555 zůstaly další problémy k opravě a ověření.
 | A2 | Deadline v `ack`/`extend_lease`/`complete`/`defer`, čas až po zámku | ✅ | `_deliveries.py` |
 | A3 | Po limitu: read-only běh se odloží atomicky (`defer`), zapisující → `needs_review` | ✅ | `bridge.py`, `Store.defer` |
 | A4 | Atomické dokončení: stav + výsledek v jedné transakci, idempotentní | ✅ | `Store.complete`, MCP `ack(result=…)`; opakované potvrzení je vázáno na token a obsah |
-| A5 | Skupina procesů: zabití i potomků, potvrzení zániku, nepotvrzeno → `needs_review` | ⚠️ | `bridge._kill_group`, `_run`; při pádu bridge není úklid všech potomků zaručen |
+| A5 | Skupina procesů: zabití i potomků, potvrzení zániku, nepotvrzeno → `needs_review` | ⚠️ | `bridge._kill_group`, `_run`; v provozu bridge s `--cgroup` a `Delegate=yes` (úklid přes `cgroup.kill`). Absolutní záruka vůči procesu stejného uživatele, který ochranu obejde, není; bez cgroup známý xfail odděleného potomka |
 | A6 | Checkpoint s otiskem obsahu pracovní kopie; obnova jen při shodě | ✅ | `Store.checkpoint`, `workspace.py`, MCP `checkpoint` |
 | A7 | Reconciliace všech adresátů v brokeru | ✅ | `Store.reconcile` |
-| A8 | Opravená SQLite | ⚠️ ověřování | lokální kód požaduje rollback journal `DELETE`, aby neprovozoval známou chybu WAL-reset v SQLite 3.50.4. Stávající WAL databázi sám nepřepíná: po odstavení všech klientů je potřeba explicitní offline migrace `python -m agent_lease_mcp.sqlite_migrate --all-clients-stopped DATABASE`. Nadále platí denní ověřená záloha. Opravený SQLite to nenahrazuje. |
+| A8 | Opravená SQLite | ✅ v provozu (SQLite 3.53.1, journal `DELETE`, integrita ok — [ověření 19. 11.](NOX_VERIFICATION_2026-11-19.md)); historický popis: | lokální kód požaduje rollback journal `DELETE`, aby neprovozoval známou chybu WAL-reset v SQLite 3.50.4. Stávající WAL databázi sám nepřepíná: po odstavení všech klientů je potřeba explicitní offline migrace `python -m agent_lease_mcp.sqlite_migrate --all-clients-stopped DATABASE`. Nadále platí denní ověřená záloha. Opravený SQLite to nenahrazuje. |
 | A9 | Karanténa i pro bridge; agent ji nevypne (`set_screen` mimo broker, heuristika vždy) | ⚠️ | MCP zakrývá známé riziko; heuristika není úplná a přímý přístup ke Store není bezpečnostní hranice |
 | A10 | Nouzové zastavení: MCP `emergency_stop`, CLI `agent-lease stop`, web; obnovit jen člověk ve webu | ⚠️ | start CLI je synchronizován s potvrzením pauzy; callable runnery ani všichni potomci dosud nemají úplnou záruku zastavení |
-| A11 | Ověření restartu Windows/WSL | ⏳ | ruční test u Michala (restart PC → `agent-lease doctor`) |
+| A11 | Ověření restartu Windows/WSL | ⚠️ částečně | restart WSL PASS 6. 11. ([výsledek](PHASE_A_A11_RESULT_2026-11-06.md)); plný restart Windows a samostart WSL po přihlášení neověřeny (ruční test u Michala) |
 | — | Schválení karantény člověkem (web, hash textu, adresát, jediný pokus, audit) | ✅ | `Store.approve_quarantine`, `/api/approve` |
 
 Izolovaný cgroup experiment po Michalově souhlasu prošel: v dočasné systemd scope
