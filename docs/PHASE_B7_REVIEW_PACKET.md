@@ -6,6 +6,7 @@ Kandidát včetně opravené testovací fixture: `66039c0839f8fafc6bfd7437ff0c33
 Zdrojová pracovní větev: `nox/b7-mvp-20261107`. Kandidát je s přímým souhlasem
 Michala přenesen na `main`; produkční runtime zůstává `9134485`.
 Fáze B zůstává otevřená do schválení **Adou i Noxem**, až se Adě obnoví kapacita.
+*(Historické: fázi B uzavřel 11. 11. Michal, viz [schválení](PHASE_B_OWNER_APPROVAL_2026-11-11.md).)*
 Publikace kódu ani tento report chybějící nezávislé schválení nenahrazují.
 Tento report není nezávislé schválení vlastního kódu.
 

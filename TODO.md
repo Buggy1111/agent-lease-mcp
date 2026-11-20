@@ -71,6 +71,8 @@ Až se Adě obnoví kapacita, musí výsledky a dokončení fáze schválit **Ad
 Dosavadní deterministická validace Noxova kódu nenahrazuje Adino nezávislé review.
 Do té doby fáze B zůstává otevřená a fáze C nezačíná. Po řádném uzavření B
 navazuje C podle roadmapy.
+**Aktualizace 11. 11.:** fázi B uzavřel Michal ([schválení](docs/PHASE_B_OWNER_APPROVAL_2026-11-11.md)),
+C a D jsou nasazené. B7 je dál neaktivní (chybí `quality-runner.toml`); viz [ověření 19. 11.](docs/NOX_VERIFICATION_2026-11-19.md).
 
 Plán a rollback: [aktivace](docs/PHASE_B7_ACTIVATION_PLAN.md). Produkční aktivace
 vyžaduje vlastní výslovný souhlas; publikace na `main` ji neprovádí.
