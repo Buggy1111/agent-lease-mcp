@@ -117,7 +117,8 @@ def _newer_codex_session(home: Path, thread: str, idle: float) -> str | None:
     """ID uživatelské relace Codexu založené až po posledním zápisu do `thread`, jinak None.
 
     Regrese 19. 11.: po restartu Codexu wake 4 h budil starou relaci (idle jen ~8 h < 24 h).
-    Subagenty (guardian apod. s parent_thread_id) se nepočítají.
+    Počítá se jen interaktivní TUI relace (originator codex-tui) bez parent_thread_id —
+    ne subagenty (guardian) ani headless `codex exec`, které tvoří bridge.
     """
     if idle is None or idle == float("inf") or idle < _SUPERSEDED_GRACE_SECONDS:
         return None
@@ -132,6 +133,7 @@ def _newer_codex_session(home: Path, thread: str, idle: float) -> str | None:
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             continue
         if (meta.get("id") not in (None, thread) and not meta.get("parent_thread_id")
+                and meta.get("originator") == "codex-tui"
                 and started.timestamp() > last_write):
             return str(meta["id"])
     return None

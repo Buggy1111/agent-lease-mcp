@@ -195,12 +195,16 @@ def test_doctor_warns_when_a_newer_codex_session_replaced_the_wake_target(tmp_pa
         doctor.run_doctor(json_output=True)
         return {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
 
-    session(old, 5 * 86400, 8 * 3600)
-    session(guardian, 2 * 3600, 60, parent_thread_id=old)  # subagent není nová relace
-    session(parallel, 9 * 3600, 60)  # běžela už předtím, nenahradila cíl
+    tui = {"originator": "codex-tui", "source": "vscode", "thread_source": "user"}
+    session(old, 5 * 86400, 8 * 3600, **tui)
+    session(guardian, 2 * 3600, 60, parent_thread_id=old, originator="codex-tui")  # subagent
+    session(parallel, 9 * 3600, 60, **tui)  # běžela už předtím, nenahradila cíl
+    # review #34: headless `codex exec` z bridge (bez parent_thread_id) není nová relace
+    exec_ = "01a1bbbb-0000-7000-8000-000000000000"
+    session(exec_, 2 * 3600, 60, originator="codex_exec", source="exec", thread_source="user")
     assert check(old)["status"] == "ok"
 
-    session(new, 8 * 3600 - 60, 60)
+    session(new, 8 * 3600 - 60, 60, **tui)
     replaced = check(old)
     assert replaced["status"] == "warning" and new in replaced["message"]
     assert check(new)["status"] == "ok"
