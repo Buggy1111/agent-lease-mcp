@@ -69,3 +69,21 @@ ve webu režim zpět na Inteligentní; kód: zastavit služby, `current` zpět n
 - **Full pytest** na čistém exportu `cbf6e1e`: 953 PASS / 30 SKIP / 1 XFAIL + 37 setup errors
   `test_fix_runner` (AF_UNIX path too long v izolovaném HOME, stejný jev jako u Noxe 19. 11.); tentýž soubor
   nad stejným kódem v běžném prostředí 38 PASS. Ruff PASS.
+
+## Doplnění odpoledne (Michal: „udělej i přístup výzkumníků k repu“)
+
+- **Výzkum nad kopií repozitáře** (review #43, Nox; P1 kontrola povolení při lease/exportu/spuštění,
+  P2 úklid při odmítnuté pojistce): `research(start, repo=...)`; repozitář musí být v `research.toml`
+  `repositories` (nyní `agent-lease-mcp`). Tím je výše uvedené „známé omezení“ vyřešené.
+- **Nasazení `02398e1`** (`runtime-02398e1`): wheel `72f87cd3d779d0556bda6eb9e3f8ca9df540e571c8aa895bfaa7c5a02b945881`,
+  závislosti shodné, migrace (`research.repo`, `research.repo_commit`) nejdřív na kopii ostré DB
+  (integrita `ok`); před přepnutím doběhl běžící quality request; 4 služby na novém runtime,
+  146/146 nedokončených doručenek shodných, `doctor` „Looks good“. Záloha
+  `deploy-backup-20261120-ada-02398e1`; rollback = `current` zpět na `runtime-cbf6e1e`.
+- **Ostrý výzkum #2** nad repozitářem (commit `02398e1`): odpověď z kódu s cestami a řádky, 169 597 tokenů.
+  Omezení: syntéza dostává z každé části nejvýš 8 KiB, začátek shrnutí může být oříznutý.
+- **Režim:** Michal ve webu přepnul na Autonomní (15:33, důvod „domluva“).
+- **Závěrečné kolo testů:** chaos 60 min na `cbf6e1e` PROŠLO (1 159 úkolů, 498 pádů workerů, 121 pádů
+  brokeru, 0 dvojitých účinků/Done, 0 visících, integrita `ok`); Nox: full 990 PASS, B–D soak 600 s PASS,
+  živý audit bez nálezu (report Noxe mimo repo: `~/dev/work/nox-bcd-final-20261120/FINAL_REPORT.md`).
+  Chaos běžel před `02398e1`; novou funkci kryje 67 testů a ostrý výzkum.

@@ -6,6 +6,8 @@ Podklady: [audit bod 10](AGENT_LEASE_IMPROVEMENTS_TODO.md#10-modularita-režimy-
 
 > **Podmínka:** Autonomní režim jde zapnout až po dokončení Fáze A roadmapy (přesně jednou, checkpoint,
 > nouzové zastavení, karanténa bridge). Do té doby je v UI zamčený s vysvětlením proč.
+> **Stav 20. 11. 2026:** odemčeno (review #39), Michal režim ve webu zapnul; viz
+> [záznam aktivace](PHASE_BCD_ACTIVATION_RECORD_2026-11-20.md).
 
 ## 1. Moduly (nad existujícími komponentami, žádné duplicity)
 
