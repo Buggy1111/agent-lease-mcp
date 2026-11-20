@@ -9,11 +9,12 @@
 review druhým agentem, nasazení až po zelených testech.
 
 > **Aktuální stav (20. 11. 2026, podle [nezávislého ověření Noxe 19. 11.](NOX_VERIFICATION_2026-11-19.md)):**
-> fáze A–D jsou implementované a nasazené (runtime `0175752`). Fázi B uzavřel Michal 11. 11.
+> nasazené jsou dosud implementované části fází A–D (runtime `0175752`); **celý plán A–D dokončený není**. Fázi B uzavřel Michal 11. 11.
 > ([schválení](PHASE_B_OWNER_APPROVAL_2026-11-11.md)). **Záměrně vypnuto do rozhodnutí Michala:**
 > ostrá Quality Gate B7 (chybí `quality-runner.toml`), autonomní opravy C (zámek režimu, chybí
 > `fix-runner.toml`), výzkumný tým D3–D7 (chybí `research.toml` a probe). Web se spouští na
-> vyžádání (`agent-lease web --open`). Otevřené: plný restart Windows (A11), známá omezení
+> vyžádání (`agent-lease web --open`). D12/D13 a katalog schopností jsou jen omezené piloty
+> (bez plného A/B měření a plné vizuální akceptace D13). Otevřené: plný restart Windows (A11), známá omezení
 > A5/A9/A10 vůči procesům stejného uživatele. Níže je původní plán; věty o „otevřené B“ jsou historické.
 
 ---
