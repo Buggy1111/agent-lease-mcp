@@ -1,0 +1,19 @@
+{
+  "integrity": "ok",
+  "foreign_key_findings": [],
+  "reviews": {
+    "changes_requested": 31,
+    "escalated": 31
+  },
+  "research": {
+    "cancelled": 9,
+    "done": 12,
+    "partial": 12
+  },
+  "quality_requests": {
+    "interrupted": 51,
+    "refused": 31
+  },
+  "quality_runs": 0,
+  "active_tasks": 0
+}

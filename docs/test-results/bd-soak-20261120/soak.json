@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "scope": "Store-state only, not broker crash or runner E2E",
+  "requested_seconds": 600,
+  "nice": 19,
+  "address_space_limit_mib": 512,
+  "source_commit": "aa26c05cd13ffa95ad0cd05cd050612d2265638c",
+  "script_sha256": "11f645cdb16a557f9de57d5d7050f5f66733ac88cc7c31b584ffecef72a379da",
+  "schedule": "deterministic round-robin; no random seed",
+  "counts": {
+    "capacity_checks": 1,
+    "reviews": 31,
+    "fixes": 31,
+    "research_cancel": 7,
+    "research": 31,
+    "quality": 31,
+    "store_reopens": 18,
+    "research_budget": 6,
+    "research_unknown": 6,
+    "research_cutoff": 6
+  },
+  "max_call_seconds": 0.12394397100433707,
+  "elapsed_seconds": 606.5330596120039,
+  "peak_rss_kib": 45104,
+  "database_bytes": 606208
+}
