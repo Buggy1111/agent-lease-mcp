@@ -667,3 +667,43 @@ def test_bridge_gives_research_a_read_only_copy_of_the_commit(store: Store, monk
     assert "./repo" in prompt and head[:12] in prompt
     assert content == "ODPOVED = 42\n" and not secret_copied and mode == "0o400"   # jen commit
     assert not list((tmp_path / "runs").iterdir())                  # kopie se po běhu smaže
+
+
+def test_revoked_repository_stops_lease_export_and_launch(store: Store, monkeypatch, tmp_path: Path):
+    """Review #43: odebrání repozitáře z research.toml platí hned, ne až pro nový výzkum."""
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    repo, _ = _repo(tmp_path)
+    allowed = f"repositories = {json.dumps([str(repo)])}\n"
+    policy(store, extra=allowed)
+    parts = start(store, n=2, repo=str(repo))["parts"]
+    policy(store)                                                   # odebráno
+    with pytest.raises(PermissionError):
+        store.research_repo(parts[0])
+    assert store.lease_next("claude-code", worker=True, research=True) is None
+    assert delivery(store, parts[0])["last_error"].startswith("research: repository")
+
+    policy(store, extra=allowed)                                    # znovu povoleno, odebráno až před spuštěním
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
+    launched = []
+
+    def fake_run(command, prompt, **kw):
+        policy(store)                                               # odebráno mezi exportem a startem
+        if kw["can_launch"]():
+            launched.append(prompt)
+            return bridge_mod.RunResult(True, "x")
+        return bridge_mod.RunResult(False, "stopped before launch", aborted=True)
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    mid = start(store, n=2, repo=str(repo))["parts"][0]
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.step() and not launched
+    assert delivery(store, mid)["state"] == "needs_review"
+    assert not list((tmp_path / "runs").iterdir())                  # kopie uklizena

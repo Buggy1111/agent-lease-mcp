@@ -73,6 +73,7 @@ def add_snapshot(env: dict, repo: str, commit: str) -> str:
     target = env["scratch"] / "repo"
     target.mkdir(mode=0o700)
     export_snapshot(repo, commit, target)   # limity souborů/velikosti/času, bez odkazů a submodulů
+    env["repo"] = repo
     for path in target.rglob("*"):
         if path.is_file():
             path.chmod(0o400)   # adresáře zůstávají 0700, ať je `finish` smaže

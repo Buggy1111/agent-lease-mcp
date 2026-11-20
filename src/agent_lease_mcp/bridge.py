@@ -835,6 +835,12 @@ class Bridge:
                 if research_env is not None and not self._research_still_attested():
                     blocked_by_research.append(True)
                     return False
+                if research_env is not None and research_env.get("repo"):
+                    try:   # review #43: povolení repozitáře znovu pod launch_gate
+                        self.store.research_repo(mid)
+                    except PermissionError:
+                        blocked_by_research.append(True)
+                        return False
                 return self.store.holds(mid, self.agent, token)
 
             try:
@@ -885,7 +891,8 @@ class Bridge:
             return True
         if result.aborted and blocked_by_research:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
-                                f"Research #{mid} not started: the client or its probe changed before launch.",
+                                f"Research #{mid} not started: the client, its probe or the repository "
+                                "permission changed before launch.",
                                 error="research: client changed")
             return True
         if result.aborted and blocked_by_mode:

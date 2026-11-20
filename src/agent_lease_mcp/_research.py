@@ -215,6 +215,10 @@ class ResearchMixin:
                 "WHERE m.message_id=?", (int(message_id),)).fetchone()
         if row is None or not row["repo"]:
             return None
+        # review #43: povolení platí v okamžiku exportu i spuštění, ne jen při startu výzkumu
+        policy = research_policy(self.db_path)
+        if policy is None or row["repo"] not in policy["repositories"]:
+            raise PermissionError("research: repository no longer allowed in research.toml")
         return {"repo": row["repo"], "commit": row["repo_commit"]}
 
     def _research_task(self, con: sqlite3.Connection, rid: int, sender: str, recipient: str,
@@ -292,6 +296,8 @@ class ResearchMixin:
         policy = research_policy(self.db_path)
         if policy is None or recipient not in policy["agents"]:
             return ("hold", "research: profile (recipient not allowed in research.toml)")
+        if r["repo"] and r["repo"] not in policy["repositories"]:
+            return ("hold", "research: repository no longer allowed in research.toml")
         now = time.time()
         if r["role"] == "part" and (r["state"] != "running" or now >= r["deadline_at"]):
             return ("hold", "research: part deadline passed")
