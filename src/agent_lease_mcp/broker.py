@@ -54,7 +54,7 @@ METHODS = frozenset({
     # C3a: bridge zapisuje spotřebu pokusu; přehled je jen čtení.
     "begin_usage", "record_usage", "usage_summary",
     # C1a: jen čtení. `approve_fix` tu schválně není: schvaluje jen člověk ve webu.
-    "fix_task", "research_repo",
+    "fix_task", "research_repo", "research_model",
     # D3: výzkum. Zrušení jen s actor (zadavatel); bez actor ruší jen člověk ve webu.
     "research_start", "research_cancel", "research_get", "research_list", "research_archive",
     "research_pending",

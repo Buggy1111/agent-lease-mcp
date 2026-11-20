@@ -734,3 +734,46 @@ def test_refused_run_fence_cleans_the_research_copy(store: Store, monkeypatch, t
     assert b.step()
     assert delivery(store, mid)["state"] == "needs_review"
     assert not list((tmp_path / "runs").iterdir())
+
+
+# ── model výzkumníků (Michal 20. 11.: Sonnet výchozí, Opus na náročné) ───────
+
+def test_research_uses_default_or_heavy_model_from_policy(store: Store, monkeypatch, tmp_path: Path):
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    policy(store, extra='model = "claude-sonnet-5-5"\nheavy_model = "claude-opus-5-5"\n')
+    normal, heavy = start(store, n=2), start(store, n=2, heavy=True)
+    assert store.research_model(normal["parts"][0]) == "claude-sonnet-5-5"
+    assert store.research_model(heavy["parts"][1]) == "claude-opus-5-5"
+    for rid in (normal["id"], heavy["id"]):                          # limit souběhu 2
+        store.research_cancel(rid, actor="michal")
+    policy(store, extra='model = "claude-sonnet-5-5; rm -rf"\n')
+    with pytest.raises(PermissionError):
+        start(store, n=2)                                            # neplatný model = politika neplatí
+    policy(store)
+    plain = start(store, n=2)
+    assert store.research_model(plain["parts"][0]) is None              # bez model beze změny
+    store.research_cancel(plain["id"], actor="michal")
+    policy(store, extra='model = "claude-sonnet-5-5"\nheavy_model = "claude-opus-5-5"\n')
+    start(store, n=2)
+
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
+    commands = []
+
+    def fake_run(command, prompt, **kw):
+        commands.append(command)
+        return bridge_mod.RunResult(True, "ok", usage={
+            "source": "claude-json", "input_tokens": 5, "output_tokens": 1,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0})
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.step()
+    assert "--model claude-sonnet-5-5" in commands[0]

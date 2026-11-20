@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS research (
     reason            TEXT NOT NULL DEFAULT '',
     finished_at       REAL,
     repo              TEXT,
-    repo_commit       TEXT
+    repo_commit       TEXT,
+    model             TEXT
 );
 CREATE TABLE IF NOT EXISTS research_msgs (
     message_id  INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
@@ -92,8 +93,9 @@ def research_policy(db_path: Path) -> dict | None:
     except (OSError, ValueError, UnicodeError, SetupRequired):
         return None
     allowed_keys = {"version", "enabled", "agents", "budget_tokens", "max_parts", "concurrent",
-                    "deadline_minutes", "synth_minutes", "repositories"}
+                    "deadline_minutes", "synth_minutes", "repositories", "model", "heavy_model"}
     repos = data.get("repositories", [])
+    models = {k: data.get(k) for k in ("model", "heavy_model")}
     ints = {k: data.get(k, d) for k, d in (("max_parts", 4), ("concurrent", 2),
                                           ("deadline_minutes", 60), ("synth_minutes", 30))}
     agents, budget = data.get("agents"), data.get("budget_tokens")
@@ -108,10 +110,12 @@ def research_policy(db_path: Path) -> dict | None:
             or ints["max_parts"] > MAX_PARTS_CAP or ints["deadline_minutes"] > DEADLINE_CAP_MIN
             or ints["synth_minutes"] > DEADLINE_CAP_MIN
             or not isinstance(repos, list)
-            or not all(isinstance(p, str) and Path(p).is_absolute() for p in repos)):
+            or not all(isinstance(p, str) and Path(p).is_absolute() for p in repos)
+            or not all(m is None or (isinstance(m, str) and re.fullmatch(r"[A-Za-z0-9._\[\]-]{1,64}", m))
+                       for m in models.values())):
         return None
     return {"agents": list(dict.fromkeys(agents)), "budget_tokens": budget,
-            "repositories": {str(Path(p).resolve()) for p in repos}, **ints}
+            "repositories": {str(Path(p).resolve()) for p in repos}, **models, **ints}
 
 
 def _head_commit(repo: str) -> str:
@@ -151,7 +155,7 @@ class ResearchMixin:
 
     def research_start(self, requester: str, question: str, subtopics: list[str], *,
                        kind: str = "general", deadline_minutes: int | None = None,
-                       repo: str = "") -> dict:
+                       repo: str = "", heavy: bool = False) -> dict:
         _check_agent(requester)
         if not self.settings.may_send_task(requester):
             raise PermissionError(f"{requester} may not start research")
@@ -181,6 +185,8 @@ class ResearchMixin:
             if repo_path not in policy["repositories"]:
                 raise PermissionError("repository is not allowed for research in research.toml")
             repo_commit = _head_commit(repo_path)
+        # Michal 20. 11.: výchozí model z research.toml, náročná úloha (heavy) silnější model
+        model = (policy["heavy_model"] if heavy else None) or policy["model"]
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -193,9 +199,10 @@ class ResearchMixin:
                 raise ValueError(f"at most {policy['concurrent']} research runs at once")
             rid = int(con.execute(
                 "INSERT INTO research(requester, question, kind, state, created_at, deadline_at, "
-                "synth_minutes, budget_tokens, repo, repo_commit) VALUES(?,?,?,'running',?,?,?,?,?,?)",
+                "synth_minutes, budget_tokens, repo, repo_commit, model) "
+                "VALUES(?,?,?,'running',?,?,?,?,?,?,?)",
                 (requester, question, kind, now, now + minutes * 60, policy["synth_minutes"],
-                 policy["budget_tokens"], repo_path, repo_commit),
+                 policy["budget_tokens"], repo_path, repo_commit, model),
             ).lastrowid)
             parts = []
             for i, topic in enumerate(topics):
@@ -206,6 +213,14 @@ class ResearchMixin:
         for agent in set(agents):
             self._signal(agent)
         return {"id": rid, "parts": parts}
+
+    def research_model(self, message_id: int) -> str | None:
+        """Model, kterým se má spustit část nebo syntéza výzkumu; None = výchozí klienta."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT r.model FROM research_msgs m JOIN research r ON r.id=m.research_id "
+                "WHERE m.message_id=?", (int(message_id),)).fetchone()
+        return row["model"] if row and row["model"] else None
 
     def research_repo(self, message_id: int) -> dict | None:
         """Repozitář a commit výzkumu, ke kterému patří úkol (část i syntéza); None bez repozitáře."""

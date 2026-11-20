@@ -340,9 +340,9 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
 
     @staticmethod
     def _migrate_research(con: sqlite3.Connection) -> None:
-        """Výzkum nad kopií repozitáře (20. 11.): sloupce repo a repo_commit."""
+        """Výzkum nad kopií repozitáře a zvolený model (20. 11.)."""
         columns = {row["name"] for row in con.execute("PRAGMA table_info(research)")}
-        for name in ("repo", "repo_commit"):
+        for name in ("repo", "repo_commit", "model"):
             if name not in columns:
                 con.execute(f"ALTER TABLE research ADD COLUMN {name} TEXT")
 
