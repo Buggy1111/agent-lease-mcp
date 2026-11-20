@@ -1,0 +1,6 @@
+{"elapsed": 30.24857897302718, "counts": {"capacity_checks": 1, "reviews": 1, "fixes": 1, "research_cancel": 1, "research": 1, "quality": 1}}
+{"elapsed": 53.478743567015044, "counts": {"capacity_checks": 1, "reviews": 2, "fixes": 2, "research_cancel": 1, "research": 2, "quality": 2, "store_reopens": 1}}
+{"elapsed": 70.6920239230094, "counts": {"capacity_checks": 1, "reviews": 3, "fixes": 3, "research_cancel": 1, "research": 3, "quality": 3, "store_reopens": 2, "research_budget": 1}}
+{"elapsed": 87.85610073400312, "counts": {"capacity_checks": 1, "reviews": 4, "fixes": 4, "research_cancel": 1, "research": 4, "quality": 4, "store_reopens": 2, "research_budget": 1, "research_unknown": 1}}
+{"elapsed": 108.11340530600864, "counts": {"capacity_checks": 1, "reviews": 5, "fixes": 5, "research_cancel": 1, "research": 5, "quality": 5, "store_reopens": 3, "research_budget": 1, "research_unknown": 1, "research_cutoff": 1}}
+{"elapsed": 125.32116687600501, "counts": {"capacity_checks": 1, "reviews": 6, "fixes": 6, "research_cancel": 2, "research": 6, "quality": 6, "store_reopens": 3, "research_budget": 1, "research_unknown": 1, "research_cutoff": 1}}
