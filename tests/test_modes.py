@@ -79,12 +79,12 @@ def test_mode_survives_restart_and_is_audited(tmp_path: Path):
     assert any(e["action"] == "mode" for e in again.history(limit=5))
 
 
-def test_autonomous_is_locked_and_unknown_mode_rejected(store: Store):
-    with pytest.raises(PermissionError):
-        store.set_mode("michal", "autonomous")
+def test_autonomous_is_unlocked_and_unknown_mode_rejected(store: Store):
     with pytest.raises(ValueError):
         store.set_mode("michal", "yolo")
     assert store.mode()["mode"] == "intelligent"
+    assert store.mode()["locked"] == {}
+    assert store.set_mode("michal", "autonomous", "odemčeno 20. 11.")["mode"] == "autonomous"
 
 
 def test_agents_can_read_but_not_change_mode():
@@ -103,7 +103,7 @@ def test_web_switches_mode_only_with_session(tmp_path: Path):
     assert status == 200 and json.loads(raw)["mode"] == "basic"
     status, _ = call_handler(store, settings, "secret", "POST", "/api/mode", headers=cookie,
                              body={"mode": "autonomous"}, handler_type=handler)
-    assert status == 409 and store.mode()["mode"] == "basic"
+    assert status == 200 and store.mode()["mode"] == "autonomous"
 
 
 def test_downgrade_after_start_before_spawn_launches_nothing_and_requeues(tmp_path: Path):

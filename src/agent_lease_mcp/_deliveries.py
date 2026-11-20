@@ -41,9 +41,9 @@ from .workspace import matches as workspace_matches
 MODES = ("basic", "intelligent", "autonomous")
 DEFAULT_MODE = "intelligent"
 MEMORY_MODES = ("intelligent", "autonomous")
-# shortcut: autonomní režim je zamčený napevno, dokud ho Michal výslovně neodemkne (fáze C je nasazená
-# od 19. 11.); pak zámek nahradit kontrolou předpokladů v `doctor`.
-MODE_LOCKS = {"autonomous": "Autonomní režim je zamčený, dokud ho vlastník výslovně neodemkne."}
+# Michal 20. 11. autonomní režim odemkl. Přepnout smí dál jen člověk z webu (set_mode není v METHODS)
+# a každá zápisová oprava dál potřebuje fix-runner.toml + lidské schválení konkrétního běhu.
+MODE_LOCKS: dict[str, str] = {}
 
 class DeliveriesMixin:
     @staticmethod

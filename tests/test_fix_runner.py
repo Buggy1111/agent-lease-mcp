@@ -16,7 +16,17 @@ import pytest
 
 from agent_lease_mcp import fix_runner
 
-pytestmark = pytest.mark.skipif(not Path(fix_runner.BWRAP).exists(), reason="bubblewrap není k dispozici")
+
+def _bwrap_works() -> bool:
+    # Uvnitř sandboxu Quality Gate (B7) bwrap existuje, ale vnořený namespace nevytvoří.
+    if not Path(fix_runner.BWRAP).exists():
+        return False
+    probe = subprocess.run([fix_runner.BWRAP, "--unshare-user", "--unshare-pid", "--ro-bind", "/", "/",
+                            "/bin/true"], capture_output=True, timeout=30, check=False)
+    return probe.returncode == 0
+
+
+pytestmark = pytest.mark.skipif(not _bwrap_works(), reason="bubblewrap zde nevytvoří sandbox")
 
 
 def git(*a: str, cwd: Path) -> str:
