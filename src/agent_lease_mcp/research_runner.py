@@ -67,6 +67,21 @@ def prepare(base_dir: Path, agent: str, real_home: Path, mid: int, exe: str | No
     return {"workdir": workdir, "scratch": scratch, "run_home": run_home, "command": command}
 
 
+def add_snapshot(env: dict, repo: str, commit: str) -> str:
+    """Kopie commitu (jen sledované soubory, jen pro čtení) do ./repo běhu; vrací dovětek zadání."""
+    from .quality_runner import export_snapshot
+    target = env["scratch"] / "repo"
+    target.mkdir(mode=0o700)
+    export_snapshot(repo, commit, target)   # limity souborů/velikosti/času, bez odkazů a submodulů
+    env["repo"] = repo
+    for path in target.rglob("*"):
+        if path.is_file():
+            path.chmod(0o400)   # adresáře zůstávají 0700, ať je `finish` smaže
+    return (f"\n\n--- REPOSITORY (read-only) ---\nA read-only copy of {Path(repo).name} at commit "
+            f"{commit[:12]} is in ./repo relative to your working directory. Answer from that code "
+            "and cite files as repo/<path>.")
+
+
 def wrap(env: dict, real_home: Path, hide_abs: tuple[str, ...]):
     """`wrap` pro `run_command`: příkaz běží v bwrap nad prázdným pracovním adresářem."""
     def _wrap(argv: list[str], tmp: str) -> list[str]:

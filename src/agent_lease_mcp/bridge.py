@@ -793,7 +793,12 @@ class Bridge:
                                         f"Research #{mid} not started: the client changed after its probe.",
                                         error="research: client changed")
                     return True
-            except OSError as exc:
+                source = self.store.research_repo(mid)
+                if source:
+                    prompt += research_runner.add_snapshot(research_env, source["repo"], source["commit"])
+            except (OSError, ValueError) as exc:
+                if research_env is not None:
+                    research_runner.finish(research_env, self.agent, Path.home())
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Research #{mid} not started: isolated environment failed.",
                                     error=f"research: environment ({str(exc)[:120]})")
@@ -816,6 +821,8 @@ class Bridge:
                 # partial marker of our own: stay blocked.
                 if not isinstance(exc, FileExistsError):
                     self._cleanup_blocked = True
+                if research_env is not None:   # review #43: nenechat kopii repa ani HOME běhu
+                    research_runner.finish(research_env, self.agent, Path.home())
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Task #{mid} not started: command fence unavailable.",
                                     error="command fence unavailable")
@@ -830,6 +837,12 @@ class Bridge:
                 if research_env is not None and not self._research_still_attested():
                     blocked_by_research.append(True)
                     return False
+                if research_env is not None and research_env.get("repo"):
+                    try:   # review #43: povolení repozitáře znovu pod launch_gate
+                        self.store.research_repo(mid)
+                    except PermissionError:
+                        blocked_by_research.append(True)
+                        return False
                 return self.store.holds(mid, self.agent, token)
 
             try:
@@ -880,7 +893,8 @@ class Bridge:
             return True
         if result.aborted and blocked_by_research:
             self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
-                                f"Research #{mid} not started: the client or its probe changed before launch.",
+                                f"Research #{mid} not started: the client, its probe or the repository "
+                                "permission changed before launch.",
                                 error="research: client changed")
             return True
         if result.aborted and blocked_by_mode:

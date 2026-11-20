@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import subprocess
 import time
 import tomllib
 from pathlib import Path
@@ -50,7 +51,9 @@ CREATE TABLE IF NOT EXISTS research (
     synth_deadline_at REAL,
     summary           TEXT,
     reason            TEXT NOT NULL DEFAULT '',
-    finished_at       REAL
+    finished_at       REAL,
+    repo              TEXT,
+    repo_commit       TEXT
 );
 CREATE TABLE IF NOT EXISTS research_msgs (
     message_id  INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
@@ -89,7 +92,8 @@ def research_policy(db_path: Path) -> dict | None:
     except (OSError, ValueError, UnicodeError, SetupRequired):
         return None
     allowed_keys = {"version", "enabled", "agents", "budget_tokens", "max_parts", "concurrent",
-                    "deadline_minutes", "synth_minutes"}
+                    "deadline_minutes", "synth_minutes", "repositories"}
+    repos = data.get("repositories", [])
     ints = {k: data.get(k, d) for k, d in (("max_parts", 4), ("concurrent", 2),
                                           ("deadline_minutes", 60), ("synth_minutes", 30))}
     agents, budget = data.get("agents"), data.get("budget_tokens")
@@ -102,9 +106,21 @@ def research_policy(db_path: Path) -> dict | None:
             or type(budget) is not int or budget <= 0
             or any(type(v) is not int or v < 1 for v in ints.values())
             or ints["max_parts"] > MAX_PARTS_CAP or ints["deadline_minutes"] > DEADLINE_CAP_MIN
-            or ints["synth_minutes"] > DEADLINE_CAP_MIN):
+            or ints["synth_minutes"] > DEADLINE_CAP_MIN
+            or not isinstance(repos, list)
+            or not all(isinstance(p, str) and Path(p).is_absolute() for p in repos)):
         return None
-    return {"agents": list(dict.fromkeys(agents)), "budget_tokens": budget, **ints}
+    return {"agents": list(dict.fromkeys(agents)), "budget_tokens": budget,
+            "repositories": {str(Path(p).resolve()) for p in repos}, **ints}
+
+
+def _head_commit(repo: str) -> str:
+    out = subprocess.run(["git", "-C", repo, "rev-parse", "--verify", "HEAD^{commit}"],
+                         capture_output=True, text=True, timeout=10, check=False)
+    commit = out.stdout.strip()
+    if out.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("repository has no readable HEAD commit")
+    return commit
 
 
 def normalize_url(url: str) -> str:
@@ -134,7 +150,8 @@ class ResearchMixin:
     # ── zahájení ─────────────────────────────────────────────────────────────
 
     def research_start(self, requester: str, question: str, subtopics: list[str], *,
-                       kind: str = "general", deadline_minutes: int | None = None) -> dict:
+                       kind: str = "general", deadline_minutes: int | None = None,
+                       repo: str = "") -> dict:
         _check_agent(requester)
         if not self.settings.may_send_task(requester):
             raise PermissionError(f"{requester} may not start research")
@@ -157,6 +174,13 @@ class ResearchMixin:
         if not 1 <= minutes <= min(policy["deadline_minutes"], DEADLINE_CAP_MIN):
             raise ValueError(f"deadline must be 1–{policy['deadline_minutes']} minutes")
         agents = policy["agents"]
+        repo_path, repo_commit = None, None
+        if repo:
+            # jen repozitář, který operátor povolil v research.toml; výzkum dostane kopii commitu
+            repo_path = str(Path(repo).resolve())
+            if repo_path not in policy["repositories"]:
+                raise PermissionError("repository is not allowed for research in research.toml")
+            repo_commit = _head_commit(repo_path)
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             now = time.time()
@@ -169,9 +193,9 @@ class ResearchMixin:
                 raise ValueError(f"at most {policy['concurrent']} research runs at once")
             rid = int(con.execute(
                 "INSERT INTO research(requester, question, kind, state, created_at, deadline_at, "
-                "synth_minutes, budget_tokens) VALUES(?,?,?,'running',?,?,?,?)",
+                "synth_minutes, budget_tokens, repo, repo_commit) VALUES(?,?,?,'running',?,?,?,?,?,?)",
                 (requester, question, kind, now, now + minutes * 60, policy["synth_minutes"],
-                 policy["budget_tokens"]),
+                 policy["budget_tokens"], repo_path, repo_commit),
             ).lastrowid)
             parts = []
             for i, topic in enumerate(topics):
@@ -182,6 +206,20 @@ class ResearchMixin:
         for agent in set(agents):
             self._signal(agent)
         return {"id": rid, "parts": parts}
+
+    def research_repo(self, message_id: int) -> dict | None:
+        """Repozitář a commit výzkumu, ke kterému patří úkol (část i syntéza); None bez repozitáře."""
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT r.repo, r.repo_commit FROM research_msgs m JOIN research r ON r.id=m.research_id "
+                "WHERE m.message_id=?", (int(message_id),)).fetchone()
+        if row is None or not row["repo"]:
+            return None
+        # review #43: povolení platí v okamžiku exportu i spuštění, ne jen při startu výzkumu
+        policy = research_policy(self.db_path)
+        if policy is None or row["repo"] not in policy["repositories"]:
+            raise PermissionError("research: repository no longer allowed in research.toml")
+        return {"repo": row["repo"], "commit": row["repo_commit"]}
 
     def _research_task(self, con: sqlite3.Connection, rid: int, sender: str, recipient: str,
                        text: str, role: str, topic: str, now: float) -> int:
@@ -258,6 +296,8 @@ class ResearchMixin:
         policy = research_policy(self.db_path)
         if policy is None or recipient not in policy["agents"]:
             return ("hold", "research: profile (recipient not allowed in research.toml)")
+        if r["repo"] and r["repo"] not in policy["repositories"]:
+            return ("hold", "research: repository no longer allowed in research.toml")
         now = time.time()
         if r["role"] == "part" and (r["state"] != "running" or now >= r["deadline_at"]):
             return ("hold", "research: part deadline passed")
