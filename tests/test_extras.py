@@ -162,6 +162,50 @@ def test_doctor_warns_when_codex_wake_targets_a_dead_session(tmp_path, monkeypat
     assert missing["status"] == "warning" and "no session file" in missing["message"]
 
 
+def test_doctor_warns_when_a_newer_codex_session_replaced_the_wake_target(tmp_path, monkeypatch, capsys):
+    """Regrese 19. 11.: po restartu Codexu wake 4 h budil starou relaci; idle < 24 h, doctor hlásil ✔."""
+    import json
+    import os
+    import time
+    from datetime import UTC, datetime
+
+    from agent_lease_mcp import doctor
+
+    old, new, guardian, parallel = (
+        "01a1dbbd-39a1-7453-82a2-96fc719dbc8d", "01a1f549-2893-7ff0-9d7e-3679e833e84f",
+        "01a1f67f-7b1a-7d81-bd08-206e59307274", "01a1aaaa-0000-7000-8000-000000000000")
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "claude-code")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(doctor, "_codex_queue_supported", lambda _bin: True)
+    monkeypatch.setattr(doctor, "_user_service_active", lambda _name: True)
+    day = tmp_path / ".codex" / "sessions" / "2026" / "11" / "19"
+    day.mkdir(parents=True)
+    now = time.time()
+
+    def session(uuid, started_ago, written_ago, **extra):
+        stamp = datetime.fromtimestamp(now - started_ago, UTC).isoformat().replace("+00:00", "Z")
+        meta = {"type": "session_meta", "payload": {"id": uuid, "timestamp": stamp, **extra}}
+        f = day / f"rollout-2026-11-19T00-00-00-{uuid}.jsonl"
+        f.write_text(json.dumps(meta) + "\n")
+        os.utime(f, (now - written_ago, now - written_ago))
+
+    def check(thread):
+        monkeypatch.setenv("AGENT_LEASE_CODEX_THREAD", thread)
+        doctor.run_doctor(json_output=True)
+        return {c["id"]: c for c in json.loads(capsys.readouterr().out)["checks"]}["codex_rewake"]
+
+    session(old, 5 * 86400, 8 * 3600)
+    session(guardian, 2 * 3600, 60, parent_thread_id=old)  # subagent není nová relace
+    session(parallel, 9 * 3600, 60)  # běžela už předtím, nenahradila cíl
+    assert check(old)["status"] == "ok"
+
+    session(new, 8 * 3600 - 60, 60)
+    replaced = check(old)
+    assert replaced["status"] == "warning" and new in replaced["message"]
+    assert check(new)["status"] == "ok"
+
+
 def test_doctor_survives_a_session_file_vanishing_during_the_check(tmp_path, monkeypatch):
     from pathlib import Path
 
