@@ -57,3 +57,15 @@ Zrušeny (`cancel`, ne `retry` — zastaralá zadání se znovu nespouští). No
 **Rollback:** `automatic=false` (nebo smazat `quality-runner.toml` / `fix-runner.toml` / `research.toml`),
 ve webu režim zpět na Inteligentní; kód: zastavit služby, `current` zpět na `runtime-79fe207`, odebrat
 `20-quality-limits.conf`, `daemon-reload`, spustit, ověřit.
+
+## Ostré ověření po aktivaci
+
+- **B7 automaticky:** Stop hook Ady ve 14:24 sám zařadil `ad2eaa8`; běh dokončen 14:28 —
+  tests/lint/build **PASS**, security bez B6 schválení (neprošlé review, správně nezelené).
+- **Výzkum (D3):** výzkum #1 (2 části + syntéza) proběhl celý, spotřeba 105 237 tokenů započítána proti
+  mezi 400 000. **Známé omezení:** výzkumníci běží nad prázdným adresářem — přístup ke kopii
+  repozitáře jen pro čtení, se kterým počítá návrh (§ 7), není implementovaný; web je vypnutý. Výzkum
+  tedy dnes odpovídá jen ze znalostí modelu, ne z kódu. Doplnění repozitáře = samostatná změna s review.
+- **Full pytest** na čistém exportu `cbf6e1e`: 953 PASS / 30 SKIP / 1 XFAIL + 37 setup errors
+  `test_fix_runner` (AF_UNIX path too long v izolovaném HOME, stejný jev jako u Noxe 19. 11.); tentýž soubor
+  nad stejným kódem v běžném prostředí 38 PASS. Ruff PASS.
