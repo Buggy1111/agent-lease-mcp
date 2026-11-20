@@ -766,8 +766,10 @@ class Bridge:
                                     error="emergency stop")
             return True
         report_key = None
+        # výzkum: model zvolený při startu (research.toml model / heavy_model), jinak připnutý bridge
+        run_model = (self.store.research_model(mid) if is_research else None) or self.requested_model
         try:  # Separate report authority stays in the bridge, never in the task prompt.
-            report_key = self.store.begin_usage(mid, self.agent, token, self.requested_model)
+            report_key = self.store.begin_usage(mid, self.agent, token, run_model)
         except Exception as exc:  # noqa: BLE001
             print(f"[agent-lease-bridge] usage reservation failed: {exc}", file=sys.stderr)
         if not report_key:
@@ -806,8 +808,8 @@ class Bridge:
             command = research_env["command"]
             wrap = research_runner.wrap(research_env, Path.home(),
                                         (str(self.store.db_path.parent),))
-            if self.requested_model:
-                command = with_model(self.agent, command, self.requested_model)
+            if run_model:
+                command = with_model(self.agent, command, run_model)
         if self.runner is not None:
             result = self._supervised_runner(prompt, tick)
         else:
