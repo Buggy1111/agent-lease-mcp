@@ -87,3 +87,16 @@ ve webu režim zpět na Inteligentní; kód: zastavit služby, `current` zpět n
   brokeru, 0 dvojitých účinků/Done, 0 visících, integrita `ok`); Nox: full 990 PASS, B–D soak 600 s PASS,
   živý audit bez nálezu (report Noxe mimo repo: `~/dev/work/nox-bcd-final-20261120/FINAL_REPORT.md`).
   Chaos běžel před `02398e1`; novou funkci kryje 67 testů a ostrý výzkum.
+
+## Večer: modely výzkumníků a nový vzhled webu (`97aebc7`)
+
+- Michal: „výzkumné agenty jen Sonnet 5.5 jako výchozí, na těžší nebo náročné Opus 5.5“ → review #45:
+  `research.toml` má `model = "claude-sonnet-5-5"`, `heavy_model = "claude-opus-5-5"`; `research(start, heavy=true)`
+  spustí části i syntézu silnějším modelem. Dostupnost modelů u poskytovatele ověří až první ostrý běh.
+- Michal: „web moderní a intuitivní, ne přeplácený“ → review #46: klidná paleta, světlý režim podle systému,
+  navigace Přehled/Kvalita/Výzkum/Paměť/Nastavení, metriky jako pruh; kontrast ≥4,5:1 (Nox měřil v Chromiu).
+- Nasazení `runtime-97aebc7`: wheel `616b98599c9b03210940f9ba6f5140c4397c992f518f52ad13f38960a19d6126`, závislosti
+  shodné, migrace `research.model` nejdřív na kopii DB (integrita `ok`); před přepnutím doběhly 2 quality kontroly;
+  4 služby na novém runtime, 147/147 nedokončených doručenek shodných, `doctor` „Looks good“. Záloha
+  `deploy-backup-20261120-ada-97aebc7` (včetně původního `research.toml`); rollback = `current` zpět na
+  `runtime-02398e1` a odebrat `model`/`heavy_model` z `research.toml`.
