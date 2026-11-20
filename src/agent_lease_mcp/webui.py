@@ -910,7 +910,7 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 .kb-entry dt { color:var(--text-dim); }
 .kb-entry dd { margin:0; white-space:pre-wrap; }
 .kb-state { font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); }
-.kb-state.verified { color:var(--green, #3fb950); border-color:currentColor; }
+.kb-state.verified { color:var(--ok); border-color:currentColor; }
 .kb-state.rejected, .kb-state.stale { color:var(--text-dim); text-decoration:line-through; }
 .kb-actions { display:flex; gap:6px; flex-wrap:wrap; }
 .view-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
