@@ -1013,7 +1013,7 @@ body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",s
 #compose { background:var(--surface); }
 .seg button.on,#sendBtn { background:var(--accent-1); color:#fff; box-shadow:none; }
 #sendBtn { border:0; }
-#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 88%,var(--text)); box-shadow:none; }
+#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 85%,#000); box-shadow:none; }
 .filter.on { background:var(--surface-2); color:var(--text); border-color:transparent; }
 #text:focus,#search:focus,#to:focus { box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-1) 18%,transparent); }
 #inspector .qg-summary { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
