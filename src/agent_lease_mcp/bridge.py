@@ -821,6 +821,8 @@ class Bridge:
                 # partial marker of our own: stay blocked.
                 if not isinstance(exc, FileExistsError):
                     self._cleanup_blocked = True
+                if research_env is not None:   # review #43: nenechat kopii repa ani HOME běhu
+                    research_runner.finish(research_env, self.agent, Path.home())
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Task #{mid} not started: command fence unavailable.",
                                     error="command fence unavailable")

@@ -707,3 +707,30 @@ def test_revoked_repository_stops_lease_export_and_launch(store: Store, monkeypa
     assert b.step() and not launched
     assert delivery(store, mid)["state"] == "needs_review"
     assert not list((tmp_path / "runs").iterdir())                  # kopie uklizena
+
+
+def test_refused_run_fence_cleans_the_research_copy(store: Store, monkeypatch, tmp_path: Path):
+    """Review #43 P2: odmítnutá pojistka po exportu nesmí nechat kopii repozitáře na disku."""
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    repo, _ = _repo(tmp_path)
+    policy(store, extra=f"repositories = {json.dumps([str(repo)])}\n")
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
+    monkeypatch.setattr(bridge_mod, "run_command", lambda *a, **k: pytest.fail("must not launch"))
+    mid = start(store, n=2, repo=str(repo))["parts"][0]
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+
+    def busy(*a, **k):
+        raise FileExistsError("fence held by another attempt")
+
+    monkeypatch.setattr(b._run_fence, "acquire", busy)
+    assert b.step()
+    assert delivery(store, mid)["state"] == "needs_review"
+    assert not list((tmp_path / "runs").iterdir())
