@@ -619,7 +619,7 @@ PAGE_HTML = """<!doctype html>
 :root {
   color-scheme:dark;
   --bg:#0B0D12; --surface:#12151C; --surface-2:#191D26;
-  --accent-1:#7C6CF2; --blue:#5B9DF5; --ok:#3DBE8B; --warn:#E0A23B; --bad:#E5566F;
+  --accent-1:#6656E0; --blue:#5B9DF5; --ok:#3DBE8B; --warn:#E0A23B; --bad:#E5566F;
   --text:#E8EAF0; --text-dim:#8B93A5; --ink:#000;
   --border:#232836;
   --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
@@ -636,7 +636,7 @@ PAGE_HTML = """<!doctype html>
 }
 @media(prefers-color-scheme:light) {
   :root { color-scheme:light; --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#F0F2F5; --text:#161A23; --text-dim:#5D6577;
-    --border:#E2E5EB; --accent-1:#5B4BE0; --blue:#2F6FDB; --ok:#1F9D6B; --warn:#B7791F; --bad:#C93A55; --ink:#1B2030; }
+    --border:#E2E5EB; --accent-1:#5B4BE0; --blue:#2F6FDB; --ok:#157A52; --warn:#8A5A10; --bad:#B42F48; --ink:#1B2030; }
 }
 * { box-sizing:border-box; }
 [hidden] { display:none!important; }
