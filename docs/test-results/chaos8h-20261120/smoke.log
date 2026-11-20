@@ -1,0 +1,23 @@
+izolovaná data: ~/dev/work/agent-lease-load-20261120/runtime/agent-lease-chaos-idpd6xem; požadovaná délka: 2 min
+statistika: {'sent': 81, 'worker_kills': 13, 'broker_kills': 4, 'cancels': 1, 'interactive': 8, 'interactive_crash': 5, 'pauses': 1}, karanténa: 6
+stavy úkolů: {'succeeded': 22, 'needs_review': 26, 'cancelled': 1, 'pending': 32}
+efekty: 27 úkolů, dvojité: žádné
+succeeded bez právě 1 efektu: žádné
+succeeded bez právě 1 Done: žádné
+nesoulad zadaných a evidovaných úkolů: žádný
+„Done“ u nedokončeného: žádné; dvojité Done: žádné
+karanténa spuštěna: nikdy
+start během pauzy: žádný
+efekt během pauzy: žádný
+přeživší procesy: žádné
+potomci přeživší pád bridge: žádní
+účinky potomků po pádu bridge: žádné
+zaznamenaní potomci workerů: 4
+simulované limity poskytovatele: 3
+limit a následné zotavení skutečně pozorovány: True / True
+visící leased/started: žádné
+zbývající pending po dojezdu: 32
+pending kvůli aktivnímu limitu: 32
+integrita DB: ok; pokrytí scénářů: ano
+pokus o skutečný provider probe: žádný
+VÝSLEDEK: PROŠLO (data: ~/dev/work/agent-lease-load-20261120/runtime/agent-lease-chaos-idpd6xem)
