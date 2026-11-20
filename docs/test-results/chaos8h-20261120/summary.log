@@ -1,0 +1,28 @@
+průběh: {'sent': 6921, 'worker_kills': 3759, 'broker_kills': 936, 'cancels': 526, 'interactive': 1581, 'interactive_crash': 791, 'pauses': 1}
+průběh: {'sent': 6991, 'worker_kills': 3801, 'broker_kills': 945, 'cancels': 536, 'interactive': 1594, 'interactive_crash': 797, 'pauses': 1}
+průběh: {'sent': 7082, 'worker_kills': 3856, 'broker_kills': 953, 'cancels': 542, 'interactive': 1613, 'interactive_crash': 804, 'pauses': 1}
+průběh: {'sent': 7132, 'worker_kills': 3900, 'broker_kills': 960, 'cancels': 544, 'interactive': 1623, 'interactive_crash': 809, 'pauses': 1}
+průběh: {'sent': 7214, 'worker_kills': 3940, 'broker_kills': 967, 'cancels': 556, 'interactive': 1638, 'interactive_crash': 817, 'pauses': 1}
+průběh: {'sent': 7294, 'worker_kills': 3975, 'broker_kills': 983, 'cancels': 568, 'interactive': 1656, 'interactive_crash': 830, 'pauses': 1}
+statistika: {'sent': 7356, 'worker_kills': 4000, 'broker_kills': 989, 'cancels': 578, 'interactive': 1672, 'interactive_crash': 837, 'pauses': 1}, karanténa: 737
+stavy úkolů: {'cancelled': 578, 'needs_review': 3316, 'succeeded': 3462}
+efekty: 4316 úkolů, dvojité: žádné
+succeeded bez právě 1 efektu: žádné
+succeeded bez právě 1 Done: žádné
+nesoulad zadaných a evidovaných úkolů: žádný
+„Done“ u nedokončeného: žádné; dvojité Done: žádné
+karanténa spuštěna: nikdy
+start během pauzy: žádný
+efekt během pauzy: žádný
+přeživší procesy: žádné
+potomci přeživší pád bridge: žádní
+účinky potomků po pádu bridge: žádné
+zaznamenaní potomci workerů: 751
+simulované limity poskytovatele: 293
+limit a následné zotavení skutečně pozorovány: True / True
+visící leased/started: žádné
+zbývající pending po dojezdu: 0
+pending kvůli aktivnímu limitu: 0
+integrita DB: ok; pokrytí scénářů: ano
+pokus o skutečný provider probe: žádný
+VÝSLEDEK: PROŠLO (data: ~/dev/work/agent-lease-load-20261120/runtime/agent-lease-chaos-_35i06wj)
