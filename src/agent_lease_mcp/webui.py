@@ -618,21 +618,25 @@ PAGE_HTML = """<!doctype html>
 <style>
 :root {
   color-scheme:dark;
-  --bg:#070B14; --surface:#0D1423; --surface-2:#131D30;
-  --accent-1:#9146FF; --blue:#38A8FF; --ok:#25DFA0; --warn:#F5B94F; --bad:#FF5978;
-  --text:#F0F4FF; --text-dim:#94A6C2; --ink:#000;
-  --border:rgba(130,160,220,.14);
+  --bg:#0B0D12; --surface:#12151C; --surface-2:#191D26;
+  --accent-1:#7C6CF2; --blue:#5B9DF5; --ok:#3DBE8B; --warn:#E0A23B; --bad:#E5566F;
+  --text:#E8EAF0; --text-dim:#8B93A5; --ink:#000;
+  --border:#232836;
   --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
   --text-faint:var(--text-dim); --raised:var(--surface-2);
-  --accent-text:color-mix(in srgb,var(--accent-1) 45%,var(--text));
-  --bad-text:color-mix(in srgb,var(--bad) 65%,var(--text));
-  --blue-text:color-mix(in srgb,var(--blue) 70%,var(--text));
-  --grad:linear-gradient(120deg,color-mix(in srgb,var(--accent-1) 88%,var(--bg)),color-mix(in srgb,var(--accent-1) 78%,var(--bg)));
-  --panel-grad:linear-gradient(135deg,color-mix(in srgb,var(--surface-2) 30%,var(--surface)),var(--surface));
-  --shadow:0 6px 22px color-mix(in srgb,var(--ink) 20%,transparent),inset 0 1px 0 color-mix(in srgb,var(--text) 2%,transparent);
-  --shadow-hover:0 8px 24px color-mix(in srgb,var(--ink) 28%,transparent),0 0 16px color-mix(in srgb,var(--accent-1) 7%,transparent);
-  --ease:cubic-bezier(.22,1,.36,1); --panel-time:200ms; --control-time:160ms;
+  --accent-text:color-mix(in srgb,var(--accent-1) 70%,var(--text));
+  --bad-text:color-mix(in srgb,var(--bad) 75%,var(--text));
+  --blue-text:color-mix(in srgb,var(--blue) 75%,var(--text));
+  --grad:var(--accent-1);
+  --panel-grad:var(--surface);
+  --shadow:none;
+  --shadow-hover:0 1px 2px color-mix(in srgb,var(--ink) 25%,transparent);
+  --ease:cubic-bezier(.22,1,.36,1); --panel-time:150ms; --control-time:120ms;
   --avatar-ada:var(--warn); --avatar-nox:var(--accent-1); --avatar-bridge:var(--blue); --avatar-user:var(--ok);
+}
+@media(prefers-color-scheme:light) {
+  :root { color-scheme:light; --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#F0F2F5; --text:#161A23; --text-dim:#5D6577;
+    --border:#E2E5EB; --accent-1:#5B4BE0; --blue:#2F6FDB; --ok:#1F9D6B; --warn:#B7791F; --bad:#C93A55; --ink:#1B2030; }
 }
 * { box-sizing:border-box; }
 [hidden] { display:none!important; }
@@ -973,12 +977,67 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
   .qg-check-grid { grid-template-columns:1fr; }
   .qg-table .qg-repo { min-height:44px; }
 }
+/* Klidný vzhled (Michal 20. 11.): méně ozdob, víc vzduchu, jeden akcent */
+body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+#masthead { min-height:56px; gap:24px; background:color-mix(in srgb,var(--bg) 92%,transparent); backdrop-filter:blur(8px); }
+#brand .sub,.panel-icon,.metric-icon,.metric::after { display:none; }
+.mark svg { filter:none; width:28px; height:28px; } .mark { width:28px; height:28px; }
+#brand .name { font-size:17px; font-weight:650; letter-spacing:-.2px; }
+.primary-nav { gap:2px; }
+.primary-nav a,.primary-nav button { font-size:13px; padding:6px 12px; border-radius:8px; color:var(--text-dim); }
+.primary-nav a:hover,.primary-nav button:hover,.primary-nav [data-view]:hover { color:var(--text); background:var(--surface-2); border-color:transparent; box-shadow:none; }
+.primary-nav .current { background:var(--surface-2); color:var(--text); border-color:transparent; box-shadow:none; font-weight:600; }
+.qg-shield { width:15px; height:15px; color:currentColor; }
+#overview { padding:20px 0 16px; }
+#scope { display:none; }
+.section-heading h2 { font-size:13px; color:var(--text-dim); font-weight:500; }
+#metrics { gap:0; border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; }
+.metric { border:0; border-right:1px solid var(--border); border-radius:0; background:transparent; padding:12px 16px; box-shadow:none; }
+.metric:last-child { border-right:0; }
+.metric-value { font-size:22px; font-weight:600; }
+.metric-label { font-size:12px; }
+#app { gap:16px; }
+.panel,.card,.bubble,.qg-stat { background:var(--surface); box-shadow:none; }
+.panel { border-radius:12px; }
+.panel-title { padding:12px 14px; border-bottom-color:var(--border-soft); }
+.panel-title h2 { font-size:13px; font-weight:600; }
+.panel-body { padding:12px 14px; }
+.card { background:var(--surface-2); border-color:transparent; border-radius:10px; }
+.card.selected-agent { background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); box-shadow:none; }
+.avatar { border-radius:50%; border:0; }
+#main { border-color:var(--border); }
+.bubble { width:auto; max-width:min(720px,92%); border:1px solid var(--border-soft); border-left:2px solid var(--border); background:var(--surface-2); }
+.bubble.mine { max-width:min(640px,85%); background:color-mix(in srgb,var(--accent-1) 9%,var(--surface)); border-color:transparent; }
+.bubble.task { border-left-color:var(--warn); } .bubble.result { border-left-color:var(--ok); }
+.bubble.system { background:transparent; border-color:transparent; border-left-color:var(--border); }
+#compose { background:var(--surface); }
+.seg button.on,#sendBtn { background:var(--accent-1); color:#fff; box-shadow:none; }
+#sendBtn { border:0; }
+#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 88%,var(--text)); box-shadow:none; }
+.filter.on { background:var(--surface-2); color:var(--text); border-color:transparent; }
+#text:focus,#search:focus,#to:focus { box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-1) 18%,transparent); }
+#inspector .qg-summary { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+#inspector .qg-stat { flex-direction:row; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; }
+#inspector .qg-stat strong { font-size:13px; }
+#inspector .qg-stat-name { font-size:11px; }
+.qg-stat { border-color:var(--border); }
+@media(hover:hover) and (pointer:fine) {
+  .panel:hover,.card:hover,.metric:hover { border-color:var(--border); box-shadow:none; transform:none; }
+  .metric:hover { border-color:var(--border); }
+}
+/* stav systému je v hlavičce; tady by se opakoval */
+.metric:has(#metricSystem) { display:none; }
+#metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.metric:nth-last-child(2) { border-right:0; }
+@media(max-width:899px) { #openAgents,#openDetail { display:none!important; } }
+@media(max-width:599px) { .metric { padding:10px 12px; min-height:0; } .metric-value { font-size:20px; }
+  #metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .metric { border-right:0; border-bottom:1px solid var(--border); } }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
   <header id="masthead">
     <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
-    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">✣ Přehled</button><button id="navTasks" type="button">▣ Úkoly</button><button type="button" id="navAgents">♧ Agenti</button><a href="#projectPanel" id="navProjects">▱ Projekty</a><a href="#historyPanel" id="navHistory">◷ Historie</a><button data-view="analytics">⌁ Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</button><button data-view="memory">◈ Paměť</button><button data-view="research">⌕ Výzkum</button><button data-view="settings">⚙ Nastavení</button></nav>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">Přehled</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Kvalita</button><button data-view="research">Výzkum</button><button data-view="memory">Paměť</button><button data-view="settings">Nastavení</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
   <div id="overviewView" data-view-panel="overview">
@@ -1026,12 +1085,12 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
 </div>
   <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
-  <section class="view-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><div class="view-header"><div><h2 id="researchTitle" class="view-title" tabindex="-1">⌕ Výzkumný tým</h2><p class="view-subtitle">Části běží izolovaně jen pro čtení, pak jedna syntéza. Zjištění jsou neověřená, dokud je někdo nepotvrdí v paměti.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+  <section class="view-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><div class="view-header"><div><h2 id="researchTitle" class="view-title" tabindex="-1">Výzkumný tým</h2><p class="view-subtitle">Části běží izolovaně jen pro čtení, pak jedna syntéza. Zjištění jsou neověřená, dokud je někdo nepotvrdí v paměti.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <section class="panel"><div class="panel-body"><div id="rsList" role="status">Načítám…</div></div></section></section>
-  <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">◈ Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+  <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <div class="kb-grid"><section class="panel"><div class="panel-title"><h2>Záznamy</h2></div><div class="panel-body"><div class="kb-tools"><label class="search"><span class="sr-only">Hledat v paměti</span><input id="kbQuery" type="search" placeholder="Hledat příznak, chybu, příčinu…"></label><select id="kbStatus" aria-label="Stav"><option value="">Všechny stavy</option><option value="verified">Ověřené</option><option value="unverified">Neověřené</option><option value="rejected">Zamítnuté</option><option value="stale">Zastaralé</option></select></div><div id="kbList" role="status">Načítám…</div></div></section>
     <section class="panel"><div class="panel-title"><h2>Nový záznam</h2></div><div class="panel-body kb-form"><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000"></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200"></label><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><button class="btn detail" id="kbAdd" type="button">Uložit jako neověřené</button><p class="note">Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p></div></section></div></section>
-  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><div class="view-header"><div><h2 id="settingsTitle" class="view-title" tabindex="-1">⚙ Provozní režim</h2><p class="view-subtitle">Jak samostatně Ada a Nox pracují. Přepnout smí jen člověk tady na webu. Základní bezpečnost a 🛑 nouzové zastavení platí vždy.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
+  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><div class="view-header"><div><h2 id="settingsTitle" class="view-title" tabindex="-1">Provozní režim</h2><p class="view-subtitle">Jak samostatně Ada a Nox pracují. Přepnout smí jen člověk tady na webu. Základní bezpečnost a 🛑 nouzové zastavení platí vždy.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></section>
 </div>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
