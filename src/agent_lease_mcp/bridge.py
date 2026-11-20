@@ -793,7 +793,12 @@ class Bridge:
                                         f"Research #{mid} not started: the client changed after its probe.",
                                         error="research: client changed")
                     return True
-            except OSError as exc:
+                source = self.store.research_repo(mid)
+                if source:
+                    prompt += research_runner.add_snapshot(research_env, source["repo"], source["commit"])
+            except (OSError, ValueError) as exc:
+                if research_env is not None:
+                    research_runner.finish(research_env, self.agent, Path.home())
                 self.store.complete(mid, self.agent, token, DeliveryState.NEEDS_REVIEW,
                                     f"Research #{mid} not started: isolated environment failed.",
                                     error=f"research: environment ({str(exc)[:120]})")

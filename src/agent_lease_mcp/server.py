@@ -553,7 +553,8 @@ def knowledge(action: str, query: str = "", knowledge_id: int | None = None, sym
 
 @mcp.tool
 def research(action: str, question: str = "", subtopics: list[str] | None = None, kind: str = "general",
-             research_id: int | None = None, deadline_minutes: int | None = None, limit: int = 10) -> dict:
+             research_id: int | None = None, deadline_minutes: int | None = None, limit: int = 10,
+             repo: str = "") -> dict:
     """
     Research team (D3): split a question into 2–4 explicit subtopics, researched in
     parallel by isolated read-only agents, then merged into one summary.
@@ -562,6 +563,8 @@ def research(action: str, question: str = "", subtopics: list[str] | None = None
       start   – `question` + `subtopics` (2 or more; a single question is a normal
                 task), `kind`: general / known_problems / options,
                 optional `deadline_minutes`. Needs the operator policy research.toml.
+                Optional `repo` (absolute path, allowed in research.toml): the
+                researchers read a read-only copy of its HEAD commit in ./repo.
       show    – research `research_id` with its parts and summary.
       list    – your recent research.
       cancel  – stop research `research_id` you started (parts and synthesis too).
@@ -572,7 +575,7 @@ def research(action: str, question: str = "", subtopics: list[str] | None = None
     me = _settings.agent
     if action == "start":
         return _store.research_start(me, question, subtopics or [], kind=kind,
-                                     deadline_minutes=deadline_minutes)
+                                     deadline_minutes=deadline_minutes, repo=repo)
     if action == "list":
         return {"research": _store.research_list(limit, viewer=me)}
     if research_id is None:

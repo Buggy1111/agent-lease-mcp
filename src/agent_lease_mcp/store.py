@@ -334,8 +334,17 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
             self._migrate_reviews(con)
             self._migrate_claims(con)
             self._migrate_usage(con)
+            self._migrate_research(con)
         if self.settings.retention_days > 0:
             self.prune()  # retence běží sama (APP-012), ne až když si někdo vzpomene
+
+    @staticmethod
+    def _migrate_research(con: sqlite3.Connection) -> None:
+        """Výzkum nad kopií repozitáře (20. 11.): sloupce repo a repo_commit."""
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(research)")}
+        for name in ("repo", "repo_commit"):
+            if name not in columns:
+                con.execute(f"ALTER TABLE research ADD COLUMN {name} TEXT")
 
     @staticmethod
     def _migrate_claims(con: sqlite3.Connection) -> None:

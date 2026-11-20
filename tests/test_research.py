@@ -603,3 +603,67 @@ def test_revoked_attestation_is_seen_under_the_launch_gate(store: Store, monkeyp
     assert b.step() and not launched
     part = next(p for p in r(store, rid)["parts"] if p["state"] == "needs_review")
     assert delivery(store, part["message_id"])["last_error"] == "research: client changed"
+
+
+# ── výzkum nad kopií repozitáře (20. 11.) ─────────────────────────────────────
+
+def _repo(tmp_path: Path) -> tuple[Path, str]:
+    import subprocess
+    repo = tmp_path / "proj"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "app.py").write_text("ODPOVED = 42\n")
+    (repo / "secret.env").write_text("TOKEN=necommitnuto\n")
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "src/app.py"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+    return repo, head.stdout.strip()
+
+
+def test_research_repo_must_be_allowed_and_pins_head(store: Store, tmp_path: Path):
+    repo, head = _repo(tmp_path)
+    with pytest.raises(PermissionError):
+        start(store, n=2, repo=str(repo))                           # bez povolení v research.toml
+    policy(store, extra=f"repositories = {json.dumps([str(repo)])}\n")
+    out = start(store, n=2, repo=str(repo))
+    assert all(store.research_repo(mid) == {"repo": str(repo.resolve()), "commit": head}
+               for mid in out["parts"])
+    assert store.research_repo(start(store, n=2)["parts"][0]) is None   # bez repozitáře beze změny
+    policy(store, extra='repositories = ["relativni/cesta"]\n')
+    with pytest.raises(PermissionError):
+        start(store, n=2)                                            # neplatná politika = vypnuto
+    assert "research_repo" in METHODS
+
+
+def test_bridge_gives_research_a_read_only_copy_of_the_commit(store: Store, monkeypatch, tmp_path: Path):
+    from agent_lease_mcp import bridge as bridge_mod
+    from agent_lease_mcp import research_runner as rr
+    repo, head = _repo(tmp_path)
+    policy(store, extra=f"repositories = {json.dumps([str(repo)])}\n")
+    monkeypatch.setenv("AGENT_LEASE_RESEARCH_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    (tmp_path / "empty-home").mkdir()
+    monkeypatch.setattr(rr, "supported", lambda agent: agent == "claude-code")
+    ident = {"path": "/opt/claude-2.0.0", "sha256": "a" * 64, "stat": ()}
+    monkeypatch.setattr(rr, "client_identity", lambda agent: dict(ident))
+    rr.record_attestation(store.db_path, "claude-code", rr.profile_key("claude-code", ident))
+    seen = []
+
+    def fake_run(command, prompt, **kw):
+        copy = next((tmp_path / "runs").iterdir()) / "scratch" / "repo"
+        seen.append((prompt, (copy / "src" / "app.py").read_text(), (copy / "secret.env").exists(),
+                     oct((copy / "src" / "app.py").stat().st_mode & 0o777)))
+        return bridge_mod.RunResult(True, "ODPOVED je 42 (repo/src/app.py)", usage={
+            "source": "claude-json", "input_tokens": 5, "output_tokens": 1,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0})
+
+    monkeypatch.setattr(bridge_mod, "run_command", fake_run)
+    start(store, n=2, repo=str(repo))
+    b = bridge_mod.Bridge(store, "claude-code", bridge_mod.DEFAULT_COMMANDS["claude-code"],
+                          lease_seconds=30, interactive_grace=0)
+    assert b.step()
+    prompt, content, secret_copied, mode = seen[0]
+    assert "./repo" in prompt and head[:12] in prompt
+    assert content == "ODPOVED = 42\n" and not secret_copied and mode == "0o400"   # jen commit
+    assert not list((tmp_path / "runs").iterdir())                  # kopie se po běhu smaže
