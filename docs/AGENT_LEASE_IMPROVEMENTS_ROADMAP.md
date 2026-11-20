@@ -8,11 +8,12 @@
 **Nic z toho se neimplementuje bez Michalova schválení.** Každá fáze = samostatné commity s testy,
 review druhým agentem, nasazení až po zelených testech.
 
-> **Aktuální stav (20. 11. 2026, podle [nezávislého ověření Noxe 19. 11.](NOX_VERIFICATION_2026-11-19.md)):**
-> nasazené jsou dosud implementované části fází A–D (runtime `0175752`); **celý plán A–D dokončený není**. Fázi B uzavřel Michal 11. 11.
-> ([schválení](PHASE_B_OWNER_APPROVAL_2026-11-11.md)). **Záměrně vypnuto do rozhodnutí Michala:**
-> ostrá Quality Gate B7 (chybí `quality-runner.toml`), autonomní opravy C (zámek režimu, chybí
-> `fix-runner.toml`), výzkumný tým D3–D7 (chybí `research.toml` a probe). Web se spouští na
+> **Aktuální stav (20. 11. 2026 odpoledne):** runtime `02398e1`; nasazené jsou dosud implementované
+> části fází A–D, **celý plán A–D dokončený není**. Fázi B uzavřel Michal 11. 11.
+> ([schválení](PHASE_B_OWNER_APPROVAL_2026-11-11.md)). **Zapnuto 20. 11.** ([záznam](PHASE_BCD_ACTIVATION_RECORD_2026-11-20.md)):
+> Quality Gate B7 s automatickým zařazováním (repo agent-lease-mcp; GitHub branch protection není),
+> autonomní režim C (Michal přepnul 15:33; každou zápisovou opravu povoluje ve webu), výzkumný tým
+> D3–D7 (jen Claude Code, mez 400k tokenů, kopie repozitáře jen pro čtení). Web se spouští na
 > vyžádání (`agent-lease web --open`). D12/D13 a katalog schopností jsou jen omezené piloty
 > (bez plného A/B měření a plné vizuální akceptace D13). Otevřené: plný restart Windows (A11), známá omezení
 > A5/A9/A10 vůči procesům stejného uživatele. Níže je původní plán; věty o „otevřené B“ jsou historické.

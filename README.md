@@ -12,12 +12,14 @@ the edit happens.
 
 [Česky / Czech version](README.cs.md)
 
-**Dočasná koordinace do 16. 11. 2026:** [instrukce pro Fable 5.2](docs/FABLE_5_2_TEMP_COORDINATOR.md) (dokumentace, nikoli automatické spuštění).
+**Historical:** temporary coordination until 16 Nov 2026 — [Fable 5.2 instructions](docs/FABLE_5_2_TEMP_COORDINATOR.md).
 
-The B7 candidate on `main` adds an opt-in offline Quality Gate for committed Python
-and TypeScript/JavaScript projects. See the [runner guide](docs/PHASE_B7_2_RUNNER.md)
-and [activation plan](docs/PHASE_B7_ACTIVATION_PLAN.md). Production activation and
-independent review are pending; the dashboard alone does not enforce merges.
+An opt-in offline Quality Gate (B7) runs committed checks for Python and
+TypeScript/JavaScript projects. See the [runner guide](docs/PHASE_B7_2_RUNNER.md).
+It is enabled in the owner's installation since 20 Nov 2026 together with
+write-mode fixes (autonomous mode, each run approved by a human) and the
+research team ([activation record](docs/PHASE_BCD_ACTIVATION_RECORD_2026-11-20.md)).
+The dashboard alone does not enforce GitHub merges.
 
 ## Why it exists
 
