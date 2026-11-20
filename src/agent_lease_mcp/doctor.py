@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import tomllib
+from datetime import datetime
 from pathlib import Path
 
 from .config import Settings, is_trusted_agent, parse_fallbacks
@@ -107,6 +108,35 @@ def _codex_thread_idle_seconds(home: Path, thread: str) -> float | None:
             continue
         newest = mtime if newest is None else max(newest, mtime)
     return float("inf") if newest is None else max(0.0, time.time() - newest)
+
+
+_SUPERSEDED_GRACE_SECONDS = 3600
+
+
+def _newer_codex_session(home: Path, thread: str, idle: float) -> str | None:
+    """ID uživatelské relace Codexu založené až po posledním zápisu do `thread`, jinak None.
+
+    Regrese 19. 11.: po restartu Codexu wake 4 h budil starou relaci (idle jen ~8 h < 24 h).
+    Počítá se jen interaktivní TUI relace (originator codex-tui) bez parent_thread_id —
+    ne subagenty (guardian) ani headless `codex exec`, které tvoří bridge.
+    """
+    if idle is None or idle == float("inf") or idle < _SUPERSEDED_GRACE_SECONDS:
+        return None
+    last_write = time.time() - idle
+    for f in (home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl"):
+        try:
+            if f.stat().st_mtime <= last_write:
+                continue
+            with f.open(encoding="utf-8") as fh:
+                meta = json.loads(fh.readline()).get("payload") or {}
+            started = datetime.fromisoformat(str(meta["timestamp"]))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if (meta.get("id") not in (None, thread) and not meta.get("parent_thread_id")
+                and meta.get("originator") == "codex-tui"
+                and started.timestamp() > last_write):
+            return str(meta["id"])
+    return None
 
 
 def _service_env_value(path: Path, key: str) -> str:
@@ -288,6 +318,7 @@ def run_doctor(*, json_output: bool = False) -> int:
               or _service_env_value(env_file, "AGENT_LEASE_CODEX_THREAD"))
     wake_active = _user_service_active("agent-lease-codex-wake.service")
     idle = _codex_thread_idle_seconds(home, thread)
+    newer = _newer_codex_session(home, thread, idle) if queue_supported and wake_active else None
     if queue_supported and thread and wake_active and idle == float("inf"):
         line("codex_rewake", WARN,
              f"Codex wake targets session {thread!r}, but no session file with that ID exists — "
@@ -300,6 +331,13 @@ def run_doctor(*, json_output: bool = False) -> int:
              f"{idle / 3600:.0f} h — likely an old session. Set AGENT_LEASE_CODEX_THREAD in "
              f"{env_file} to the live session (or a /rename name) and restart agent-lease-codex-wake.",
              configured_thread=thread, idle_seconds=int(idle))
+    elif queue_supported and thread and wake_active and newer:
+        line("codex_rewake", WARN,
+             f"Codex wake targets session {thread!r}, but a newer Codex session {newer!r} started "
+             f"after it was last written ({idle / 3600:.1f} h ago) — wake likely goes to the old "
+             f"session. Set AGENT_LEASE_CODEX_THREAD in {env_file} to the live session "
+             "(or a /rename name) and restart agent-lease-codex-wake.",
+             configured_thread=thread, newer_thread=newer, idle_seconds=int(idle))
     elif queue_supported and thread and wake_active:
         line("codex_rewake", OK, f"Codex wake service active for named session {thread!r}",
              configured_thread=thread, service_active=True)
