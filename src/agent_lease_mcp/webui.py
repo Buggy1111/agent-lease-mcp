@@ -617,26 +617,29 @@ PAGE_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root {
-  color-scheme:dark;
-  --bg:#0B0D12; --surface:#12151C; --surface-2:#191D26;
-  --accent-1:#6656E0; --blue:#5B9DF5; --ok:#3DBE8B; --warn:#E0A23B; --bad:#E5566F;
-  --text:#E8EAF0; --text-dim:#8B93A5; --ink:#000;
-  --border:#232836;
-  --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
+  color-scheme:light;
+  --bg:#F5F5F7; --surface:#FFFFFF; --surface-2:#F5F5F7;
+  --accent-1:#0071E3; --blue:#0071E3; --ok:#248A3D; --warn:#B25000; --bad:#D70015;
+  --text:#1D1D1F; --text-dim:#6E6E73; --ink:#1D1D1F;
+  --border:#D2D2D7;
+  --border-soft:#E8E8ED;
   --text-faint:var(--text-dim); --raised:var(--surface-2);
-  --accent-text:color-mix(in srgb,var(--accent-1) 70%,var(--text));
-  --bad-text:color-mix(in srgb,var(--bad) 75%,var(--text));
-  --blue-text:color-mix(in srgb,var(--blue) 75%,var(--text));
+  --accent-text:#0066CC;
+  --bad-text:var(--bad);
+  --blue-text:#0066CC;
   --grad:var(--accent-1);
   --panel-grad:var(--surface);
-  --shadow:none;
-  --shadow-hover:0 1px 2px color-mix(in srgb,var(--ink) 25%,transparent);
-  --ease:cubic-bezier(.22,1,.36,1); --panel-time:150ms; --control-time:120ms;
-  --avatar-ada:var(--warn); --avatar-nox:var(--accent-1); --avatar-bridge:var(--blue); --avatar-user:var(--ok);
+  --glass:rgba(255,255,255,.72);
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 28px rgba(0,0,0,.06);
+  --shadow-hover:var(--shadow);
+  --ease:cubic-bezier(.25,.1,.25,1); --panel-time:200ms; --control-time:160ms;
+  --avatar-ada:#BF5AF2; --avatar-nox:#0071E3; --avatar-bridge:#8E8E93; --avatar-user:#248A3D;
 }
-@media(prefers-color-scheme:light) {
-  :root { color-scheme:light; --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#F0F2F5; --text:#161A23; --text-dim:#5D6577;
-    --border:#E2E5EB; --accent-1:#5B4BE0; --blue:#2F6FDB; --ok:#157A52; --warn:#8A5A10; --bad:#B42F48; --ink:#1B2030; }
+@media(prefers-color-scheme:dark) {
+  :root { color-scheme:dark; --bg:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E; --text:#F5F5F7; --text-dim:#A1A1A6;
+    --ink:#000; --border:#38383A; --border-soft:#2C2C2E; --ok:#30D158; --warn:#FF9F0A; --bad:#FF6961;
+    --accent-text:#2997FF; --blue-text:#2997FF; --glass:rgba(28,28,30,.72);
+    --shadow:0 1px 2px rgba(0,0,0,.3); }
 }
 * { box-sizing:border-box; }
 [hidden] { display:none!important; }
@@ -977,61 +980,116 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
   .qg-check-grid { grid-template-columns:1fr; }
   .qg-table .qg-repo { min-height:44px; }
 }
-/* Klidný vzhled (Michal 20. 11.): méně ozdob, víc vzduchu, jeden akcent */
-body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
-#masthead { min-height:56px; gap:24px; background:color-mix(in srgb,var(--bg) 92%,transparent); backdrop-filter:blur(8px); }
+/* ── Apple styl (Michal 20. 11.: „luxusní, apple styl“) ─────────────────────────────── */
+body { font:15px/1.47 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable Text","Segoe UI","Inter",system-ui,sans-serif;
+  letter-spacing:-.01em; background:var(--bg); }
+h1,h2,h3,.view-title { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI Variable Display","Segoe UI","Inter",system-ui,sans-serif; }
+#shell { max-width:1360px; padding:0 32px 64px; }
+/* skleněná lišta */
+#masthead { position:sticky; top:0; z-index:20; min-height:52px; gap:28px; margin:0 calc(50% - 50vw); padding:0 max(32px,calc(50vw - 648px));
+  background:var(--glass); backdrop-filter:saturate(180%) blur(20px); -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--border-soft); }
 #brand .sub,.panel-icon,.metric-icon,.metric::after { display:none; }
-.mark svg { filter:none; width:28px; height:28px; } .mark { width:28px; height:28px; }
-#brand .name { font-size:17px; font-weight:650; letter-spacing:-.2px; }
-.primary-nav { gap:2px; }
-.primary-nav a,.primary-nav button { font-size:13px; padding:6px 12px; border-radius:8px; color:var(--text-dim); }
-.primary-nav a:hover,.primary-nav button:hover,.primary-nav [data-view]:hover { color:var(--text); background:var(--surface-2); border-color:transparent; box-shadow:none; }
-.primary-nav .current { background:var(--surface-2); color:var(--text); border-color:transparent; box-shadow:none; font-weight:600; }
-.qg-shield { width:15px; height:15px; color:currentColor; }
-#overview { padding:20px 0 16px; }
-#scope { display:none; }
-.section-heading h2 { font-size:13px; color:var(--text-dim); font-weight:500; }
-#metrics { gap:0; border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; }
-.metric { border:0; border-right:1px solid var(--border); border-radius:0; background:transparent; padding:12px 16px; box-shadow:none; }
-.metric:last-child { border-right:0; }
-.metric-value { font-size:22px; font-weight:600; }
-.metric-label { font-size:12px; }
-#app { gap:16px; }
-.panel,.card,.bubble,.qg-stat { background:var(--surface); box-shadow:none; }
-.panel { border-radius:12px; }
-.panel-title { padding:12px 14px; border-bottom-color:var(--border-soft); }
-.panel-title h2 { font-size:13px; font-weight:600; }
-.panel-body { padding:12px 14px; }
-.card { background:var(--surface-2); border-color:transparent; border-radius:10px; }
-.card.selected-agent { background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); box-shadow:none; }
-.avatar { border-radius:50%; border:0; }
-#main { border-color:var(--border); }
-.bubble { width:auto; max-width:min(720px,92%); border:1px solid var(--border-soft); border-left:2px solid var(--border); background:var(--surface-2); }
-.bubble.mine { max-width:min(640px,85%); background:color-mix(in srgb,var(--accent-1) 9%,var(--surface)); border-color:transparent; }
-.bubble.task { border-left-color:var(--warn); } .bubble.result { border-left-color:var(--ok); }
-.bubble.system { background:transparent; border-color:transparent; border-left-color:var(--border); }
-#compose { background:var(--surface); }
-.seg button.on,#sendBtn { background:var(--accent-1); color:#fff; box-shadow:none; }
-#sendBtn { border:0; }
-#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 85%,#000); box-shadow:none; }
-.filter.on { background:var(--surface-2); color:var(--text); border-color:transparent; }
-#text:focus,#search:focus,#to:focus { box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-1) 18%,transparent); }
-#inspector .qg-summary { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
-#inspector .qg-stat { flex-direction:row; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; }
-#inspector .qg-stat strong { font-size:13px; }
-#inspector .qg-stat-name { font-size:11px; }
-.qg-stat { border-color:var(--border); }
-@media(hover:hover) and (pointer:fine) {
-  .panel:hover,.card:hover,.metric:hover { border-color:var(--border); box-shadow:none; transform:none; }
-  .metric:hover { border-color:var(--border); }
-}
-/* stav systému je v hlavičce; tady by se opakoval */
+.mark,.mark svg { width:22px; height:22px; filter:none; }
+.mark .logo-blue,.mark .logo-purple,.mark .logo-inner { stroke:var(--text); }
+#brand .name { font-size:17px; font-weight:600; letter-spacing:-.02em; }
+.primary-nav { gap:4px; }
+.primary-nav a,.primary-nav button { font-size:13px; padding:4px 12px; min-height:30px; border-radius:980px; color:var(--text-dim); border:0; }
+.primary-nav a:hover,.primary-nav button:hover,.primary-nav [data-view]:hover { color:var(--text); background:transparent; box-shadow:none; }
+.primary-nav .current { background:var(--text); color:var(--bg); box-shadow:none; font-weight:500; }
+.qg-shield { width:14px; height:14px; color:currentColor; }
+.big { color:var(--text-dim); font-weight:500; font-size:13px; }
+.pausebar button { background:transparent; border:1px solid var(--border); color:var(--bad-text); border-radius:980px; font-weight:500; padding:6px 14px; }
+.pausebar.stopped { background:transparent; border-color:var(--bad); }
+/* hero: jedna věta živého stavu, šedá s tučnými čísly */
+#overview { padding:56px 0 32px; }
+.section-heading { display:none; }
+#metrics { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 28px; border:0; background:none; border-radius:0; overflow:visible; }
+.metric { display:flex; align-items:baseline; gap:10px; padding:0; border:0!important; background:none; box-shadow:none; }
+.metric > div { display:flex; flex-direction:row-reverse; align-items:baseline; gap:10px; }
+.metric-value { font-size:44px; line-height:1.05; font-weight:600; letter-spacing:-.03em; color:var(--text); }
+.metric-label { font-size:19px; color:var(--text-dim); font-weight:400; letter-spacing:-.01em; }
 .metric:has(#metricSystem) { display:none; }
-#metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
-.metric:nth-last-child(2) { border-right:0; }
-@media(max-width:899px) { #openAgents,#openDetail { display:none!important; } }
-@media(max-width:599px) { .metric { padding:10px 12px; min-height:0; } .metric-value { font-size:20px; }
-  #metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .metric { border-right:0; border-bottom:1px solid var(--border); } }
+/* rozvržení: místnost je hlavní plocha, agenti vpravo, detail ve vysouvacím panelu */
+#app { grid-template-columns:minmax(0,1fr) 300px; gap:24px; }
+#side { order:2; } #main { order:1; }
+#inspector { display:none; }
+#openDetail { display:inline-flex!important; align-items:center; }
+.panel,.card,.bubble,.qg-stat,.metric { box-shadow:none; }
+.panel { background:var(--surface); border:0; border-radius:18px; }
+#main { box-shadow:var(--shadow); height:calc(100dvh - 250px); min-height:560px; }
+.panel-title { padding:16px 20px 8px; border-bottom:0; }
+.panel-title h2 { font-size:15px; font-weight:600; letter-spacing:-.01em; }
+.panel-body { padding:8px 20px 20px; }
+.count { background:transparent; border:0; color:var(--text-dim); font-size:13px; }
+#side .panel { background:transparent; }
+#side .panel-title,#side .panel-body { padding-left:4px; padding-right:4px; }
+.card { background:var(--surface); border:0; border-radius:14px; padding:12px 14px; }
+.card.selected-agent { background:var(--surface); box-shadow:0 0 0 2px var(--accent-1); border:0; }
+.card.offline { background:transparent; }
+.card.bridge { border:0; }
+.avatar { border-radius:50%; border:0; color:#fff; background:var(--avatar-color,var(--accent-1)); }
+.avatar .dot { border-color:var(--surface); }
+.tag { border-radius:980px; padding:2px 9px; font-size:12px; background:var(--surface-2); }
+.tag.ok,.tag.warn,.tag.bad,.tag.work { background:var(--surface-2); }
+.tag.work { color:var(--accent-text); }
+/* místnost */
+#topbar { padding:16px 20px 12px; border-bottom:1px solid var(--border-soft); }
+#topbar .title { font-size:17px; font-weight:600; letter-spacing:-.02em; }
+.filters,.seg { background:var(--surface-2); border:0; border-radius:9px; padding:2px; gap:0; }
+.filter,.seg button { border:0; border-radius:7px; color:var(--text); min-height:28px; padding:4px 12px; font-size:13px; }
+.filter.on,.seg button.on { background:var(--surface); color:var(--text); border:0; box-shadow:0 1px 3px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.04); }
+@media(prefers-color-scheme:dark) { .filter.on,.seg button.on { background:#636366; } }
+#search,#to,#taskPicker,#text,#kbQuery,.kb-form input,.kb-form textarea,select { background:var(--surface-2); border:1px solid transparent; border-radius:10px; }
+#text:focus,#search:focus,#to:focus { border-color:var(--accent-1); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent-1) 22%,transparent); }
+#feed { padding:20px; gap:14px; }
+.bubble { width:auto; max-width:min(680px,90%); background:var(--surface-2); border:0; border-radius:18px; padding:12px 16px; }
+.bubble.mine { max-width:min(600px,85%); background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); }
+.bubble.task,.bubble.result,.bubble.system { border:0; }
+.bubble.task .kind,.bubble.result .kind { padding-left:0; }
+.bubble.system { background:transparent; padding:4px 16px; }
+.bubble.selected { box-shadow:0 0 0 2px var(--accent-1); }
+.bubble .meta { font-size:12px; }
+.bubble .meta .who { font-size:13px; }
+.bubble .text { font-size:15px; line-height:1.5; }
+.kind { text-transform:none; letter-spacing:0; font-weight:600; font-size:11px; border-radius:980px; padding:1px 8px; background:transparent!important; }
+#compose { background:transparent; border-top:1px solid var(--border-soft); padding:14px 20px 18px; }
+#hint { font-size:12px; }
+#text { font-size:15px; border-radius:14px; padding:10px 14px; min-height:44px; }
+#sendBtn { align-self:flex-end; min-height:36px; }
+#sendBtn,.btn.detail { background:var(--accent-1); color:#fff; border:0; border-radius:980px; padding:8px 20px; font-weight:500; box-shadow:none; }
+#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 88%,#000); box-shadow:none; }
+.seg button.on:hover { background:var(--surface); }
+.btn { border:0; background:var(--surface-2); color:var(--text); border-radius:980px; padding:5px 12px; font-size:12px; }
+.btn:hover { background:var(--border-soft); }
+.more { color:var(--accent-text); }
+/* vysouvací panel s detailem */
+#workspaceDrawer { background:var(--bg); border:0; border-radius:20px; box-shadow:0 24px 80px rgba(0,0,0,.25); }
+#workspaceDrawer::backdrop { background:rgba(0,0,0,.25); backdrop-filter:blur(4px); }
+#workspaceDrawer #inspector { display:flex; }
+#workspaceDrawer .panel { background:var(--surface); }
+/* kvalita a stránky */
+#inspector .qg-summary,.qg-summary { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.qg-stat { flex-direction:row; align-items:center; gap:6px; padding:4px 10px; border:0; border-radius:980px; background:var(--surface-2); }
+.qg-stat strong { font-size:13px; } .qg-stat-name { font-size:12px; }
+.qg-mode { border-radius:980px; border:0; background:var(--surface-2); color:var(--text-dim); }
+.view-page { padding-top:56px; }
+.view-title { font-size:40px; font-weight:600; letter-spacing:-.03em; line-height:1.1; }
+.view-subtitle { font-size:17px; max-width:640px; }
+.mode-card,.kb-entry { background:var(--surface); border:0; border-radius:18px; padding:20px; }
+.mode-card[aria-checked="true"] { box-shadow:0 0 0 2px var(--accent-1); }
+.qg-scroll,.qg-table thead th { border-color:var(--border-soft); background:transparent; }
+.mobile-nav a,.mobile-nav button { background:var(--surface); border:0; border-radius:12px; }
+@media(hover:hover) and (pointer:fine) {
+  .panel:hover,.card:hover,.metric:hover { border-color:transparent; box-shadow:inherit; transform:none; }
+  #main:hover { box-shadow:var(--shadow); }
+}
+@media(max-width:899px) {
+  #shell { padding:0 16px 40px; } #masthead { padding:8px 16px; }
+  #openAgents,#openDetail { display:none!important; }
+  #overview { padding:32px 0 20px; } .metric-value { font-size:34px; } .metric-label { font-size:16px; }
+}
+@media(max-width:599px) { #metrics { gap:2px 18px; } .metric-value { font-size:28px; } .metric-label { font-size:15px; } }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
@@ -1044,11 +1102,11 @@ body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",s
   <section id="overview" aria-labelledby="overviewTitle">
     <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
     <div id="metrics">
-      <div class="metric" style="--tint:var(--blue)"><span class="metric-icon" aria-hidden="true">♧</span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
-      <div class="metric" style="--tint:var(--accent-1)"><span class="metric-icon" aria-hidden="true">▷</span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
-      <div class="metric" style="--tint:var(--warn)"><span class="metric-icon" aria-hidden="true">▱</span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
-      <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
+      <div class="metric" style="--tint:var(--blue)"><span class="metric-icon" aria-hidden="true">♧</span><div><div class="metric-label">aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
+      <div class="metric" style="--tint:var(--accent-1)"><span class="metric-icon" aria-hidden="true">▷</span><div><div class="metric-label">běží</div><div class="metric-value" id="metricRunning">—</div></div></div>
+      <div class="metric" style="--tint:var(--warn)"><span class="metric-icon" aria-hidden="true">▱</span><div><div class="metric-label">ve frontě</div><div class="metric-value" id="metricQueued">—</div></div></div>
+      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">hotovo</div><div class="metric-value" id="metricDone">—</div></div></div>
+      <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
       <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">⌁</span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
     </div>
   </section>
@@ -1071,11 +1129,11 @@ body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",s
       <div id="compose">
         <div class="row"><div class="seg" id="kindSeg"><button type="button" data-kind="chat" class="on" aria-pressed="true">Zpráva</button><button type="button" data-kind="task" aria-pressed="false">Úkol</button></div><label>Komu <select id="to"></select></label></div>
         <div id="hint"></div>
-        <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat ↗</button></div>
+        <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat</button></div>
       </div>
     </main>
     <aside id="inspector" aria-label="Detail a zaznamenané události">
-      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Přehled repozitářů ↗</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Zobrazují se pouze zaznamenané běhy. Chybějící kontroly nejsou PASS.</p></div></section>
+      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Kvalita</h2><button class="btn" data-view="quality">Všechny repozitáře</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Zobrazují se pouze zaznamenané běhy. Chybějící kontroly nejsou PASS.</p></div></section>
       <section id="timelinePanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="timelineTitle">Záznamy úkolu</h2></div><div class="panel-body" id="taskTimeline"><div class="empty">Vyber úkol z místnosti.</div></div></section>
       <section id="taskPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="detailTitle" tabindex="-1">Detail úkolu</h2></div><div class="panel-body"><label class="sr-only" for="taskPicker">Vybrat úkol z načtené historie</label><select id="taskPicker"><option value="">Vyber úkol z místnosti</option></select><div id="taskDetail"><div class="empty">Vyber úkol. Zobrazí se jeho skutečný stav a navázané zprávy.</div></div></div></section>
       <section id="reviewPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
@@ -1153,7 +1211,7 @@ function restorePanels() {
   if (drawerOpener?.isConnected) drawerOpener.focus({preventScroll:true});
 }
 function openPanel(id, trigger = document.activeElement) {
-  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : matchMedia("(max-width:1280px)").matches;
+  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : true;   // Apple styl: detail vždy ve vysouvacím panelu
   if (!narrow) { document.getElementById(id).scrollIntoView({block:"start"}); return; }
   if (drawer.open) { drawer.close(); restorePanels(); }
   drawerOpener = trigger;
