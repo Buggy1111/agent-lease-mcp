@@ -1155,6 +1155,74 @@ body.room-focus #main { height:calc(100dvh - 210px); }
   .agent-hero[data-state="working"] .pulse-line path { animation:none; }
 }
 body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pulse-line path { animation-play-state:paused!important; }
+/* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
+body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
+.panel { border:1px solid rgba(120,150,255,.38); background:linear-gradient(165deg,rgba(24,40,86,.92),rgba(12,20,46,.94) 60%); box-shadow:0 0 0 1px rgba(4,207,255,.05),0 0 22px rgba(70,100,255,.14),inset 0 1px 0 rgba(255,255,255,.05); }
+.panel-title h2 { font-size:17px; } .panel-icon,.panel-title .nav-ic { color:var(--cyan); filter:drop-shadow(0 0 6px rgba(4,207,255,.7)); }
+/* metriky jako na předloze */
+.metric { border-width:1.5px!important; padding:14px 18px; background:linear-gradient(135deg,color-mix(in srgb,var(--t) 26%,#0C1533),rgba(9,15,36,.96) 75%); box-shadow:0 0 26px color-mix(in srgb,var(--t) 32%,transparent),inset 0 0 18px color-mix(in srgb,var(--t) 12%,transparent); }
+.metric-icon { width:52px; height:52px; } .metric-icon svg { width:44px; height:44px; filter:drop-shadow(0 0 10px var(--t)); }
+.metric-label { font-size:15px; font-weight:500; } .metric-value { font-size:32px; line-height:1.1; text-shadow:0 0 14px color-mix(in srgb,var(--t) 40%,transparent); }
+/* Ada a Nox: větší portrét přesahující kartu, trvalá identita barvou */
+#masthead { padding-top:6px; }
+.agent-hero { width:min(400px,100%); min-height:104px; margin-top:18px; border-width:1.5px; background:linear-gradient(110deg,color-mix(in srgb,var(--c) 30%,#101A3A),rgba(9,15,36,.96) 62%); box-shadow:0 0 28px color-mix(in srgb,var(--c) 34%,transparent),inset 0 0 22px color-mix(in srgb,var(--c) 12%,transparent); overflow:visible; }
+.portrait-wrap { width:112px; height:104px; align-self:flex-end; margin-top:-26px; }
+.portrait { width:112px; height:130px; margin-top:-26px; object-fit:cover; object-position:top; border-radius:0 0 12px 12px; filter:drop-shadow(0 0 12px color-mix(in srgb,var(--c) 60%,transparent)); }
+.agent-hero[data-agent="ada"] .portrait { border-radius:0 0 12px 12px; } 
+.halo { inset:-10px; border-radius:50%; opacity:.45; }
+.agent-name { font-size:26px; } .agent-vendor { font-size:13px; color:#D9E0F5; }
+.agent-state { font-size:15px; } .state-dot { width:11px; height:11px; }
+.pulse-line { width:90px; height:22px; } .pulse-line path { stroke-width:2; opacity:.85; filter:drop-shadow(0 0 4px var(--c)); }
+.agent-hero[data-state="working"]::after { box-shadow:0 0 34px color-mix(in srgb,var(--c) 75%,transparent); }
+.hub { width:92px; height:92px; margin-top:14px; border-width:1.5px; box-shadow:0 0 34px rgba(146,59,255,.45),inset 0 0 24px rgba(4,207,255,.18); } .hub svg { width:58px; height:29px; filter:drop-shadow(0 0 8px rgba(4,207,255,.6)); }
+#brand .name { font-size:34px; text-shadow:0 0 18px rgba(146,59,255,.35); } #brand .sub { font-size:15px; } #brand .mark,#brand .mark svg { width:72px; height:36px; }
+.mode-badge { border-width:1.5px; box-shadow:0 0 16px rgba(146,59,255,.35); padding:8px 16px; font-size:14px; }
+.human-badge { width:40px; height:40px; box-shadow:0 0 16px rgba(146,59,255,.55); }
+/* navigace: větší, svítící linka */
+.primary-nav { position:relative; padding:4px 0 10px; border-bottom:0; }
+.primary-nav::after { content:""; position:absolute; left:0; right:0; bottom:0; height:2px; background:linear-gradient(90deg,transparent,#923BFF 20%,#04CFFF 55%,#923BFF 80%,transparent); box-shadow:0 0 14px rgba(146,59,255,.8); }
+.primary-nav button,.primary-nav a { font-size:17px; padding:10px 22px; min-height:48px; }
+.nav-ic { width:22px; height:22px; }
+.primary-nav .current,.primary-nav .current:hover,.primary-nav [data-view].current:hover { box-shadow:0 0 24px rgba(146,59,255,.75),inset 0 0 10px rgba(255,255,255,.12); }
+/* místnost a aktivita výrazněji */
+#main { border-color:rgba(146,59,255,.6); box-shadow:0 0 30px rgba(146,59,255,.25),inset 0 0 30px rgba(146,59,255,.06); }
+.bubble { background:linear-gradient(165deg,rgba(26,42,90,.9),rgba(16,27,60,.9)); border-color:rgba(120,150,255,.22); box-shadow:inset 3px 0 12px -6px var(--c); }
+.act-portrait { width:46px; height:46px; box-shadow:0 0 12px color-mix(in srgb,var(--c) 60%,transparent); }
+/* ── Přehled a Místnost na jednu obrazovku: posouvá se jen obsah panelů ── */
+@media(min-width:1100px) and (min-height:680px) {
+  html,body { height:100%; }
+  body:not(.drawer-open) { overflow:hidden; }
+  #shell { height:100dvh; display:flex; flex-direction:column; padding-bottom:16px; max-width:none; padding-left:24px; padding-right:24px; }
+  #masthead { flex:none; }
+  #overviewView:not([hidden]) { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #overview { flex:none; padding:12px 0 12px; }
+  #app { flex:1; min-height:0; align-items:stretch; }
+  #side,#activity { min-height:0; overflow:auto; }
+  #side { padding-right:2px; }
+  #main { height:auto!important; min-height:0!important; max-height:none; }
+  .view-page:not([hidden]) { flex:1; min-height:0; overflow:auto; padding-bottom:8px; }
+  body.room-focus #app { padding-top:12px; }
+}
+@media(min-width:1100px) and (max-width:1500px) and (min-height:680px) {
+  #metrics { grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; }
+  .metric { padding:10px 12px; gap:10px; } .metric-label { font-size:13px; } .metric-value { font-size:24px; }
+  .metric-icon { width:34px; height:34px; } .metric-icon svg { width:28px; height:28px; }
+  #app { grid-template-columns:230px minmax(0,1fr) 250px; }
+}
+@media(min-width:1100px) and (max-height:800px) {
+  #brand .sub,.agent-role { display:none; }
+  .agent-hero { min-height:72px; margin-top:10px; padding-top:4px; padding-bottom:4px; } .portrait-wrap { width:80px; height:72px; margin-top:-18px; } .portrait { width:80px; height:96px; margin-top:-18px; }
+  .hub { width:62px; height:62px; margin-top:8px; } .hub svg { width:40px; height:20px; }
+  .primary-nav button { min-height:38px; padding:6px 14px; font-size:15px; } .primary-nav { padding-bottom:8px; }
+  #overview { padding:8px 0; }
+  #hint { display:none; } #compose { padding-top:10px; padding-bottom:10px; gap:6px; } #topbar { padding-top:10px; padding-bottom:8px; }
+}
+@media(min-width:1100px) and (max-height:900px) {
+  .agent-hero { min-height:88px; margin-top:14px; } .portrait-wrap { width:96px; height:88px; } .portrait { width:96px; height:112px; }
+  .agent-name { font-size:22px; } .hub { width:76px; height:76px; } #brand .name { font-size:28px; }
+  .metric { padding:10px 14px; } .metric-value { font-size:26px; } .metric-icon { width:40px; height:40px; } .metric-icon svg { width:34px; height:34px; }
+  .primary-nav button { min-height:42px; padding:8px 18px; font-size:16px; }
+}
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
@@ -1408,7 +1476,9 @@ function agentStatus(key) {
     : (bm && bm.blocked_reason && fresh(pm)) ? bm.blocked_reason
     : (bb && bb.blocked_reason && fresh(pb)) ? "most: " + bb.blocked_reason : "";
   if (problem) return {state: "error", label: "Vyžaduje pozornost", detail: problem};
-  if (fresh(pm) || fresh(pb)) return {state: "idle", label: "Čeká", detail: fresh(pm) ? (pm.status || "") : "most připraven převzít úkol"};
+  const unknownLimit = [pm, pb, bm, bb].some(x => x && x.provider_state === "unknown");
+  if (fresh(pm) || fresh(pb)) return {state: "idle", label: "Čeká", detail: unknownLimit ? "stav limitu poskytovatele neznámý"
+    : fresh(pm) ? (pm.status || "") : "most připraven převzít úkol"};
   return {state: "offline", label: "Offline", detail: pm && pm.seen_seconds_ago != null ? "naposledy " + ago(pm.seen_seconds_ago) : ""};
 }
 function renderHeroes() {
