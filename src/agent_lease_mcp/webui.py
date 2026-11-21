@@ -1162,6 +1162,54 @@ body.room-focus #main { height:calc(100dvh - 210px); }
   .agent-hero[data-state="working"] .pulse-line path { animation:none; }
 }
 body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pulse-line path { animation-play-state:paused!important; }
+/* ── Vizuální prvky z předlohy 02 (Michal 21. 11.) ── */
+.panel-title .nav-ic { width:22px; height:22px; color:var(--cyan); filter:drop-shadow(0 0 6px rgba(4,207,255,.6)); }
+#topbar .title .nav-ic { color:var(--cyan); }
+.mode-badge { display:inline-flex; align-items:center; gap:8px; } .mode-badge .nav-ic { width:18px; height:18px; color:var(--cyan); }
+.icon-btn { position:relative; width:40px; height:40px; min-height:0; display:grid; place-items:center; border-radius:50%; border:1px solid var(--border); background:rgba(16,27,56,.7); color:var(--text); cursor:pointer; list-style:none; }
+.icon-btn::-webkit-details-marker { display:none; } .icon-btn .nav-ic { width:20px; height:20px; }
+.bell-count { position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--purple); color:#fff; font-size:11px; font-weight:700; display:grid; place-items:center; box-shadow:0 0 10px rgba(146,59,255,.8); }
+.help { position:relative; } .help summary { padding:0; }
+.help-pop { position:absolute; right:0; top:48px; z-index:40; width:320px; padding:14px 16px; border-radius:14px; border:1px solid var(--border); background:#0C1533; box-shadow:0 0 30px rgba(0,0,0,.5); font-size:13px; color:var(--text-dim); }
+.help-pop b { color:var(--text); } .help-pop p { margin:8px 0 0; }
+.lg { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px; } .lg-ada { background:var(--ada); } .lg-nox { background:var(--nox); }
+/* Stav práce */
+.work-list { list-style:none; margin:0; padding:6px 16px 12px; }
+.work { display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--border-soft); font-size:15px; }
+.work:last-child { border-bottom:0; } .work b { margin-left:auto; font-size:18px; }
+.work-ic { width:20px; height:20px; border-radius:50%; flex:none; border:2px solid var(--c,#8b96b8); display:grid; place-items:center; }
+.work-ok { --c:var(--nox); } .work-ok .work-ic { background:var(--nox); box-shadow:0 0 10px rgba(0,231,121,.6); }
+.work-ok .work-ic::after { content:""; width:8px; height:4px; border:2px solid #06130C; border-top:0; border-right:0; transform:rotate(-45deg) translate(1px,-1px); }
+.work-work { --c:var(--purple); } .work-work .work-ic { box-shadow:0 0 10px rgba(146,59,255,.6); }
+.work-wait { --c:#8B96B8; }
+.work-warn { --c:var(--ada); } .work-warn .work-ic { border-radius:50%; box-shadow:0 0 10px rgba(255,138,24,.5); }
+.work-warn .work-ic::after { content:"!"; color:var(--ada); font-weight:800; font-size:12px; line-height:1; }
+/* Projekty */
+.chips { display:flex; flex-wrap:wrap; gap:6px; padding:10px 16px 0; }
+.chip { min-height:30px; padding:4px 12px; border-radius:999px; border:1px solid var(--border); background:rgba(16,27,56,.7); color:var(--text-dim); font-size:13px; }
+.chip.on { background:var(--grad); color:#fff; border-color:transparent; box-shadow:0 0 12px rgba(146,59,255,.45); }
+#projects { display:flex; flex-direction:column; gap:8px; }
+.proj { display:flex; gap:12px; padding:10px 12px; border-radius:12px; border:1px solid var(--border-soft); background:rgba(16,27,56,.6); }
+.proj-hot { border-color:rgba(255,138,24,.7); background:linear-gradient(120deg,rgba(255,138,24,.18),rgba(16,27,56,.7) 70%); box-shadow:0 0 16px rgba(255,138,24,.18); }
+.proj-ic { color:var(--text-dim); } .proj-hot .proj-ic { color:var(--ada); } .proj-ic svg { width:26px; height:26px; }
+.proj-body { min-width:0; flex:1; } .proj-head { display:flex; justify-content:space-between; gap:8px; } .proj-head b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.proj-sub { font-size:12px; color:var(--text-dim); }
+.proj-head span { white-space:nowrap; flex:none; color:var(--text); font-weight:600; }
+@media(min-width:1600px) { #app { grid-template-columns:310px minmax(0,1fr) 320px; } }
+.bar { height:6px; margin-top:6px; border-radius:3px; background:rgba(120,150,255,.15); overflow:hidden; }
+.bar i { display:block; height:100%; border-radius:3px; background:linear-gradient(90deg,#00C96A,#00E779); box-shadow:0 0 8px rgba(0,231,121,.6); }
+.proj-hot .bar i { background:linear-gradient(90deg,#FF7A00,#FF8A18); box-shadow:0 0 8px rgba(255,138,24,.6); }
+/* Rychlé akce */
+.quick { display:flex; flex-direction:column; gap:8px; padding:12px 16px 16px; }
+.qa { display:flex; align-items:center; gap:10px; min-height:42px; padding:8px 14px; border-radius:12px; border:1px solid rgba(146,59,255,.45); background:rgba(146,59,255,.1); color:var(--text); font-size:14px; text-align:left; }
+.qa .nav-ic { width:20px; height:20px; color:var(--cyan); }
+.qa-ada { border-color:rgba(255,138,24,.65); background:rgba(255,138,24,.1); } .qa-ada .nav-ic { color:var(--ada); }
+.qa-nox { border-color:rgba(0,231,121,.6); background:rgba(0,231,121,.08); } .qa-nox .nav-ic { color:var(--nox); }
+.qa:hover { box-shadow:0 0 14px rgba(146,59,255,.3); }
+/* odesílatel zprávy jako barevný štítek */
+.bubble[data-agent="ada"] .meta > .who:first-of-type,.bubble[data-agent="nox"] .meta > .who:first-of-type { padding:1px 10px; border-radius:999px; font-size:12px; }
+.bubble[data-agent="ada"] .meta > .who:first-of-type { color:#FFC08A; background:rgba(255,138,24,.16); border:1px solid rgba(255,138,24,.55); }
+.bubble[data-agent="nox"] .meta > .who:first-of-type { color:#8AF7C2; background:rgba(0,231,121,.12); border:1px solid rgba(0,231,121,.5); }
 .session-lost { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(720px,calc(100vw - 32px)); padding:12px 18px; border-radius:12px; border:1px solid #FF8A18; background:#2A1608; color:#FFE2C4; box-shadow:0 0 24px rgba(255,138,24,.35); font-size:14px; }
 /* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
 body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
@@ -1237,7 +1285,9 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
   <header id="masthead">
     <div id="brand"><div class="mark"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg)" stroke-width="5" stroke-linecap="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
     <div id="agentHeroes"><article class="agent-hero" id="heroAda" data-agent="ada" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/ada.webp" alt="Portrét Ada" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Ada</span><span class="agent-vendor">Anthropic (Claude)</span></div><div class="agent-role">Analýza · Výzkum · Návrhy</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article><div class="hub" aria-hidden="true"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg2" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg2)" stroke-width="5" stroke-linecap="round"/></svg></div><article class="agent-hero" id="heroNox" data-agent="nox" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/nox.webp" alt="Portrét Nox" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Nox</span><span class="agent-vendor">OpenAI (GPT)</span></div><div class="agent-role">Implementace · Testy · Ověření</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article></div>
-    <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti">Režim: …</span><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
+    <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span id="modeText">Režim: …</span></span>
+      <button class="icon-btn" id="bellBtn" type="button" aria-label="Co čeká na tebe" title="Úkoly ke kontrole a review čekající na tebe"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellCount" class="bell-count" hidden>0</span></button>
+      <details class="help"><summary class="icon-btn" aria-label="Nápověda"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7M12 17v.5"/></svg></summary><div class="help-pop"><b>Barvy a stavy</b><p><span class="lg lg-ada"></span>Ada (Claude) · <span class="lg lg-nox"></span>Nox (Codex)</p><p>Karta agenta pulzuje jen tehdy, když agent opravdu pracuje. Čeká = online bez úkolu. Limit = vyčerpaný limit poskytovatele. Vyžaduje pozornost = úkol ke kontrole nebo zaseknutý most. Neznámý stav = web nemá čerstvá data.</p><p>Zvonek = úkoly ke kontrole a review, které čekají na tebe.</p></div></details><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
     <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" aria-current="page" data-view="overview"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7v9h-6v-6H9v6H3z"/></svg>Přehled</button><button data-view="room"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Místnost agentů</button><button data-view="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Kvalita</button><button data-view="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Výzkum</button><button data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Paměť</button><button data-view="catalog"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Katalog</button><button data-view="settings"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Nastavení</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
@@ -1257,13 +1307,19 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
   <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
   <div id="app">
     <aside id="side" aria-label="Účastníci a pracovní prostor">
-      <section class="panel" id="agentPanel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">♧</span><h2>Agenti a mosty</h2><span id="agentCount" class="count">—</span></div><div class="panel-body"><div id="agents"></div><details id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details></div></section>
-      <section id="projectPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">▣</span><h2>Repozitáře v review</h2></div><div class="panel-body" id="projects"><div class="empty">Data zatím nejsou načtená.</div></div></section>
-      <section class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">⌑</span><h2>Zamčené cesty</h2></div><div class="panel-body" id="claims"></div></section>
+      <section class="panel" id="workPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><h2>Stav práce</h2></div><ul class="work-list" id="workList"><li class="empty">Načítám…</li></ul></section>
+      <section id="projectPanel" class="panel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><h2>Projekty</h2></div><div class="chips" role="group" aria-label="Filtr projektů"><button class="chip on" data-proj="all" aria-pressed="true">Vše</button><button class="chip" data-proj="open" aria-pressed="false">V review</button><button class="chip" data-proj="done" aria-pressed="false">Schválené</button></div><div class="panel-body" id="projects"><div class="empty">Data zatím nejsou načtená.</div></div></section>
+      <section class="panel" id="quickPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><h2>Rychlé akce</h2></div><div class="quick">
+        <button class="qa qa-ada" data-qa="msg-ada"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Napsat Adě</button>
+        <button class="qa qa-nox" data-qa="task-nox"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Zadat úkol Noxovi</button>
+        <button class="qa" data-qa="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Otevřít kvalitu</button>
+        <button class="qa" data-qa="detail"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Detail úkolu</button></div></section>
+      <section class="panel" id="agentPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.7 3 6"/></svg><h2>Agenti a mosty</h2><span id="agentCount" class="count">—</span></div><div class="panel-body"><div id="agents"></div><details id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details></div></section>
+      <section class="panel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><h2>Zamčené cesty</h2></div><div class="panel-body" id="claims"></div></section>
     </aside>
     <main id="main" class="panel" tabindex="-1">
       <div id="topbar">
-        <div class="title"><span class="panel-icon" aria-hidden="true">✣</span> Místnost agentů <button class="btn panel-trigger" id="openAgents" type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button class="btn panel-trigger" id="openDetail" type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button><div id="status" role="status"><span class="dot"></span><span id="statusText">připojuji…</span></div></div>
+        <div class="title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg> Místnost agentů <button class="btn panel-trigger" id="openAgents" type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button class="btn panel-trigger" id="openDetail" type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button><div id="status" role="status"><span class="dot"></span><span id="statusText">připojuji…</span></div></div>
         <div class="tools filter-tools"><div class="filters" role="group" aria-label="Filtrovat zprávy">
           <button class="filter on" data-filter="all" aria-pressed="true">Vše</button><button class="filter" data-filter="task" aria-pressed="false">Úkoly</button><button class="filter" data-filter="result" aria-pressed="false">Výsledky</button><button class="filter" data-filter="system" aria-pressed="false">Systém</button>
         </div></div>
@@ -1446,6 +1502,7 @@ function refreshDashboard() {
   setMetric("metricReviews", latestReviews === null ? "—" : latestReviews.filter(r => !["closed", "approved"].includes(r.state)).length);
   renderHeroes();
   renderActivity();
+  renderWork();
   const picker = document.getElementById("taskPicker");
   const optionsKey = JSON.stringify(tasks.map(m => [m.id, m.state, m.text.slice(0, 65)]));
   if (picker.dataset.optionsKey !== optionsKey) {
@@ -1498,7 +1555,30 @@ function renderHeroes() {
     const task = el.querySelector(".agent-task"); task.textContent = s.detail.slice(0, 90); task.title = s.detail;
   }
 }
-setInterval(() => { if (!document.hidden) renderHeroes(); }, 5000);   // stáří dat se projeví i bez nové zprávy
+setInterval(() => { if (!document.hidden) renderHeroes(); }, 5000);
+function renderWork() {
+  const tasks = historyMessages().filter(m => m.kind === "task");
+  const board = latestBoard || [];
+  const escalated = (latestReviews || []).filter(r => r.state === "escalated").length;
+  const attention = board.reduce((s, b) => s + (b.needs_review || 0), 0) + escalated;
+  const rows = [["ok", "Dokončeno", tasks.filter(m => m.state === "succeeded").length, "úkoly v načtené historii"],
+                ["work", "Probíhá", board.filter(b => b.active).length, "právě běžící úkoly"],
+                ["wait", "Čeká", board.reduce((s, b) => s + (b.queued || 0), 0), "ve frontě všech agentů"],
+                ["warn", "Vyžaduje pozornost", attention, "ke kontrole a review čekající na tebe"]];
+  setHTMLIfChanged(document.getElementById("workList"), rows.map(([cls, label, n, hint]) =>
+    `<li class="work work-${cls}" title="${esc(hint)}"><span class="work-ic" aria-hidden="true"></span><span>${label}</span><b>${latestBoard === null && cls !== "ok" ? "—" : n}</b></li>`).join(""));
+  const bell = document.getElementById("bellCount");
+  bell.hidden = !attention; bell.textContent = attention;
+}
+document.getElementById("bellBtn").onclick = () => { showView("overview", {focus: false}); document.querySelector('[data-filter="task"]').click(); };
+document.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => {
+  const qa = b.dataset.qa;
+  if (qa === "quality") return showView("quality");
+  if (qa === "detail") return openPanel("inspector", b);
+  setKind(qa === "task-nox" ? "task" : "chat");
+  toEl.value = qa === "task-nox" ? "codex" : "claude-code"; syncHint();
+  textEl.focus();
+});   // stáří dat se projeví i bez nové zprávy
 function renderActivity() {
   const items = historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).slice(-8).reverse();
   setHTMLIfChanged(document.getElementById("activityList"), items.length ? items.map(m => {
@@ -1563,10 +1643,25 @@ function renderTaskDetail() {
   if (switched) { motion(el,[{opacity:.3},{opacity:1}],180); motion(timeline,[{opacity:.3},{opacity:1}],180); }
   [...el.querySelectorAll("details[data-section]"), ...timeline.querySelectorAll("details[data-section]")].forEach(d => { d.open = openSections.includes(d.dataset.section); });
 }
+let projFilter = "all", lastProjReviews = [];
 function renderProjects(reviews) {
-  const repos = [...new Set(reviews.map(r => r.repo).filter(Boolean))].sort();
-  setHTMLIfChanged(document.getElementById("projects"), repos.length ? repos.map(repo => `<div class="card"><div class="project-name"><span aria-hidden="true">▣</span>${esc(repo.split("/").filter(Boolean).pop() || repo)}</div><div class="path">${esc(repo)}</div></div>`).join("") : `<div class="empty">V dostupných review nejsou uvedené repozitáře.</div>`);
+  lastProjReviews = reviews || [];
+  const by = new Map();
+  lastProjReviews.forEach(r => { if (!r.repo) return; const s = by.get(r.repo) || {total: 0, done: 0, open: 0}; s.total++;
+    if (["approved", "closed"].includes(r.state)) s.done++; else s.open++; by.set(r.repo, s); });
+  const rows = [...by.entries()].sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0]))
+    .filter(([, s]) => projFilter === "all" || (projFilter === "open" ? s.open > 0 : s.open === 0));
+  const folder = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  setHTMLIfChanged(document.getElementById("projects"), rows.length ? rows.map(([repo, s], i) => {
+    const pct = Math.round(100 * s.done / s.total);
+    return `<div class="proj ${i === 0 && s.open ? "proj-hot" : ""}" title="${esc(repo)}"><span class="proj-ic">${folder}</span><div class="proj-body"><div class="proj-head"><b>${esc(repo.split("/").filter(Boolean).pop() || repo)}</b><span>${pct} %</span></div><div class="proj-sub">${s.done}/${s.total} review schváleno${s.open ? ` · ${s.open} otevřených` : ""}</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
+  }).join("") : `<div class="empty">Pro tento filtr nejsou žádné projekty.</div>`);
 }
+document.querySelectorAll("[data-proj]").forEach(b => b.onclick = () => {
+  projFilter = b.dataset.proj;
+  document.querySelectorAll("[data-proj]").forEach(x => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", x === b); });
+  renderProjects(lastProjReviews);
+});
 
 
 const NAMES = {
@@ -1849,7 +1944,7 @@ function renderRoom(r) {
   latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
   if (Array.isArray(r.reviews)) latestReviews = r.reviews;
-  if (r.mode && r.mode.mode) document.getElementById("modeBadge").textContent = "Režim: " + ({basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"}[r.mode.mode] || r.mode.mode);
+  if (r.mode && r.mode.mode) document.getElementById("modeText").textContent = "Režim: " + ({basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"}[r.mode.mode] || r.mode.mode);
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
   renderingRoom = false;
