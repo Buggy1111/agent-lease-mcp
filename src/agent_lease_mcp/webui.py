@@ -34,6 +34,11 @@ from .config import HUMAN_AGENT, HUMAN_NAME_FILE, Settings, human_name
 from .models import MessageKind
 from .store import Store
 
+# Statické soubory UI (portréty Ady a Noxe, ikona). Pevný seznam: žádné cesty z požadavku.
+_ASSET_DIR = Path(__file__).with_name("assets")
+ASSETS = {"/assets/ada.webp": ("ada.webp", "image/webp"), "/assets/nox.webp": ("nox.webp", "image/webp"),
+          "/favicon.svg": ("favicon.svg", "image/svg+xml"), "/favicon.ico": ("favicon.svg", "image/svg+xml")}
+
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 SESSION_COOKIE = "agent_lease_session"
@@ -139,6 +144,20 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Cache-Control", "no-store")
 
+        def _handle_asset(self, name: str, content_type: str) -> None:
+            try:
+                body = (_ASSET_DIR / name).read_bytes()
+            except OSError:
+                return self._reject(404, "not found")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         # ── autentizace ─────────────────────────────────────────────────
         def _bearer_ok(self) -> bool:
             header = self.headers.get("X-Agent-Lease-Token", "")
@@ -176,6 +195,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             qs = parse_qs(parts.query)
             if parts.path == "/":
                 return self._handle_index()
+            if parts.path in ASSETS:
+                return self._handle_asset(*ASSETS[parts.path])
             if parts.path == "/api/events":
                 return self._handle_events(qs)
             if parts.path == "/api/snapshot":
@@ -615,28 +636,26 @@ PAGE_HTML = """<!doctype html>
 <title>Agent Lease · řídicí přehled</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 :root {
   color-scheme:dark;
-  --bg:#0B0D12; --surface:#12151C; --surface-2:#191D26;
-  --accent-1:#6656E0; --blue:#5B9DF5; --ok:#3DBE8B; --warn:#E0A23B; --bad:#E5566F;
-  --text:#E8EAF0; --text-dim:#8B93A5; --ink:#000;
-  --border:#232836;
-  --border-soft:color-mix(in srgb,var(--border) 65%,transparent);
+  --bg:#070D20; --surface:#101B38; --surface-2:#16244A;
+  --accent-1:#923BFF; --blue:#04CFFF; --ok:#00E779; --warn:#FF8A18; --bad:#FF5A7A;
+  --ada:#FF8A18; --nox:#00E779; --cyan:#04CFFF; --purple:#923BFF;
+  --text:#F5F7FF; --text-dim:#BBC6E1; --ink:#000;
+  --border:rgba(120,150,255,.22);
+  --border-soft:rgba(120,150,255,.12);
   --text-faint:var(--text-dim); --raised:var(--surface-2);
-  --accent-text:color-mix(in srgb,var(--accent-1) 70%,var(--text));
-  --bad-text:color-mix(in srgb,var(--bad) 75%,var(--text));
-  --blue-text:color-mix(in srgb,var(--blue) 75%,var(--text));
-  --grad:var(--accent-1);
-  --panel-grad:var(--surface);
-  --shadow:none;
-  --shadow-hover:0 1px 2px color-mix(in srgb,var(--ink) 25%,transparent);
-  --ease:cubic-bezier(.22,1,.36,1); --panel-time:150ms; --control-time:120ms;
-  --avatar-ada:var(--warn); --avatar-nox:var(--accent-1); --avatar-bridge:var(--blue); --avatar-user:var(--ok);
-}
-@media(prefers-color-scheme:light) {
-  :root { color-scheme:light; --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#F0F2F5; --text:#161A23; --text-dim:#5D6577;
-    --border:#E2E5EB; --accent-1:#5B4BE0; --blue:#2F6FDB; --ok:#157A52; --warn:#8A5A10; --bad:#B42F48; --ink:#1B2030; }
+  --accent-text:#C9A2FF;
+  --bad-text:#FF8FA6;
+  --blue-text:#7FE3FF;
+  --grad:linear-gradient(135deg,#7E30E8,#6A24D8);
+  --panel-grad:linear-gradient(160deg,rgba(22,36,74,.92),rgba(13,22,48,.92));
+  --shadow:0 0 0 1px rgba(120,150,255,.06),0 10px 30px rgba(0,0,0,.35);
+  --shadow-hover:0 0 0 1px rgba(146,59,255,.35),0 0 22px rgba(146,59,255,.18);
+  --ease:cubic-bezier(.22,1,.36,1); --panel-time:200ms; --control-time:160ms;
+  --avatar-ada:var(--ada); --avatar-nox:var(--nox); --avatar-bridge:#5B6B95; --avatar-user:var(--purple);
 }
 * { box-sizing:border-box; }
 [hidden] { display:none!important; }
@@ -977,79 +996,186 @@ body.page-hidden .avatar .dot,body.page-hidden .timeline-marker::after { animati
   .qg-check-grid { grid-template-columns:1fr; }
   .qg-table .qg-repo { min-height:44px; }
 }
-/* Klidný vzhled (Michal 20. 11.): méně ozdob, víc vzduchu, jeden akcent */
-body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
-#masthead { min-height:56px; gap:24px; background:color-mix(in srgb,var(--bg) 92%,transparent); backdrop-filter:blur(8px); }
-#brand .sub,.panel-icon,.metric-icon,.metric::after { display:none; }
-.mark svg { filter:none; width:28px; height:28px; } .mark { width:28px; height:28px; }
-#brand .name { font-size:17px; font-weight:650; letter-spacing:-.2px; }
-.primary-nav { gap:2px; }
-.primary-nav a,.primary-nav button { font-size:13px; padding:6px 12px; border-radius:8px; color:var(--text-dim); }
-.primary-nav a:hover,.primary-nav button:hover,.primary-nav [data-view]:hover { color:var(--text); background:var(--surface-2); border-color:transparent; box-shadow:none; }
-.primary-nav .current { background:var(--surface-2); color:var(--text); border-color:transparent; box-shadow:none; font-weight:600; }
-.qg-shield { width:15px; height:15px; color:currentColor; }
-#overview { padding:20px 0 16px; }
-#scope { display:none; }
-.section-heading h2 { font-size:13px; color:var(--text-dim); font-weight:500; }
-#metrics { gap:0; border:1px solid var(--border); border-radius:12px; background:var(--surface); overflow:hidden; }
-.metric { border:0; border-right:1px solid var(--border); border-radius:0; background:transparent; padding:12px 16px; box-shadow:none; }
-.metric:last-child { border-right:0; }
-.metric-value { font-size:22px; font-weight:600; }
-.metric-label { font-size:12px; }
-#app { gap:16px; }
-.panel,.card,.bubble,.qg-stat { background:var(--surface); box-shadow:none; }
-.panel { border-radius:12px; }
-.panel-title { padding:12px 14px; border-bottom-color:var(--border-soft); }
-.panel-title h2 { font-size:13px; font-weight:600; }
-.panel-body { padding:12px 14px; }
-.card { background:var(--surface-2); border-color:transparent; border-radius:10px; }
-.card.selected-agent { background:color-mix(in srgb,var(--accent-1) 10%,var(--surface)); border-color:color-mix(in srgb,var(--accent-1) 40%,var(--border)); box-shadow:none; }
-.avatar { border-radius:50%; border:0; }
-#main { border-color:var(--border); }
-.bubble { width:auto; max-width:min(720px,92%); border:1px solid var(--border-soft); border-left:2px solid var(--border); background:var(--surface-2); }
-.bubble.mine { max-width:min(640px,85%); background:color-mix(in srgb,var(--accent-1) 9%,var(--surface)); border-color:transparent; }
-.bubble.task { border-left-color:var(--warn); } .bubble.result { border-left-color:var(--ok); }
+/* ── Neonové UI podle Michalových předloh (21. 11. 2026, docs/ui/NEON_UI_PROPOSAL_2026-11-21.md) ── */
+body { font:14px/1.5 "Inter","Segoe UI Variable Text","Segoe UI",ui-sans-serif,system-ui,sans-serif; background:radial-gradient(1200px 600px at 50% -10%,rgba(146,59,255,.16),transparent 60%),var(--bg); background-attachment:fixed; }
+#shell { max-width:1680px; padding:0 20px 40px; }
+/* hlavička: logo · Ada · ∞ · Nox · nástroje; pod ní navigace */
+#masthead { position:relative; display:grid; grid-template-columns:auto 1fr auto; grid-template-areas:"brand heroes tools" "nav nav pause"; align-items:center; gap:8px 20px; min-height:0; padding:14px 0 10px; background:transparent; border-bottom:0; backdrop-filter:none; }
+#brand { grid-area:brand; } #agentHeroes { grid-area:heroes; } #headTools { grid-area:tools; } .primary-nav { grid-area:nav; } #pause { grid-area:pause; justify-self:end; }
+#brand .mark,#brand .mark svg { width:58px; height:30px; filter:drop-shadow(0 0 8px rgba(4,207,255,.35)); }
+#brand .name { font-size:28px; font-weight:700; letter-spacing:-.5px; line-height:1.1; }
+#brand .sub { display:block; font-size:13px; color:var(--text-dim); }
+#agentHeroes { display:flex; align-items:center; justify-content:center; gap:18px; min-width:0; }
+.hub { width:72px; height:72px; flex:none; display:grid; place-items:center; border-radius:50%; border:1px solid rgba(146,59,255,.45); background:radial-gradient(circle,rgba(146,59,255,.18),rgba(7,13,32,.9) 70%); box-shadow:0 0 24px rgba(146,59,255,.25),inset 0 0 18px rgba(4,207,255,.12); }
+.hub svg { width:44px; height:22px; }
+.agent-hero { --c:var(--ada); position:relative; display:flex; align-items:center; gap:12px; min-width:0; width:min(360px,100%); padding:8px 16px 8px 8px; border-radius:16px; border:1px solid color-mix(in srgb,var(--c) 55%,transparent); background:linear-gradient(120deg,color-mix(in srgb,var(--c) 16%,var(--surface)),rgba(10,16,38,.95) 70%); box-shadow:0 0 0 1px rgba(0,0,0,.2),0 0 18px color-mix(in srgb,var(--c) 14%,transparent); }
+.agent-hero[data-agent="nox"] { --c:var(--nox); flex-direction:row-reverse; padding:8px 8px 8px 16px; }
+.agent-hero::after { content:""; position:absolute; inset:-1px; border-radius:inherit; border:1px solid var(--c); opacity:0; pointer-events:none; box-shadow:0 0 22px color-mix(in srgb,var(--c) 55%,transparent); }
+.portrait-wrap { position:relative; flex:none; width:84px; height:78px; }
+.portrait { position:relative; z-index:1; width:84px; height:78px; object-fit:cover; object-position:top; border-radius:12px; }
+.halo { position:absolute; inset:-6px; border-radius:16px; background:radial-gradient(circle at 50% 40%,color-mix(in srgb,var(--c) 55%,transparent),transparent 70%); opacity:.25; }
+.agent-info { min-width:0; flex:1; }
+.agent-title { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.agent-name { font-size:21px; font-weight:700; letter-spacing:-.3px; }
+.agent-vendor,.agent-role { font-size:12px; color:var(--text-dim); }
+.agent-state { display:flex; align-items:center; gap:7px; margin-top:4px; font-size:13px; font-weight:600; color:var(--c); }
+.state-dot { width:9px; height:9px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); }
+.pulse-line { width:70px; height:18px; margin-left:auto; }
+.pulse-line path { fill:none; stroke:var(--c); stroke-width:1.6; stroke-linejoin:round; opacity:.55; stroke-dasharray:120; stroke-dashoffset:0; }
+.agent-task { font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; min-height:16px; }
+/* stavy: pulzuje jen „working“, každý agent zvlášť */
+.agent-hero[data-state="working"]::after { animation:hero-breathe 2.2s ease-in-out infinite; }
+.agent-hero[data-state="working"] .halo { animation:halo-breathe 2.2s ease-in-out infinite; }
+.agent-hero[data-state="working"] .pulse-line path { opacity:1; stroke-dasharray:6 4; animation:pulse-run 1.6s linear infinite; }
+.agent-hero[data-state="idle"] .halo { opacity:.22; }
+.agent-hero[data-state="limited"],.agent-hero[data-state="offline"],.agent-hero[data-state="unknown"] { filter:saturate(.35); }
+.agent-hero[data-state="offline"] .portrait,.agent-hero[data-state="unknown"] .portrait { opacity:.55; }
+.agent-hero[data-state="offline"] .state-dot,.agent-hero[data-state="unknown"] .state-dot { background:#7D88A8; box-shadow:none; }
+.agent-hero[data-state="offline"] .agent-state,.agent-hero[data-state="unknown"] .agent-state { color:var(--text-dim); }
+.agent-hero[data-state="error"] .agent-state { color:var(--bad-text); }
+.agent-hero[data-state="error"] .state-dot { background:var(--bad); box-shadow:none; border-radius:2px; transform:rotate(45deg); }
+@keyframes hero-breathe { 0%,100% { opacity:.15; } 50% { opacity:.9; } }
+@keyframes halo-breathe { 0%,100% { opacity:.25; transform:scale(.97); } 50% { opacity:.75; transform:scale(1.03); } }
+@keyframes pulse-run { to { stroke-dashoffset:-20; } }
+#headTools { display:flex; align-items:center; gap:10px; }
+.mode-badge { padding:7px 14px; border-radius:999px; border:1px solid rgba(146,59,255,.55); background:rgba(146,59,255,.12); color:var(--text); font-size:13px; white-space:nowrap; }
+.human-badge { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; background:var(--grad); font-weight:700; }
+/* navigace */
+.primary-nav { display:flex; gap:6px; flex-wrap:wrap; padding:6px 0 4px; border-bottom:1px solid transparent; border-image:linear-gradient(90deg,transparent,rgba(146,59,255,.6),rgba(4,207,255,.4),transparent) 1; }
+.primary-nav button,.primary-nav a { display:flex; align-items:center; gap:8px; min-height:42px; padding:8px 18px; border-radius:12px; font-size:15px; color:var(--text); background:transparent; border:1px solid transparent; }
+.primary-nav button:hover,.primary-nav [data-view]:hover { background:rgba(146,59,255,.12); border-color:rgba(146,59,255,.35); box-shadow:none; }
+.primary-nav .current,.primary-nav .current:hover,.primary-nav [data-view].current:hover { background:var(--grad); border-color:transparent; color:#fff; box-shadow:0 0 18px rgba(146,59,255,.45); }
+.nav-ic { width:19px; height:19px; flex:none; }
+.big { font-size:13px; } .pausebar button { border-radius:10px; }
+/* metriky */
+#overview { padding:16px 0 14px; } .section-heading { display:none; }
+#metrics { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:14px; border:0; background:none; overflow:visible; }
+.metric { --t:var(--cyan); display:flex; align-items:center; gap:14px; padding:16px; border-radius:14px; border:1px solid color-mix(in srgb,var(--t) 55%,transparent)!important; background:linear-gradient(135deg,color-mix(in srgb,var(--t) 14%,var(--surface)),rgba(10,16,38,.95)); box-shadow:0 0 16px color-mix(in srgb,var(--t) 12%,transparent); }
+.metric[data-tone-card="purple"] { --t:var(--purple); } .metric[data-tone-card="orange"] { --t:var(--ada); } .metric[data-tone-card="green"] { --t:var(--nox); }
+.metric-icon { display:grid!important; width:42px; height:42px; place-items:center; color:var(--t); border:0; background:none; box-shadow:none; }
+.metric-icon svg { width:34px; height:34px; filter:drop-shadow(0 0 6px color-mix(in srgb,var(--t) 60%,transparent)); }
+.metric-label { font-size:14px; color:var(--text); }
+.metric-value { font-size:28px; font-weight:700; color:var(--text); }
+.metric-system { display:none!important; }
+/* plocha: projekty+agenti | místnost | aktivita */
+#app { grid-template-columns:270px minmax(0,1fr) 300px; gap:16px; }
+#inspector { display:none; } #openDetail { display:inline-flex!important; align-items:center; }
+.panel { border:1px solid var(--border); border-radius:16px; background:var(--panel-grad); box-shadow:var(--shadow); }
+.panel-title { padding:14px 16px; border-bottom:1px solid var(--border-soft); gap:10px; }
+.panel-title h2 { font-size:16px; font-weight:650; }
+.panel-icon { display:inline; color:var(--cyan); }
+.panel-body { padding:12px 16px; }
+.count { background:rgba(146,59,255,.15); border:1px solid rgba(146,59,255,.35); color:var(--text); border-radius:999px; padding:0 8px; }
+.card { background:rgba(16,27,56,.7); border:1px solid var(--border-soft); border-radius:12px; }
+.card.selected-agent { border-color:var(--purple); box-shadow:0 0 0 1px var(--purple),0 0 16px rgba(146,59,255,.3); }
+.card.bridge { border-style:dashed; }
+.avatar { border-radius:50%; border:1px solid color-mix(in srgb,var(--avatar-color,var(--purple)) 70%,transparent); background:color-mix(in srgb,var(--avatar-color,var(--purple)) 22%,var(--surface)); color:var(--text); }
+.tag { border-radius:999px; padding:2px 9px; background:rgba(120,150,255,.1); color:var(--text-dim); }
+.tag.ok { color:#7CF5B6; background:rgba(0,231,121,.1); } .tag.warn { color:#FFB36B; background:rgba(255,138,24,.12); }
+.tag.bad { color:var(--bad-text); background:rgba(255,90,122,.12); } .tag.work { color:var(--accent-text); background:rgba(146,59,255,.16); }
+/* místnost */
+#main { border-color:rgba(146,59,255,.45); box-shadow:0 0 0 1px rgba(146,59,255,.12),0 0 26px rgba(146,59,255,.14); height:calc(100dvh - 330px); min-height:560px; }
+#topbar { padding:14px 16px; }
+#topbar .title { font-size:16px; }
+.filters,.seg { background:rgba(7,13,32,.6); border:1px solid var(--border-soft); border-radius:10px; padding:3px; }
+.filter,.seg button { color:var(--text-dim); border-radius:8px; }
+.filter.on,.seg button.on { background:var(--grad); color:#fff; border-color:transparent; box-shadow:0 0 12px rgba(146,59,255,.35); }
+#search,#to,#taskPicker,#text,#kbQuery,select,.kb-form input,.kb-form textarea { background:rgba(7,13,32,.7); border:1px solid var(--border); border-radius:10px; color:var(--text); }
+#text:focus,#search:focus,#to:focus { border-color:var(--purple); box-shadow:0 0 0 3px rgba(146,59,255,.25); }
+#feed { padding:16px; gap:12px; }
+.bubble { --c:var(--cyan); width:auto; max-width:min(760px,92%); background:rgba(16,27,56,.85); border:1px solid var(--border-soft); border-left:3px solid var(--c); border-radius:14px; }
+.bubble[data-agent="ada"] { --c:var(--ada); } .bubble[data-agent="nox"] { --c:var(--nox); } .bubble[data-agent="me"] { --c:var(--purple); }
+.bubble.mine { align-self:flex-end; background:rgba(146,59,255,.14); }
 .bubble.system { background:transparent; border-color:transparent; border-left-color:var(--border); }
-#compose { background:var(--surface); }
-.seg button.on,#sendBtn { background:var(--accent-1); color:#fff; box-shadow:none; }
-#sendBtn { border:0; }
-#sendBtn:hover,.seg button.on:hover { background:color-mix(in srgb,var(--accent-1) 85%,#000); box-shadow:none; }
-.filter.on { background:var(--surface-2); color:var(--text); border-color:transparent; }
-#text:focus,#search:focus,#to:focus { box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-1) 18%,transparent); }
-#inspector .qg-summary { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
-#inspector .qg-stat { flex-direction:row; align-items:center; gap:6px; padding:3px 9px; border-radius:999px; }
-#inspector .qg-stat strong { font-size:13px; }
-#inspector .qg-stat-name { font-size:11px; }
-.qg-stat { border-color:var(--border); }
+.bubble.selected { box-shadow:0 0 0 1px var(--purple),0 0 14px rgba(146,59,255,.3); }
+.bubble .meta .who { color:var(--text); }
+.bubble[data-agent="ada"] .meta > .who:first-of-type { color:#FFB36B; } .bubble[data-agent="nox"] .meta > .who:first-of-type { color:#7CF5B6; }
+.bubble .text { font-size:14px; }
+.kind { text-transform:none; letter-spacing:0; border-radius:999px; }
+#compose { background:rgba(7,13,32,.35); border-top:1px solid var(--border-soft); }
+#sendBtn,.btn.detail { background:var(--grad); color:#fff; border:0; border-radius:10px; box-shadow:0 0 14px rgba(146,59,255,.35); }
+#sendBtn { align-self:flex-end; min-height:42px; padding:8px 22px; font-weight:650; }
+#sendBtn:hover,.btn.detail:hover { background:linear-gradient(135deg,#6E26D6,#5A1CC0); color:#fff; }
+.btn { border:1px solid var(--border); background:rgba(16,27,56,.8); color:var(--text); border-radius:10px; }
+.btn:hover:not(.detail) { border-color:var(--purple); background:rgba(146,59,255,.14); }
+.more { color:var(--accent-text); }
+/* aktivita agentů */
+#activity { min-width:0; align-self:stretch; }
+.activity { list-style:none; margin:0; padding:12px 16px 16px; display:flex; flex-direction:column; gap:14px; }
+.act { --c:var(--ada); position:relative; display:flex; gap:12px; padding-left:16px; }
+.act[data-agent="nox"] { --c:var(--nox); }
+.act::before { content:""; position:absolute; left:0; top:8px; width:9px; height:9px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); }
+.act:not(:last-child)::after { content:""; position:absolute; left:4px; top:20px; bottom:-14px; width:1px; background:var(--border); }
+.act-portrait { width:40px; height:40px; border-radius:50%; object-fit:cover; object-position:top; border:1px solid var(--c); flex:none; }
+.act-body { min-width:0; } .act-head { display:flex; justify-content:space-between; gap:8px; } .act-head b { color:var(--text); }
+.act-head time { color:var(--text-dim); font-size:12px; } .act p { margin:2px 0 0; color:var(--text-dim); font-size:13px; overflow-wrap:anywhere; }
+/* Místnost agentů přes celou plochu */
+body.room-focus #overview,body.room-focus #side,body.room-focus #activity,body.room-focus .mobile-nav { display:none!important; }
+body.room-focus #app { grid-template-columns:minmax(0,1fr); padding-top:16px; }
+body.room-focus #main { height:calc(100dvh - 210px); }
+/* vysouvací panel, stránky */
+#workspaceDrawer { background:var(--bg); border:1px solid var(--border); box-shadow:0 0 40px rgba(146,59,255,.25); }
+#workspaceDrawer #inspector { display:flex; }
+.view-title { font-size:30px; font-weight:700; letter-spacing:-.4px; }
+.view-subtitle { color:var(--text-dim); }
+.mode-card,.kb-entry { background:var(--panel-grad); border:1px solid var(--border); border-radius:14px; }
+.mode-card[aria-checked="true"] { border-color:var(--purple); box-shadow:0 0 0 1px var(--purple),0 0 18px rgba(146,59,255,.3); }
+.qg-stat { border-radius:999px; flex-direction:row; align-items:center; gap:6px; padding:4px 10px; }
+#inspector .qg-summary,.qg-summary { display:flex; flex-wrap:wrap; gap:6px; }
+.concept-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; }
+.concept-badge { margin-left:auto; padding:2px 10px; border-radius:999px; border:1px dashed rgba(255,138,24,.7); color:#FFB36B; font-size:12px; }
+.concept-list { margin:0; padding-left:18px; color:var(--text-dim); line-height:1.8; }
+.concept-list.mono { font:12px/1.8 ui-monospace,monospace; }
 @media(hover:hover) and (pointer:fine) {
-  .panel:hover,.card:hover,.metric:hover { border-color:var(--border); box-shadow:none; transform:none; }
-  .metric:hover { border-color:var(--border); }
+  .panel:hover { border-color:var(--border); box-shadow:var(--shadow); }
+  .card:hover { border-color:rgba(146,59,255,.4); box-shadow:none; }
+  .metric:hover { transform:none; }
 }
-/* stav systému je v hlavičce; tady by se opakoval */
-.metric:has(#metricSystem) { display:none; }
-#metrics { grid-template-columns:repeat(5,minmax(0,1fr)); }
-.metric:nth-last-child(2) { border-right:0; }
-@media(max-width:899px) { #openAgents,#openDetail { display:none!important; } }
-@media(max-width:599px) { .metric { padding:10px 12px; min-height:0; } .metric-value { font-size:20px; }
-  #metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .metric { border-right:0; border-bottom:1px solid var(--border); } }
+@media(max-width:1500px) { #metrics { grid-template-columns:repeat(3,minmax(0,1fr)); } #app { grid-template-columns:240px minmax(0,1fr) 260px; } }
+@media(max-width:1280px) {
+  #masthead { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"brand tools" "heroes heroes" "nav nav" "pause pause"; }
+  #masthead > * { min-width:0; }
+  #pause { justify-self:start; }
+  #app { grid-template-columns:220px minmax(0,1fr); } #activity { grid-column:1 / -1; }
+}
+@media(max-width:899px) {
+  #brand .name { font-size:22px; } #brand .sub { font-size:12px; } #brand .mark,#brand .mark svg { width:44px; height:24px; }
+  .metric { padding:12px; gap:10px; } .metric-icon { width:30px; height:30px; } .metric-icon svg { width:26px; height:26px; }
+  .metric-label { font-size:13px; overflow-wrap:normal; word-break:normal; hyphens:auto; } .metric-value { font-size:24px; }
+  .pausebar { flex-wrap:wrap; } .agent-task { max-width:100%; }
+  #agentHeroes { flex-direction:column; } .hub { display:none; } .agent-hero { width:100%; }
+  #metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #app { display:block; } #activity { margin-top:16px; }
+  .primary-nav { flex-wrap:nowrap; overflow-x:auto; }
+  .primary-nav button { padding:8px 12px; font-size:14px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .agent-hero[data-state="working"]::after { animation:none; opacity:.8; }
+  .agent-hero[data-state="working"] .halo { animation:none; opacity:.6; }
+  .agent-hero[data-state="working"] .pulse-line path { animation:none; }
+}
+body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pulse-line path { animation-play-state:paused!important; }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
   <header id="masthead">
-    <div id="brand"><div class="mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M23 5 4 40h22" class="logo-blue" stroke-width="4" stroke-linejoin="round"/><path d="M26 9 44 41H18" class="logo-purple" stroke-width="4" stroke-linejoin="round"/><path d="m24 19-9 16h18z" class="logo-inner" stroke-width="3" stroke-linejoin="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
-    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" data-view="overview" aria-current="page">Přehled</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button><button data-view="quality"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Kvalita</button><button data-view="research">Výzkum</button><button data-view="memory">Paměť</button><button data-view="settings">Nastavení</button></nav>
+    <div id="brand"><div class="mark"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg)" stroke-width="5" stroke-linecap="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
+    <div id="agentHeroes"><article class="agent-hero" id="heroAda" data-agent="ada" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/ada.webp" alt="Portrét Ada" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Ada</span><span class="agent-vendor">Anthropic (Claude)</span></div><div class="agent-role">Analýza · Výzkum · Návrhy</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article><div class="hub" aria-hidden="true"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg2" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg2)" stroke-width="5" stroke-linecap="round"/></svg></div><article class="agent-hero" id="heroNox" data-agent="nox" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/nox.webp" alt="Portrét Nox" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Nox</span><span class="agent-vendor">OpenAI (GPT)</span></div><div class="agent-role">Implementace · Testy · Ověření</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article></div>
+    <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti">Režim: …</span><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" aria-current="page" data-view="overview"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7v9h-6v-6H9v6H3z"/></svg>Přehled</button><button data-view="room"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Místnost agentů</button><button data-view="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Kvalita</button><button data-view="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Výzkum</button><button data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Paměť</button><button data-view="catalog"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Katalog</button><button data-view="settings"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Nastavení</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
   <div id="overviewView" data-view-panel="overview">
   <section id="overview" aria-labelledby="overviewTitle">
     <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
     <div id="metrics">
-      <div class="metric" style="--tint:var(--blue)"><span class="metric-icon" aria-hidden="true">♧</span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
-      <div class="metric" style="--tint:var(--accent-1)"><span class="metric-icon" aria-hidden="true">▷</span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
-      <div class="metric" style="--tint:var(--warn)"><span class="metric-icon" aria-hidden="true">▱</span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">✓</span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
-      <div class="metric" style="--tint:var(--bad)"><span class="metric-icon" aria-hidden="true">◇</span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
-      <div class="metric" style="--tint:var(--ok)"><span class="metric-icon" aria-hidden="true">⌁</span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
+      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.7 3 6"/></svg></span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
+      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg></span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
+      <div class="metric" data-tone-card="orange"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 12h14M5 18h9"/></svg></span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
+      <div class="metric" data-tone-card="green"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
+      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg></span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
+      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l3 3v13H6z"/><path d="M9 12h6M9 16h4"/></svg></span><div><div class="metric-label">Otevřená review</div><div class="metric-value" id="metricReviews">—</div></div></div>
+      <div class="metric metric-system" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
     </div>
   </section>
   <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
@@ -1071,11 +1197,12 @@ body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",s
       <div id="compose">
         <div class="row"><div class="seg" id="kindSeg"><button type="button" data-kind="chat" class="on" aria-pressed="true">Zpráva</button><button type="button" data-kind="task" aria-pressed="false">Úkol</button></div><label>Komu <select id="to"></select></label></div>
         <div id="hint"></div>
-        <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat ↗</button></div>
+        <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat</button></div>
       </div>
     </main>
+    <aside id="activity" class="panel" aria-label="Aktivita agentů"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><h2>Aktivita agentů</h2></div><ol id="activityList" class="activity"><li class="empty">Čekám na zprávy Ady a Noxe.</li></ol></aside>
     <aside id="inspector" aria-label="Detail a zaznamenané události">
-      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Přehled repozitářů ↗</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Zobrazují se pouze zaznamenané běhy. Chybějící kontroly nejsou PASS.</p></div></section>
+      <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Všechny repozitáře</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Zobrazují se pouze zaznamenané běhy. Chybějící kontroly nejsou PASS.</p></div></section>
       <section id="timelinePanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="timelineTitle">Záznamy úkolu</h2></div><div class="panel-body" id="taskTimeline"><div class="empty">Vyber úkol z místnosti.</div></div></section>
       <section id="taskPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="detailTitle" tabindex="-1">Detail úkolu</h2></div><div class="panel-body"><label class="sr-only" for="taskPicker">Vybrat úkol z načtené historie</label><select id="taskPicker"><option value="">Vyber úkol z místnosti</option></select><div id="taskDetail"><div class="empty">Vyber úkol. Zobrazí se jeho skutečný stav a navázané zprávy.</div></div></div></section>
       <section id="reviewPanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◇</span><h2>Review commitů</h2><span id="reviewCount" class="count">—</span></div><div class="panel-body" id="reviews"></div></section>
@@ -1084,6 +1211,9 @@ body { font:14px/1.55 "Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",s
   </div>
 </div>
   <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
+  <section class="view-page" data-view-panel="catalog" hidden aria-labelledby="catalogTitle"><div class="view-header"><div><h2 id="catalogTitle" class="view-title" tabindex="-1">Katalog schopností</h2><p class="view-subtitle">Fáze D. Koncept: aplikace zatím nemá data ani API katalogu, proto zde nic není živé ani klikací.</p></div><button class="btn" data-view="overview">Zpět na přehled</button></div>
+    <div class="concept-grid"><section class="panel concept"><div class="panel-title"><h2>Co katalog bude umět</h2><span class="concept-badge">koncept</span></div><div class="panel-body"><ul class="concept-list"><li>Seznam schopností Ady a Noxe: nástroje, skilly, MCP servery.</li><li>U každé položky účel, vstupy a výstupy, závislosti, testy a dokumentace.</li><li>Kompatibilita s Adou a Noxem jen ověřená, nikdy automaticky „oba“.</li><li>Výběr krátkého seznamu nástrojů k úkolu, aby agent nemusel číst celý inventář.</li></ul></div></section>
+    <section class="panel concept"><div class="panel-title"><h2>Kde jsou data dnes</h2><span class="concept-badge">jen dokument</span></div><div class="panel-body"><p class="note">Inventura z 19. 11. 2026 je v repozitáři jako dokument:</p><ul class="concept-list mono"><li>docs/research/2026-11-19-d-capabilities-ada.md</li><li>docs/research/2026-11-19-d-capabilities-nox.md</li></ul><p class="note">Napojení na aplikaci je samostatná změna s vlastním schválením.</p></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
   <section class="view-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><div class="view-header"><div><h2 id="researchTitle" class="view-title" tabindex="-1">Výzkumný tým</h2><p class="view-subtitle">Části běží izolovaně jen pro čtení, pak jedna syntéza. Zjištění jsou neověřená, dokud je někdo nepotvrdí v paměti.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
     <section class="panel"><div class="panel-body"><div id="rsList" role="status">Načítám…</div></div></section></section>
@@ -1113,6 +1243,7 @@ let selectedTask = null;
 let renderingRoom = false;
 let latestPeers = [];
 let latestBoard = null; // null = autoritativní přehled není dostupný
+let latestReviews = null;
 let lastPaused; // undefined = stav dosud neznáme, null = provoz povolen
 let connectionMode = "loading";
 
@@ -1153,7 +1284,7 @@ function restorePanels() {
   if (drawerOpener?.isConnected) drawerOpener.focus({preventScroll:true});
 }
 function openPanel(id, trigger = document.activeElement) {
-  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : matchMedia("(max-width:1280px)").matches;
+  const narrow = id === "side" ? matchMedia("(max-width:899px)").matches : true;   // detail úkolu vždy ve vysouvacím panelu
   if (!narrow) { document.getElementById(id).scrollIntoView({block:"start"}); return; }
   if (drawer.open) { drawer.close(); restorePanels(); }
   drawerOpener = trigger;
@@ -1236,6 +1367,9 @@ function refreshDashboard() {
   setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
   setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
   renderSystemMetric();
+  setMetric("metricReviews", latestReviews === null ? "—" : latestReviews.filter(r => !["closed", "approved"].includes(r.state)).length);
+  renderHeroes();
+  renderActivity();
   const picker = document.getElementById("taskPicker");
   const optionsKey = JSON.stringify(tasks.map(m => [m.id, m.state, m.text.slice(0, 65)]));
   if (picker.dataset.optionsKey !== optionsKey) {
@@ -1248,6 +1382,42 @@ function refreshDashboard() {
   const events = all.filter(m => m.kind === "result" || m.kind === "control").slice(-5).reverse();
   setHTMLIfChanged(document.getElementById("recentEvents"), events.length ? `<ol class="event-list">${events.map(m => `<li><div class="event-meta">#${m.id} · ${esc(nameOf(m.agent))} · ${ago(m.seconds_ago)}</div><p>${esc(m.text.slice(0, 170))}${m.text.length > 170 ? "…" : ""}</p></li>`).join("")}</ol><p class="note">Původní záznamy z načtené historie. Celý text je v místnosti.</p>` : "<div class='empty'>V načtené historii nejsou žádné události.</div>");
   applyFilters();
+}
+// Stav Ady a Noxe jen ze skutečných dat (peers + board), každý zvlášť; nikdy nezůstane „Pracuje“ při výpadku spojení.
+const HERO = { ada: ["claude-code", "claude-code-bridge"], nox: ["codex", "codex-bridge"] };
+const ONLINE_S = 120;
+function agentStatus(key) {
+  if (connectionMode !== "live") return {state: "unknown", label: "Spojení přerušeno", detail: ""};
+  const [main, bridge] = HERO[key];
+  const peer = a => latestPeers.find(p => p.agent === a);
+  const card = a => (latestBoard || []).find(b => b.agent === a);
+  const pm = peer(main), pb = peer(bridge), bm = card(main), bb = card(bridge);
+  const fresh = p => p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S;
+  const limited = [pm, pb, bm, bb].find(x => x && x.provider_state === "limited");
+  const active = (bb && bb.active) || (bm && bm.active);
+  if (active) return {state: "working", label: "Pracuje", detail: `#${active.id} ${active.text || ""}`};
+  if (limited) return {state: "limited", label: "Limit" + (limited.provider_resets_at ? " do " + clock(limited.provider_resets_at) : ""), detail: limited.provider_reason || ""};
+  if (fresh(pm) && pm.presence === "busy" && pm.status && pm.status !== "start session") return {state: "working", label: "Pracuje", detail: pm.status};
+  const problem = (bm && bm.needs_review) ? `ke kontrole ${bm.needs_review}` : (bm && bm.blocked_reason && fresh(pm)) ? bm.blocked_reason : "";
+  if (problem) return {state: "error", label: "Vyžaduje pozornost", detail: problem};
+  if (fresh(pm) || fresh(pb)) return {state: "idle", label: "Čeká", detail: fresh(pm) ? (pm.status || "") : "most připraven převzít úkol"};
+  return {state: "offline", label: "Offline", detail: pm && pm.seen_seconds_ago != null ? "naposledy " + ago(pm.seen_seconds_ago) : ""};
+}
+function renderHeroes() {
+  for (const key of ["ada", "nox"]) {
+    const el = document.querySelector(`.agent-hero[data-agent="${key}"]`); if (!el) continue;
+    const s = agentStatus(key);
+    if (el.dataset.state !== s.state) el.dataset.state = s.state;
+    el.querySelector(".state-text").textContent = s.label;
+    const task = el.querySelector(".agent-task"); task.textContent = s.detail.slice(0, 90); task.title = s.detail;
+  }
+}
+function renderActivity() {
+  const items = historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).slice(-8).reverse();
+  setHTMLIfChanged(document.getElementById("activityList"), items.length ? items.map(m => {
+    const key = m.agent === "claude-code" ? "ada" : "nox";
+    return `<li class="act" data-agent="${key}"><img class="act-portrait" src="/assets/${key}.webp" alt=""><div class="act-body"><div class="act-head"><b>${key === "ada" ? "Ada" : "Nox"}</b><time>${clock(Date.now() / 1000 - (m.seconds_ago || 0))}</time></div><p>${esc((m.text || "").slice(0, 120))}${(m.text || "").length > 120 ? "…" : ""}</p></div></li>`;
+  }).join("") : "<li class='empty'>Čekám na zprávy Ady a Noxe.</li>");
 }
 function renderSystemMetric() {
   const el = document.getElementById("metricSystem");
@@ -1352,6 +1522,7 @@ function tag(text, cls) { return `<span class="tag ${cls || ""}">${esc(text)}</s
 function updateStatus(mode) {
   connectionMode = mode;
   renderSystemMetric();
+  renderHeroes();
   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
   statusText.textContent = mode === "live" ? "živě" : mode === "retry" ? "spojení přerušeno, zkouším znovu…" : "připojuji…";
 }
@@ -1393,11 +1564,12 @@ function renderMessage(m, {live = false} = {}) {
       div.appendChild(more);
     }
     if (k === "task") {
-      const detail = document.createElement("button"); detail.className = "btn detail"; detail.textContent = "Detail úkolu ↗";
+      const detail = document.createElement("button"); detail.className = "btn detail"; detail.textContent = "Detail úkolu";
       detail.setAttribute("aria-label",`Detail úkolu #${m.id}`); detail.onclick = () => selectTask(m.id,true); div.appendChild(detail);
     }
     div._actionsKey = null;
   }
+  div.dataset.agent = m.agent === "claude-code" ? "ada" : m.agent === "codex" ? "nox" : m.agent === me ? "me" : "other";
   div.classList.toggle("mine",m.agent === me);
   div.classList.toggle("system",isSystem(m));
   div.classList.toggle("task",k === "task");
@@ -1579,7 +1751,7 @@ function renderReviews(list) {
 }
 
 function renderRoom(r) {
-  if (r.me) me = r.me;
+  if (r.me) { me = r.me; document.getElementById("humanBadge").textContent = String(me).slice(0, 1).toUpperCase(); }
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
     qgRecords = records.filter(record => record && record.kind === "quality_run" && record.executed === true);
@@ -1588,6 +1760,8 @@ function renderRoom(r) {
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs") || Object.prototype.hasOwnProperty.call(r, "quality_requests")) renderQualityGate();
   latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
+  if (Array.isArray(r.reviews)) latestReviews = r.reviews;
+  if (r.mode && r.mode.mode) document.getElementById("modeBadge").textContent = "Režim: " + ({basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"}[r.mode.mode] || r.mode.mode);
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
   renderingRoom = false;
@@ -1870,10 +2044,13 @@ function showView(view,{focus=true}={}) {
   if(view==="memory")loadKnowledge();
   if(drawer.open){drawer.close();restorePanels();}
   currentView=view;
-  document.querySelectorAll("[data-view-panel]").forEach(el=>{el.hidden=el.dataset.viewPanel!==view;});
+  const panelView=view==="room"?"overview":view;   // Místnost agentů = stejná místnost přes celou plochu
+  document.body.classList.toggle("room-focus",view==="room");
+  document.querySelectorAll("[data-view-panel]").forEach(el=>{el.hidden=el.dataset.viewPanel!==panelView;});
   document.querySelectorAll(".primary-nav [data-view]").forEach(b=>{const on=b.dataset.view===view;b.classList.toggle("current",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
-  if(focus)document.querySelector(`[data-view-panel="${view}"] .view-title`)?.focus({preventScroll:true});
-  motion(document.querySelector(`[data-view-panel="${view}"]`),[{opacity:.5},{opacity:1}],180);
+  if(view==="room"){if(focus)document.getElementById("text").focus({preventScroll:true});feed.scrollTop=feed.scrollHeight;}
+  else if(focus)document.querySelector(`[data-view-panel="${panelView}"] .view-title`)?.focus({preventScroll:true});
+  motion(document.querySelector(`[data-view-panel="${panelView}"]`),[{opacity:.5},{opacity:1}],180);
 }
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
 document.querySelectorAll("[data-qg-demo]").forEach(b=>b.onclick=()=>{qgDemo=!qgDemo;qgSelected=null;renderQualityGate();});

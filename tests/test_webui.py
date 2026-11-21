@@ -599,3 +599,25 @@ def test_only_authenticated_human_approves_a_fix(tmp_path: Path):
                                headers=headers, body=body, handler_type=handler_type)
     assert status == 200 and json.loads(raw)["fix_approved"] is True
     assert store.lease_next("codex").message_id == mid
+
+
+def test_ui_assets_are_a_fixed_list_without_path_traversal(tmp_path: Path):
+    """Neonové UI (21. 11.): portréty a ikona z pevného seznamu, nic jiného ze souborového systému."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    for path, magic in [("/assets/ada.webp", b"RIFF"), ("/assets/nox.webp", b"RIFF"),
+                        ("/favicon.svg", b"<svg"), ("/favicon.ico", b"<svg")]:
+        status, body = call_handler(store, settings, "secret", "GET", path)
+        assert status == 200 and body.startswith(magic), path
+    for path in ("/assets/../webui.py", "/assets/ada.png", "/assets/", "/assets/%2e%2e/store.py"):
+        status, _ = call_handler(store, settings, "secret", "GET", path)
+        assert status != 200, path
+    assert 'href="/favicon.svg"' in PAGE_HTML and 'src="/assets/ada.webp"' in PAGE_HTML
+
+
+def test_room_stays_reachable_and_agent_state_comes_from_live_data():
+    """Místnost agentů zůstává (přehled + vlastní položka) a stav Ady/Noxe se počítá z peers/board."""
+    for needle in ('data-view="room"', 'id="feed"', 'id="compose"', '<select id="to">', 'id="sendBtn"',
+                   "function agentStatus(key)", 'connectionMode !== "live"'):
+        assert needle in PAGE_HTML, needle
+    assert PAGE_HTML.count('class="agent-hero"') == 2
