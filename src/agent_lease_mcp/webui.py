@@ -1155,6 +1155,7 @@ body.room-focus #main { height:calc(100dvh - 210px); }
   .agent-hero[data-state="working"] .pulse-line path { animation:none; }
 }
 body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pulse-line path { animation-play-state:paused!important; }
+.session-lost { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(720px,calc(100vw - 32px)); padding:12px 18px; border-radius:12px; border:1px solid #FF8A18; background:#2A1608; color:#FFE2C4; box-shadow:0 0 24px rgba(255,138,24,.35); font-size:14px; }
 /* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
 body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
 .panel { border:1px solid rgba(120,150,255,.38); background:linear-gradient(165deg,rgba(24,40,86,.92),rgba(12,20,46,.94) 60%); box-shadow:0 0 0 1px rgba(4,207,255,.05),0 0 22px rgba(70,100,255,.14),inset 0 1px 0 rgba(255,255,255,.05); }
@@ -1917,6 +1918,19 @@ async function establishSession() {
   if (!response.ok) throw new Error("Login failed");
 }
 
+// 403 = přihlášení na tomto serveru neplatí (např. po jeho restartu): říct to jasně, ne jen chybou v konzoli.
+const rawFetch = window.fetch.bind(window);
+let sessionLostShown = false;
+window.fetch = (...args) => rawFetch(...args).then(r => {
+  if (r.status === 403 && !String(args[0]).startsWith("/session") && !sessionLostShown) { sessionLostShown = true; showSessionLost(); }
+  return r;
+});
+function showSessionLost() {
+  updateStatus("retry");
+  const bar = document.createElement("div"); bar.className = "session-lost"; bar.setAttribute("role", "alert");
+  bar.innerHTML = "Přihlášení k webu vypršelo (server se mezitím restartoval). Spusť v terminálu <b>agent-lease web --open</b> a pokračuj v nově otevřeném okně.";
+  document.body.prepend(bar);
+}
 function showLoginHelp() {
   feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Spusť v terminálu <b>agent-lease web --open</b> — otevře se ti přihlášená stránka.</div></div>`;
 }
