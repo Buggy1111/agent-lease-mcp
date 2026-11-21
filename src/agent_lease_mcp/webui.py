@@ -1678,7 +1678,8 @@ const STATE = {
 };
 const PRESENCE = { busy: ["pracuje", "work"], idle: ["volný", "ok"], offline: ["offline", ""], stalled: ["neodpovídá", "warn"] };
 
-function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+// escapuje i uvozovky: výstup se vkládá do textu i do atributů (title="…") — bezpečnostní kontrola 21. 11.
+function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 function nameOf(a) { return a === me ? "Ty" : (NAMES[a] || a); }
 function hueOf(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
 function avatarStyle(name) {

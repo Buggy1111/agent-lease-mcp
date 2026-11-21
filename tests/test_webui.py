@@ -635,3 +635,9 @@ def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_pa
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
                              headers={"Cookie": f"{SESSION_COOKIE}_8766=s"}, handler_type=preview)
     assert status == 200
+
+
+def test_js_esc_escapes_quotes_for_attributes():
+    """Bezpečnostní kontrola 21. 11.: esc() se používá i v atributech (title="…"), musí escapovat uvozovky."""
+    assert '.replace(/"/g, "&quot;")' in PAGE_HTML and ".replace(/'/g, \"&#39;\")" in PAGE_HTML
+    assert 'd.textContent = s ?? ""; return d.innerHTML' not in PAGE_HTML
