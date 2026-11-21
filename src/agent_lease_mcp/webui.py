@@ -349,6 +349,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "paused": store.paused(),
                 "mode": store.mode(),
                 "reviews": store.reviews(limit=30),
+                "reviews_all": store.reviews(limit=200, include_closed=True),   # Přehled: postup i u uzavřených
                 "quality_runs": store.quality_runs(limit=30),
                 "quality_requests": store.quality_requests(limit=30),
             }
@@ -613,6 +614,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             # „Obnovit" na „Zastavit" a člověk by stop zapnul znovu.
                             "paused": store.paused(),
                             "reviews": store.reviews(limit=30),
+                "reviews_all": store.reviews(limit=200, include_closed=True),   # Přehled: postup i u uzavřených
                             "quality_runs": store.quality_runs(limit=30),
                             "quality_requests": store.quality_requests(limit=30),
                             "messages": store.latest_messages(limit=200),
@@ -1175,7 +1177,7 @@ body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pul
 .lg { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:-1px; } .lg-ada { background:var(--ada); } .lg-nox { background:var(--nox); }
 /* Stav práce */
 .work-list { list-style:none; margin:0; padding:6px 16px 12px; }
-.work { display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid var(--border-soft); font-size:15px; }
+.work { display:flex; align-items:center; gap:12px; padding:6px 0; border-bottom:1px solid var(--border-soft); font-size:15px; }
 .work:last-child { border-bottom:0; } .work b { margin-left:auto; font-size:18px; }
 .work-ic { width:20px; height:20px; border-radius:50%; flex:none; border:2px solid var(--c,#8b96b8); display:grid; place-items:center; }
 .work-ok { --c:var(--nox); } .work-ok .work-ic { background:var(--nox); box-shadow:0 0 10px rgba(0,231,121,.6); }
@@ -1210,6 +1212,47 @@ body.page-hidden .agent-hero::after,body.page-hidden .halo,body.page-hidden .pul
 .bubble[data-agent="ada"] .meta > .who:first-of-type,.bubble[data-agent="nox"] .meta > .who:first-of-type { padding:1px 10px; border-radius:999px; font-size:12px; }
 .bubble[data-agent="ada"] .meta > .who:first-of-type { color:#FFC08A; background:rgba(255,138,24,.16); border:1px solid rgba(255,138,24,.55); }
 .bubble[data-agent="nox"] .meta > .who:first-of-type { color:#8AF7C2; background:rgba(0,231,121,.12); border:1px solid rgba(0,231,121,.5); }
+/* ── Přehled 1:1 podle předlohy 02 (Michal 21. 11.) ── */
+#dash { display:grid; gap:14px; grid-template-columns:minmax(0,1.05fr) minmax(0,1.55fr) minmax(0,1.05fr) minmax(0,.95fr);
+  grid-template-areas:"proj chart work act" "proj tasks sources act" "ins reco quick act"; grid-template-rows:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.85fr); }
+.dash-projects { grid-area:proj; } .dash-chart { grid-area:chart; } .dash-work { grid-area:work; } .dash-activity { grid-area:act; }
+.dash-tasks { grid-area:tasks; } .dash-sources { grid-area:sources; } .dash-insights { grid-area:ins; } .dash-reco { grid-area:reco; } .dash-quick { grid-area:quick; }
+#dash > .panel { min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+#dash #projects,#dash .activity,#dash .dash-list,#dash .dot-list,#dash .check-list,#dash .work-list,#dash .quick { overflow:auto; min-height:0; }
+#dash .chart-body { overflow:hidden; }
+body:not(.room-focus) #app,body:not(.room-focus) .mobile-nav { display:none!important; }
+body.room-focus #dash { display:none; }
+.h-count { color:var(--cyan); font-weight:500; }
+.link-btn { margin-left:auto; background:none; border:0; color:var(--cyan); font-size:14px; min-height:0; padding:0; cursor:pointer; }
+.chart-body { flex:1; min-height:0; display:grid; grid-template-columns:auto 1fr; align-items:center; gap:12px; padding:8px 16px 12px; }
+.chart-big { display:flex; flex-direction:column; gap:6px; } .chart-big span:first-child { font-size:44px; font-weight:700; text-shadow:0 0 18px rgba(146,59,255,.5); }
+.chart-delta { font-size:13px; } .chart-delta[data-tone="ok"] { color:#7CF5B6; } .chart-delta[data-tone="bad"] { color:var(--bad-text); }
+.chart-svg { width:100%; height:100%; min-height:110px; }
+.chart-svg .grid { stroke:rgba(120,150,255,.18); stroke-width:1; } .chart-svg .ax { fill:#BBC6E1; font-size:10px; }
+.chart-svg .pl { fill:none; stroke:#B784FF; stroke-width:2.5; filter:drop-shadow(0 0 4px #923BFF); }
+.chart-svg .pt { fill:#C9A2FF; } .chart-svg .pt.last { fill:#fff; stroke:#923BFF; stroke-width:3; filter:drop-shadow(0 0 6px #923BFF); }
+.dash-list { list-style:none; margin:0; padding:6px 16px 12px; }
+.task-row,.src-row { display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid var(--border-soft); font-size:14px; }
+.task-row:last-child,.src-row:last-child { border-bottom:0; }
+.task-text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.box { width:16px; height:16px; flex:none; border:1.5px solid #8B96B8; border-radius:4px; } .box.run { border-color:var(--purple); box-shadow:0 0 8px rgba(146,59,255,.6); }
+.who-badge { flex:none; padding:2px 10px; border-radius:8px; font-size:12px; border:1px solid; }
+.who-badge.ada { color:#FFC08A; border-color:rgba(255,138,24,.7); background:rgba(255,138,24,.14); }
+.who-badge.nox { color:#8AF7C2; border-color:rgba(0,231,121,.6); background:rgba(0,231,121,.12); }
+.who-badge.other { color:var(--text-dim); border-color:var(--border); }
+.src-ic { color:var(--text-dim); } .src-st { flex:none; width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:11px; color:#8B96B8; border:1.5px solid #8B96B8; }
+.src-st.ok { color:#06130C; background:var(--nox); border-color:var(--nox); box-shadow:0 0 8px rgba(0,231,121,.6); }
+.dot-list,.check-list { list-style:none; margin:0; padding:8px 16px 14px; display:flex; flex-direction:column; gap:8px; font-size:14px; }
+.dot-list li:not(.empty)::before { content:""; display:inline-block; width:9px; height:9px; margin-right:12px; border-radius:50%; background:var(--purple); box-shadow:0 0 8px var(--purple); vertical-align:1px; }
+.new-badge { margin-left:6px; padding:2px 10px; border-radius:999px; background:rgba(146,59,255,.25); border:1px solid rgba(146,59,255,.6); font-size:12px; }
+.dash-reco { border-color:rgba(0,231,121,.6)!important; box-shadow:0 0 24px rgba(0,231,121,.2),inset 0 0 18px rgba(0,231,121,.06)!important; }
+.dash-reco .panel-title .nav-ic { color:var(--nox); filter:drop-shadow(0 0 6px rgba(0,231,121,.7)); }
+.check-list li:not(.empty)::before { content:"✓"; display:inline-grid; place-items:center; width:18px; height:18px; margin-right:10px; border-radius:50%; background:var(--nox); color:#06130C; font-size:11px; font-weight:800; box-shadow:0 0 8px rgba(0,231,121,.6); }
+.qa { justify-content:flex-start; } .qa span:nth-child(2) { flex:1; } .qa-arrow { font-size:18px; }
+.qa-research { border-color:rgba(146,59,255,.7); background:rgba(146,59,255,.14); }
+@media(min-width:1100px) and (min-height:680px) { #dash { flex:1; min-height:0; } }
+@media(max-width:1280px) { #dash { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:"proj chart" "work tasks" "sources reco" "ins quick" "act act"; grid-template-rows:none; } }
+@media(max-width:899px) { #dash { grid-template-columns:1fr; grid-template-areas:"chart" "work" "proj" "tasks" "sources" "reco" "ins" "quick" "act"; } }
 .session-lost { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(720px,calc(100vw - 32px)); padding:12px 18px; border-radius:12px; border:1px solid #FF8A18; background:#2A1608; color:#FFE2C4; box-shadow:0 0 24px rgba(255,138,24,.35); font-size:14px; }
 /* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
 body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
@@ -1274,6 +1317,9 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
   #hint { display:none; } #compose { padding-top:10px; padding-bottom:10px; gap:6px; } #topbar { padding-top:10px; padding-bottom:8px; }
 }
 @media(min-width:1100px) and (max-height:900px) {
+  #dash { gap:10px; } #dash .panel-title { padding:9px 14px; } #dash .panel-title h2 { font-size:15px; }
+  .chart-big span:first-child { font-size:34px; } .dot-list,.check-list { font-size:13px; gap:5px; padding-top:6px; }
+  .task-row,.src-row,.work { padding:4px 0; font-size:14px; } .qa { min-height:36px; } .quick { gap:6px; padding:8px 14px; }
   .agent-hero { min-height:88px; margin-top:14px; } .portrait-wrap { width:96px; height:88px; } .portrait { width:96px; height:112px; }
   .agent-name { font-size:22px; } .hub { width:76px; height:76px; } #brand .name { font-size:28px; }
   .metric { padding:10px 14px; } .metric-value { font-size:26px; } .metric-icon { width:40px; height:40px; } .metric-icon svg { width:34px; height:34px; }
@@ -1295,25 +1341,35 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
   <section id="overview" aria-labelledby="overviewTitle">
     <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
     <div id="metrics">
-      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.7 3 6"/></svg></span><div><div class="metric-label">Aktivní agenti</div><div class="metric-value" id="metricAgents">—</div></div></div>
-      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg></span><div><div class="metric-label">Běžící úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
-      <div class="metric" data-tone-card="orange"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 12h14M5 18h9"/></svg></span><div><div class="metric-label">Čekající úkoly</div><div class="metric-value" id="metricQueued">—</div></div></div>
-      <div class="metric" data-tone-card="green"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené v historii</div><div class="metric-value" id="metricDone">—</div></div></div>
-      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg></span><div><div class="metric-label">Úkoly ke kontrole</div><div class="metric-value" id="metricReview">—</div></div></div>
-      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l3 3v13H6z"/><path d="M9 12h6M9 16h4"/></svg></span><div><div class="metric-label">Otevřená review</div><div class="metric-value" id="metricReviews">—</div></div></div>
+      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div><div class="metric-label">Aktivní projekty</div><div class="metric-value" id="metricAgents">—</div></div></div>
+      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></span><div><div class="metric-label">Otevřené úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
+      <div class="metric" data-tone-card="orange"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/></svg></span><div><div class="metric-label">Probíhající analýzy</div><div class="metric-value" id="metricQueued">—</div></div></div>
+      <div class="metric" data-tone-card="green"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené výstupy</div><div class="metric-value" id="metricDone">—</div></div></div>
+      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></span><div><div class="metric-label">Nalezené insighty</div><div class="metric-value" id="metricReview">—</div></div></div>
+      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V12M10 20V8M15 20v-6M20 20V4"/></svg></span><div><div class="metric-label">Celkový postup</div><div class="metric-value" id="metricReviews">—</div></div></div>
       <div class="metric metric-system" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></span><div><div class="metric-label">Stav systému</div><div class="metric-value small" id="metricSystem">Načítání…</div></div></div>
     </div>
   </section>
+
+  <div id="dash">
+    <section id="projectPanel" class="panel dash-projects"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><h2>Projekty</h2></div><div class="chips" role="group" aria-label="Filtr projektů"><button class="chip on" data-proj="all" aria-pressed="true">Vše</button><button class="chip" data-proj="open" aria-pressed="false">V review</button><button class="chip" data-proj="done" aria-pressed="false">Schválené</button></div><div class="panel-body" id="projects"><div class="empty">Data zatím nejsou načtená.</div></div></section>
+    <section class="panel dash-chart" id="chartPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg><h2>Celkový postup napříč projekty</h2></div><div class="chart-body"><div class="chart-big"><span id="chartPct">—</span><span id="chartDelta" class="chart-delta"></span></div><svg id="chartSvg" class="chart-svg" viewBox="0 0 360 150" preserveAspectRatio="none" role="img" aria-label="Podíl schválených review za posledních 7 dní"></svg></div></section>
+    <section class="panel dash-work" id="workPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><h2>Stav práce</h2></div><ul class="work-list" id="workList"><li class="empty">Načítám…</li></ul></section>
+    <section class="panel dash-tasks" id="tasksPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg><h2>Aktivní úkoly <span id="tasksCount" class="h-count"></span></h2><button class="link-btn" data-goto="room-tasks">Zobrazit vše →</button></div><ul id="tasksList" class="dash-list"><li class="empty">Načítám…</li></ul></section>
+    <section class="panel dash-sources" id="sourcesPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h5"/></svg><h2>Zdroje znalostí <span id="sourcesCount" class="h-count"></span></h2><button class="link-btn" data-goto="memory">Zobrazit vše →</button></div><ul id="sourcesList" class="dash-list"><li class="empty">Načítám…</li></ul></section>
+    <section class="panel dash-insights" id="insightsPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8V16h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3z"/></svg><h2>Klíčové insighty</h2><span id="insightsNew" class="new-badge" hidden></span></div><ul id="insightsList" class="dot-list"><li class="empty">Načítám…</li></ul></section>
+    <section class="panel dash-reco" id="recoPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/></svg><h2>Doporučení dalšího postupu</h2></div><ul id="recoList" class="check-list"><li class="empty">Načítám…</li></ul></section>
+    <section class="panel dash-quick" id="quickPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><h2>Rychlé akce</h2></div><div class="quick">
+        <button class="qa qa-research" data-qa="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg><span>Pokračovat ve výzkumu</span><span class="qa-arrow" aria-hidden="true">→</span></button>
+        <button class="qa qa-ada" data-qa="task-ada"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/></svg><span>Zadat novou analýzu Adě</span><span class="qa-arrow" aria-hidden="true">→</span></button></div></section>
+    <aside id="activity" class="panel dash-activity" aria-label="Aktivita agentů"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><h2>Aktivita agentů</h2></div><ol id="activityList" class="activity"><li class="empty">Čekám na zprávy Ady a Noxe.</li></ol></aside>
+  </div>
   <nav class="mobile-nav" aria-label="Přejít na část přehledu"><a href="#main">Místnost</a><button type="button" data-panel="side" aria-haspopup="dialog" aria-expanded="false">Agenti</button><button type="button" data-panel="inspector" aria-haspopup="dialog" aria-expanded="false">Detail</button></nav>
   <div id="app">
     <aside id="side" aria-label="Účastníci a pracovní prostor">
-      <section class="panel" id="workPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><h2>Stav práce</h2></div><ul class="work-list" id="workList"><li class="empty">Načítám…</li></ul></section>
-      <section id="projectPanel" class="panel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><h2>Projekty</h2></div><div class="chips" role="group" aria-label="Filtr projektů"><button class="chip on" data-proj="all" aria-pressed="true">Vše</button><button class="chip" data-proj="open" aria-pressed="false">V review</button><button class="chip" data-proj="done" aria-pressed="false">Schválené</button></div><div class="panel-body" id="projects"><div class="empty">Data zatím nejsou načtená.</div></div></section>
-      <section class="panel" id="quickPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><h2>Rychlé akce</h2></div><div class="quick">
-        <button class="qa qa-ada" data-qa="msg-ada"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Napsat Adě</button>
-        <button class="qa qa-nox" data-qa="task-nox"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>Zadat úkol Noxovi</button>
-        <button class="qa" data-qa="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Otevřít kvalitu</button>
-        <button class="qa" data-qa="detail"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Detail úkolu</button></div></section>
+      
+      
+      
       <section class="panel" id="agentPanel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.7 3 6"/></svg><h2>Agenti a mosty</h2><span id="agentCount" class="count">—</span></div><div class="panel-body"><div id="agents"></div><details id="offlineBox"><summary id="offlineSummary">Offline</summary><div id="offline"></div></details></div></section>
       <section class="panel"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><h2>Zamčené cesty</h2></div><div class="panel-body" id="claims"></div></section>
     </aside>
@@ -1332,7 +1388,7 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
         <div class="row"><label class="sr-only" for="text">Text zprávy nebo úkolu</label><textarea id="text" rows="2" placeholder="Napiš zprávu… (Enter pošle, Shift+Enter nový řádek)"></textarea><button id="sendBtn" type="button">Poslat</button></div>
       </div>
     </main>
-    <aside id="activity" class="panel" aria-label="Aktivita agentů"><div class="panel-title"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg><h2>Aktivita agentů</h2></div><ol id="activityList" class="activity"><li class="empty">Čekám na zprávy Ady a Noxe.</li></ol></aside>
+    
     <aside id="inspector" aria-label="Detail a zaznamenané události">
       <section id="qgOverviewPanel" class="panel qg-overview"><div class="panel-title"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><h2>Quality Gate</h2><button class="btn" data-view="quality">Všechny repozitáře</button></div><div class="panel-body"><span class="qg-mode" data-qg-mode></span><div class="qg-summary" id="qgCompactSummary"></div><div id="qgCompactTable"></div><p class="note">Zobrazují se pouze zaznamenané běhy. Chybějící kontroly nejsou PASS.</p></div></section>
       <section id="timelinePanel" class="panel"><div class="panel-title"><span class="panel-icon" aria-hidden="true">◎</span><h2 id="timelineTitle">Záznamy úkolu</h2></div><div class="panel-body" id="taskTimeline"><div class="empty">Vyber úkol z místnosti.</div></div></section>
@@ -1491,18 +1547,14 @@ function applyFilters() {
 function refreshDashboard() {
   const all = historyMessages();
   const tasks = all.filter(m => m.kind === "task");
-  setMetric("metricAgents", latestPeers.filter(p => p.active && roleOf(p.agent) === "agent").length);
   // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
   // API poskytuje nejvýše jeden aktivní úkol na agenta (leased nebo started).
-  setMetric("metricRunning", latestBoard === null ? "—" : latestBoard.filter(b => b.active).length);
-  setMetric("metricQueued", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.queued, 0));
   setMetric("metricDone", tasks.filter(m => m.state === "succeeded").length);
-  setMetric("metricReview", latestBoard === null ? "—" : latestBoard.reduce((sum, b) => sum + b.needs_review, 0));
   renderSystemMetric();
-  setMetric("metricReviews", latestReviews === null ? "—" : latestReviews.filter(r => !["closed", "approved"].includes(r.state)).length);
   renderHeroes();
   renderActivity();
   renderWork();
+  renderDash();
   const picker = document.getElementById("taskPicker");
   const optionsKey = JSON.stringify(tasks.map(m => [m.id, m.state, m.text.slice(0, 65)]));
   if (picker.dataset.optionsKey !== optionsKey) {
@@ -1563,22 +1615,87 @@ function renderWork() {
   const attention = board.reduce((s, b) => s + (b.needs_review || 0), 0) + escalated;
   const rows = [["ok", "Dokončeno", tasks.filter(m => m.state === "succeeded").length, "úkoly v načtené historii"],
                 ["work", "Probíhá", board.filter(b => b.active).length, "právě běžící úkoly"],
-                ["wait", "Čeká", board.reduce((s, b) => s + (b.queued || 0), 0), "ve frontě všech agentů"],
+                ["wait", "Ve frontě", board.reduce((s, b) => s + (b.queued || 0), 0), "nepřevzaté doručenky ve frontě agentů (zprávy i úkoly)"],
                 ["warn", "Vyžaduje pozornost", attention, "ke kontrole a review čekající na tebe"]];
   setHTMLIfChanged(document.getElementById("workList"), rows.map(([cls, label, n, hint]) =>
     `<li class="work work-${cls}" title="${esc(hint)}"><span class="work-ic" aria-hidden="true"></span><span>${label}</span><b>${latestBoard === null && cls !== "ok" ? "—" : n}</b></li>`).join(""));
   const bell = document.getElementById("bellCount");
   bell.hidden = !attention; bell.textContent = attention;
 }
-document.getElementById("bellBtn").onclick = () => { showView("overview", {focus: false}); document.querySelector('[data-filter="task"]').click(); };
+function openRoomTasks() { showView("room", {focus: false}); document.querySelector('[data-filter="task"]').click(); }
+document.getElementById("bellBtn").onclick = openRoomTasks;
+document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => b.dataset.goto === "room-tasks" ? openRoomTasks() : showView(b.dataset.goto));
 document.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => {
   const qa = b.dataset.qa;
-  if (qa === "quality") return showView("quality");
-  if (qa === "detail") return openPanel("inspector", b);
-  setKind(qa === "task-nox" ? "task" : "chat");
-  toEl.value = qa === "task-nox" ? "codex" : "claude-code"; syncHint();
-  textEl.focus();
-});   // stáří dat se projeví i bez nové zprávy
+  if (qa === "research") return showView("research");
+  showView("room", {focus: false});
+  setKind("task"); toEl.value = "claude-code"; syncHint(); textEl.focus();
+});
+// ── Přehled podle předlohy 02: jen skutečná data ──
+let latestReviewsAll = null, dashResearch = null, dashKnowledge = null;
+const DONE_REVIEW = r => r.verdict === "approved" && r.verdict_at;
+function loadDashData() {
+  fetch("/api/research").then(r => r.ok ? r.json() : null).then(d => { if (d) { dashResearch = d.research || []; renderDash(); } }).catch(() => {});
+  fetch("/api/knowledge").then(r => r.ok ? r.json() : null).then(d => { if (d) { dashKnowledge = d.entries || []; renderDash(); } }).catch(() => {});
+}
+setInterval(() => { if (!document.hidden && currentView === "overview") loadDashData(); }, 60000);
+function renderChart() {
+  const all = latestReviewsAll || [], svg = document.getElementById("chartSvg");
+  if (!all.length) { document.getElementById("chartPct").textContent = "—"; svg.innerHTML = ""; return; }
+  const day = 86400, end = new Date(); end.setHours(24, 0, 0, 0);
+  const points = [...Array(7)].map((_, i) => {
+    const t = end.getTime() / 1000 - (6 - i) * day;
+    const created = all.filter(r => r.created_at <= t), done = created.filter(r => DONE_REVIEW(r) && r.verdict_at <= t);
+    return {t, pct: created.length ? Math.round(100 * done.length / created.length) : 0};
+  });
+  const now = points[6].pct, delta = now - points[0].pct;
+  document.getElementById("chartPct").textContent = now + " %";
+  const d = document.getElementById("chartDelta"); d.textContent = (delta >= 0 ? "▲ +" : "▼ ") + delta + " p. b. (7 dní)"; d.dataset.tone = delta >= 0 ? "ok" : "bad";
+  const W = 360, H = 150, L = 42, B = 20, x = i => L + i * (W - L - 8) / 6, y = p => 8 + (H - B - 8) * (1 - p / 100);
+  const line = points.map((p, i) => `${x(i)},${y(p.pct)}`).join(" ");
+  const days = ["Ne","Po","Út","St","Čt","Pá","So"];
+  svg.innerHTML = `<defs><linearGradient id="cg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#923BFF" stop-opacity=".55"/><stop offset="1" stop-color="#923BFF" stop-opacity="0"/></linearGradient></defs>`
+    + [0, 25, 50, 75, 100].map(p => `<line x1="${L}" x2="${W - 8}" y1="${y(p)}" y2="${y(p)}" class="grid"/><text x="${L - 6}" y="${y(p) + 4}" class="ax" text-anchor="end">${p} %</text>`).join("")
+    + `<polygon points="${x(0)},${y(0)} ${line} ${x(6)},${y(0)}" fill="url(#cg)"/><polyline points="${line}" class="pl"/>`
+    + points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.pct)}" r="${i === 6 ? 5 : 3.5}" class="${i === 6 ? "pt last" : "pt"}"><title>${p.pct} % schváleno</title></circle><text x="${x(i)}" y="${H - 4}" class="ax" text-anchor="middle">${days[new Date((p.t - day) * 1000).getDay()]}</text>`).join("");
+}
+function renderDash() {
+  const all = latestReviewsAll || [], board = latestBoard || [];
+  const tasks = historyMessages().filter(m => m.kind === "task");
+  const openRepos = new Set(all.filter(r => !["approved", "closed"].includes(r.state)).map(r => r.repo));
+  setMetric("metricAgents", latestReviewsAll === null ? "—" : openRepos.size);
+  const OPEN = ["pending", "leased", "started", "accepted", "unread"];
+  setMetric("metricRunning", tasks.filter(m => OPEN.includes(m.state || "pending")).length);
+  setMetric("metricQueued", dashResearch === null ? "—" : dashResearch.filter(r => ["running", "synthesizing"].includes(r.state)).length);
+  setMetric("metricReview", dashResearch === null ? "—" : dashResearch.filter(r => r.state === "done" || r.state === "partial").length);
+  setMetric("metricReviews", all.length ? Math.round(100 * all.filter(DONE_REVIEW).length / all.length) + " %" : "—");
+  renderChart();
+  // aktivní úkoly: otevřené úkoly v načtené historii, se štítkem adresáta
+  const open = tasks.filter(m => ["pending", "leased", "started", "accepted", "unread"].includes(m.state || "pending")).slice(-6).reverse();
+  document.getElementById("tasksCount").textContent = `(${tasks.filter(m => ["pending", "leased", "started", "accepted", "unread"].includes(m.state || "pending")).length})`;
+  setHTMLIfChanged(document.getElementById("tasksList"), open.length ? open.map(m => {
+    const who = m.recipient === "claude-code" ? ["Ada", "ada"] : m.recipient === "codex" ? ["Nox", "nox"] : [nameOf(m.recipient), "other"];
+    return `<li class="task-row"><span class="box ${m.state === "started" ? "run" : ""}" aria-hidden="true"></span><span class="task-text" title="${esc(m.text)}">${esc((m.text || "").split(String.fromCharCode(10))[0].slice(0, 90))}</span><span class="who-badge ${who[1]}">${esc(who[0])}</span></li>`;
+  }).join("") : "<li class='empty'>Žádné otevřené úkoly.</li>");
+  // zdroje znalostí: sdílená paměť
+  const kb = dashKnowledge || [];
+  document.getElementById("sourcesCount").textContent = dashKnowledge === null ? "" : `(${kb.length})`;
+  setHTMLIfChanged(document.getElementById("sourcesList"), kb.length ? kb.slice(0, 5).map(e => `<li class="src-row"><span class="src-ic" aria-hidden="true">▤</span><span class="task-text" title="${esc(e.symptom)}">${esc((e.project ? e.project + " – " : "") + e.symptom.slice(0, 70))}</span><span class="src-st ${e.status === "verified" ? "ok" : ""}" title="${esc(KB_LABEL[e.status] || e.status)}">${e.status === "verified" ? "✓" : "○"}</span></li>`).join("")
+    : `<li class="empty">${dashKnowledge === null ? "Načítám…" : "Paměť je zatím prázdná."}</li>`);
+  // klíčové insighty: dokončené výzkumy
+  const done = (dashResearch || []).filter(r => r.state === "done" || r.state === "partial");
+  const fresh = done.filter(r => r.finished_at && Date.now() / 1000 - r.finished_at < 86400).length;
+  const nb = document.getElementById("insightsNew"); nb.hidden = !fresh; nb.textContent = `${fresh} nové`;
+  setHTMLIfChanged(document.getElementById("insightsList"), done.length ? done.slice(0, 3).map(r => `<li title="${esc(r.question)}">${esc(r.question.slice(0, 95))}</li>`).join("")
+    : `<li class="empty">${dashResearch === null ? "Načítám…" : "Zatím žádný dokončený výzkum."}</li>`);
+  // doporučení: co čeká na člověka (review a úkoly ke kontrole)
+  const reco = [];
+  all.filter(r => r.state === "escalated").forEach(r => reco.push(`Rozhodnout review #${r.id} – ${r.topic.slice(0, 60)}`));
+  all.filter(r => r.state === "approved").forEach(r => reco.push(`Sloučit schválené review #${r.id} – ${r.topic.slice(0, 55)}`));
+  board.filter(b => b.needs_review).forEach(b => reco.push(`Zkontrolovat ${b.needs_review} úkol(y) u ${nameOf(b.agent)}`));
+  all.filter(r => r.state === "changes_requested" && r.author === me).forEach(r => reco.push(`Opravit review #${r.id} podle připomínek`));
+  setHTMLIfChanged(document.getElementById("recoList"), reco.length ? reco.slice(0, 4).map(x => `<li>${esc(x)}</li>`).join("") : "<li class='empty'>Nic nečeká na tvé rozhodnutí.</li>");
+}   // stáří dat se projeví i bez nové zprávy
 function renderActivity() {
   const items = historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).slice(-8).reverse();
   setHTMLIfChanged(document.getElementById("activityList"), items.length ? items.map(m => {
@@ -1892,7 +2009,6 @@ function scanTag(v) {
 }
 function renderReviews(list) {
   if (list === undefined) return;
-  renderProjects(list);
   document.getElementById("reviewCount").textContent = list.length;
   const el = document.getElementById("reviews");
   const reviewKey = JSON.stringify(list);
@@ -1945,6 +2061,7 @@ function renderRoom(r) {
   latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
   if (Array.isArray(r.reviews)) latestReviews = r.reviews;
+  if (Array.isArray(r.reviews_all)) { latestReviewsAll = r.reviews_all; renderProjects(r.reviews_all); }
   if (r.mode && r.mode.mode) document.getElementById("modeText").textContent = "Režim: " + ({basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"}[r.mode.mode] || r.mode.mode);
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
@@ -2046,6 +2163,7 @@ establishSession()
     renderRoom(s);
     feed.scrollTop = feed.scrollHeight;
     connect(s.messages.length ? s.messages[s.messages.length - 1].id : 0);
+    loadDashData();
   })
   .catch(() => { updateStatus("retry"); showLoginHelp(); });
 
@@ -2239,6 +2357,7 @@ function showView(view,{focus=true}={}) {
   if(view==="settings")loadMode();
   if(view==="research")loadResearch();
   if(view==="memory")loadKnowledge();
+  if(view==="overview")loadDashData();
   if(drawer.open){drawer.close();restorePanels();}
   currentView=view;
   const panelView=view==="room"?"overview":view;   // Místnost agentů = stejná místnost přes celou plochu
