@@ -3,7 +3,7 @@
 **Zdroj:** `Agent_Lease_KOMPLET_UI_Design_Assets_README.zip` (6 obrazovek, README, portréty Ady a Noxe).
 **Michal 21. 11.:** Místnost agentů je klíčová a zůstává; dominantní panel na Přehledu + samostatná položka
 „Místnost agentů“ přes celou plochu; nic nemazat jen kvůli vzhledu; **funkčnost místnosti před efekty**;
-před implementací analýza, návrh a schválení. Stav: **čeká na schválení, nic není implementované.**
+před implementací analýza, návrh a schválení. Stav: **schváleno Michalem 21. 11.** (Katalog = koncept bez dat, navigace vodorovně s položkou Místnost agentů, jen tmavý režim podle předlohy); implementace na větvi `ada/ui-neon-20261121`.
 
 ## 1. Co dnes existuje (audit `webui.py`, jen čtení)
 
