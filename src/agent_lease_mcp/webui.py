@@ -1253,6 +1253,60 @@ body.room-focus #dash { display:none; }
 @media(min-width:1100px) and (min-height:680px) { #dash { flex:1; min-height:0; } }
 @media(max-width:1280px) { #dash { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:"proj chart" "work tasks" "sources reco" "ins quick" "act act"; grid-template-rows:none; } }
 @media(max-width:899px) { #dash { grid-template-columns:1fr; grid-template-areas:"chart" "work" "proj" "tasks" "sources" "reco" "ins" "quick" "act"; } }
+/* ── Hlavička, navigace a metriky 1:1 podle Michalova výřezu (21. 11. 07:01) ── */
+#masthead { grid-template-columns:auto 1fr auto; grid-template-areas:"brand heroes tools" "nav nav nav"; padding:10px 0 0; gap:6px 18px; }
+#pause { grid-area:tools; align-self:end; justify-self:end; margin-top:46px; }
+#brand .mark,#brand .mark svg { width:84px; height:44px; }
+#brand .name { font-size:38px; letter-spacing:-.6px; } #brand .sub { font-size:16px; color:#C9D2EA; }
+#agentHeroes { gap:24px; align-items:stretch; }
+.agent-hero { position:relative; width:415px; height:120px; min-height:0; margin-top:34px; padding:8px 14px 8px 150px; border-radius:18px; overflow:visible; }
+.agent-info > * { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+.agent-hero[data-agent="nox"] { flex-direction:row; padding:8px 150px 8px 16px; }
+.portrait-wrap { position:absolute; left:-8px; bottom:0; width:165px; height:168px; margin:0; }
+.agent-hero[data-agent="nox"] .portrait-wrap { left:auto; right:-8px; }
+.portrait { position:absolute; bottom:0; left:0; width:165px; height:168px; margin:0; object-fit:contain; object-position:bottom; border-radius:0; filter:drop-shadow(0 0 14px color-mix(in srgb,var(--c) 70%,transparent)); }
+.halo { inset:auto; left:10px; bottom:-6px; width:140px; height:120px; border-radius:50%; background:radial-gradient(circle at 50% 60%,color-mix(in srgb,var(--c) 70%,transparent),transparent 68%); opacity:.55; }
+.agent-info { display:flex; flex-direction:column; justify-content:center; }
+.agent-title { flex-direction:column; align-items:flex-start; gap:0; }
+.agent-name { font-size:30px; line-height:1.05; display:flex; align-items:center; gap:10px; }
+.agent-hero .vendor-mark { display:inline-block; flex:none; width:26px; min-width:26px; height:22px; color:#F5F7FF; }
+.agent-vendor { font-size:15px; color:#E3E8F7; margin-top:1px; } .agent-role { font-size:13.5px; color:#C9D2EA; letter-spacing:-.1px; }
+.agent-name { font-size:30px; }
+.agent-state { font-size:16px; margin-top:4px; } .pulse-line { width:78px; height:22px; margin-left:12px; flex:none; }
+.agent-task { display:none; }
+.hub { width:118px; height:118px; margin-top:6px; align-self:center; border:2px solid transparent; background:radial-gradient(circle,rgba(30,20,70,.95),rgba(7,13,32,.98) 66%) padding-box,linear-gradient(135deg,#04CFFF,#923BFF 60%,#C04BFF) border-box; box-shadow:0 0 34px rgba(146,59,255,.55),0 0 60px rgba(4,207,255,.18); }
+.hub svg { width:74px; height:37px; }
+#headTools { gap:12px; align-self:start; margin-top:20px; }
+.mode-badge { padding:9px 18px; font-size:15px; border-radius:14px; background:rgba(20,26,60,.85); }
+.icon-btn { width:44px; height:44px; border:0; background:transparent; } .icon-btn .nav-ic { width:26px; height:26px; }
+.bell-count { top:0; right:2px; }
+.human-badge { width:42px; height:42px; font-size:18px; background:linear-gradient(135deg,#7E30E8,#5F1FCC); }
+/* bezpečnostní stop jako malé tlačítko vpravo (v předloze není, ale nesmí zmizet) */
+#pause .pausebar { gap:10px; } #pause .big { font-size:13px; }
+#pause .pausebar button { min-height:32px; padding:4px 12px; font-size:12px; border-radius:9px; }
+/* navigace přes celou šířku se svítící vlnou */
+.primary-nav { justify-content:space-between; padding:14px 0 22px; margin-top:4px; }
+.primary-nav button,.primary-nav a { font-size:19px; padding:10px 30px; min-height:50px; gap:12px; border-radius:12px; }
+.nav-ic { width:26px; height:26px; }
+.primary-nav::after { bottom:6px; height:2px; background:linear-gradient(90deg,transparent 2%,rgba(146,59,255,.9) 25%,rgba(4,207,255,.75) 60%,rgba(146,59,255,.95) 85%,transparent 99%); }
+.primary-nav::before { content:""; position:absolute; left:10%; right:0; bottom:0; height:26px; pointer-events:none;
+  background:radial-gradient(60% 100% at 78% 100%,rgba(146,59,255,.45),transparent 70%),radial-gradient(40% 80% at 40% 100%,rgba(4,207,255,.18),transparent 70%); }
+/* metriky jako na předloze */
+#metrics { gap:18px; }
+.metric { min-height:88px; padding:16px 18px; border-radius:14px; gap:14px; }
+.metric-icon { width:56px; height:56px; } .metric-icon svg { width:50px; height:50px; stroke-width:1.6; }
+.metric > div { display:flex; flex-direction:column; gap:2px; }
+.metric-label { font-size:16px; color:#F1F4FF; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .metric-value { font-size:30px; font-weight:700; }
+.metric > div { min-width:0; }
+@media(min-width:1100px) and (max-height:900px) {
+  .agent-hero { height:104px; width:360px; margin-top:26px; padding-left:132px; } .agent-hero[data-agent="nox"] { padding-right:132px; padding-left:14px; }
+  .portrait-wrap,.portrait { width:142px; height:146px; } .agent-name { font-size:26px; } .agent-role { display:block; font-size:13px; }
+  .hub { width:96px; height:96px; } .hub svg { width:60px; height:30px; } #brand .name { font-size:32px; }
+  .primary-nav { padding:8px 0 16px; } .primary-nav button { font-size:17px; padding:8px 22px; min-height:44px; }
+  .metric { min-height:72px; padding:10px 16px; } .metric-icon,.metric-icon svg { width:42px; height:42px; } .metric-label { font-size:15px; } .metric-value { font-size:26px; }
+}
+@media(max-width:1280px) { #masthead { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"brand tools" "heroes heroes" "nav nav" "pause pause"; } #pause { grid-area:pause; justify-self:start; margin-top:0; } .agent-hero { width:min(380px,100%); } }
+@media(max-width:899px) { .agent-hero,.agent-hero[data-agent="nox"] { padding:10px 14px 10px 120px; } .agent-hero[data-agent="nox"] .portrait-wrap { right:auto; left:-6px; } .portrait-wrap,.portrait { width:120px; height:116px; } .hub { display:none; } .primary-nav { justify-content:flex-start; } .primary-nav button { font-size:15px; padding:8px 14px; } }
 .session-lost { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(720px,calc(100vw - 32px)); padding:12px 18px; border-radius:12px; border:1px solid #FF8A18; background:#2A1608; color:#FFE2C4; box-shadow:0 0 24px rgba(255,138,24,.35); font-size:14px; }
 /* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
 body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
@@ -1330,7 +1384,7 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
 <div id="shell">
   <header id="masthead">
     <div id="brand"><div class="mark"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg)" stroke-width="5" stroke-linecap="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
-    <div id="agentHeroes"><article class="agent-hero" id="heroAda" data-agent="ada" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/ada.webp" alt="Portrét Ada" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Ada</span><span class="agent-vendor">Anthropic (Claude)</span></div><div class="agent-role">Analýza · Výzkum · Návrhy</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article><div class="hub" aria-hidden="true"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg2" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg2)" stroke-width="5" stroke-linecap="round"/></svg></div><article class="agent-hero" id="heroNox" data-agent="nox" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/nox.webp" alt="Portrét Nox" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Nox</span><span class="agent-vendor">OpenAI (GPT)</span></div><div class="agent-role">Implementace · Testy · Ověření</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article></div>
+    <div id="agentHeroes"><article class="agent-hero" id="heroAda" data-agent="ada" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/ada.webp" alt="Portrét Ada" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Ada<svg class="vendor-mark" viewBox="0 0 26 20" aria-hidden="true"><path fill="currentColor" d="M2 19 9 1h3l7 18h-3.6l-1.6-4.3H6.9L5.4 19zm6-7.2h4.4L10.2 6zM17 1h3.4L25 13h-3.4z"/></svg></span><span class="agent-vendor">Anthropic (Claude)</span></div><div class="agent-role">Analýza • Výzkum • Návrhy</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article><div class="hub" aria-hidden="true"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg2" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg2)" stroke-width="5" stroke-linecap="round"/></svg></div><article class="agent-hero" id="heroNox" data-agent="nox" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/nox.webp" alt="Portrét Nox" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Nox<svg class="vendor-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5 20 7v10l-8 4.5L4 17V7z"/><path d="M12 7.5 16 10v4l-4 2.5L8 14v-4z"/></svg></span><span class="agent-vendor">OpenAI (GPT)</span></div><div class="agent-role">Implementace • Testy • Ověření</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article></div>
     <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span id="modeText">Režim: …</span></span>
       <button class="icon-btn" id="bellBtn" type="button" aria-label="Co čeká na tebe" title="Úkoly ke kontrole a review čekající na tebe"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellCount" class="bell-count" hidden>0</span></button>
       <details class="help"><summary class="icon-btn" aria-label="Nápověda"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7M12 17v.5"/></svg></summary><div class="help-pop"><b>Barvy a stavy</b><p><span class="lg lg-ada"></span>Ada (Claude) · <span class="lg lg-nox"></span>Nox (Codex)</p><p>Karta agenta pulzuje jen tehdy, když agent opravdu pracuje. Čeká = online bez úkolu. Limit = vyčerpaný limit poskytovatele. Vyžaduje pozornost = úkol ke kontrole nebo zaseknutý most. Neznámý stav = web nemá čerstvá data.</p><p>Zvonek = úkoly ke kontrole a review, které čekají na tebe.</p></div></details><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
@@ -1605,6 +1659,7 @@ function renderHeroes() {
     if (el.dataset.state !== s.state) el.dataset.state = s.state;
     el.querySelector(".state-text").textContent = s.label;
     const task = el.querySelector(".agent-task"); task.textContent = s.detail.slice(0, 90); task.title = s.detail;
+    el.title = s.label + (s.detail ? ": " + s.detail : "");
   }
 }
 setInterval(() => { if (!document.hidden) renderHeroes(); }, 5000);
