@@ -1385,20 +1385,28 @@ function refreshDashboard() {
 }
 // Stav Ady a Noxe jen ze skutečných dat (peers + board), každý zvlášť; nikdy nezůstane „Pracuje“ při výpadku spojení.
 const HERO = { ada: ["claude-code", "claude-code-bridge"], nox: ["codex", "codex-bridge"] };
-const ONLINE_S = 120;
+const ONLINE_S = 120, STALE_MS = 60000;   // stav místnosti chodí po SSE každé 2 s; 60 s bez něj = data neplatí
+let lastRoomAt = 0;
 function agentStatus(key) {
   if (connectionMode !== "live") return {state: "unknown", label: "Spojení přerušeno", detail: ""};
+  if (!lastRoomAt || Date.now() - lastRoomAt > STALE_MS) return {state: "unknown", label: "Neznámý stav", detail: "data nejsou aktuální"};
   const [main, bridge] = HERO[key];
   const peer = a => latestPeers.find(p => p.agent === a);
   const card = a => (latestBoard || []).find(b => b.agent === a);
   const pm = peer(main), pb = peer(bridge), bm = card(main), bb = card(bridge);
   const fresh = p => p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S;
-  const limited = [pm, pb, bm, bb].find(x => x && x.provider_state === "limited");
+  // limit hlášený poskytovatelem i ručně (`limit` → presence rate-limited + limited_until)
+  const nowS = Date.now() / 1000;
+  const limited = [pm, pb, bm, bb].find(x => x && (x.provider_state === "limited" || x.presence === "rate-limited"
+    || (x.limited_until && x.limited_until > nowS)));
   const active = (bb && bb.active) || (bm && bm.active);
   if (active) return {state: "working", label: "Pracuje", detail: `#${active.id} ${active.text || ""}`};
-  if (limited) return {state: "limited", label: "Limit" + (limited.provider_resets_at ? " do " + clock(limited.provider_resets_at) : ""), detail: limited.provider_reason || ""};
+  if (limited) { const until = limited.provider_resets_at || limited.limited_until;
+    return {state: "limited", label: "Limit" + (until ? " do " + clock(until) : ""), detail: limited.provider_reason || ""}; }
   if (fresh(pm) && pm.presence === "busy" && pm.status && pm.status !== "start session") return {state: "working", label: "Pracuje", detail: pm.status};
-  const problem = (bm && bm.needs_review) ? `ke kontrole ${bm.needs_review}` : (bm && bm.blocked_reason && fresh(pm)) ? bm.blocked_reason : "";
+  const problem = (bm && bm.needs_review) ? `ke kontrole ${bm.needs_review}`
+    : (bm && bm.blocked_reason && fresh(pm)) ? bm.blocked_reason
+    : (bb && bb.blocked_reason && fresh(pb)) ? "most: " + bb.blocked_reason : "";
   if (problem) return {state: "error", label: "Vyžaduje pozornost", detail: problem};
   if (fresh(pm) || fresh(pb)) return {state: "idle", label: "Čeká", detail: fresh(pm) ? (pm.status || "") : "most připraven převzít úkol"};
   return {state: "offline", label: "Offline", detail: pm && pm.seen_seconds_ago != null ? "naposledy " + ago(pm.seen_seconds_ago) : ""};
@@ -1412,6 +1420,7 @@ function renderHeroes() {
     const task = el.querySelector(".agent-task"); task.textContent = s.detail.slice(0, 90); task.title = s.detail;
   }
 }
+setInterval(() => { if (!document.hidden) renderHeroes(); }, 5000);   // stáří dat se projeví i bez nové zprávy
 function renderActivity() {
   const items = historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).slice(-8).reverse();
   setHTMLIfChanged(document.getElementById("activityList"), items.length ? items.map(m => {
@@ -1751,6 +1760,7 @@ function renderReviews(list) {
 }
 
 function renderRoom(r) {
+  lastRoomAt = Date.now();
   if (r.me) { me = r.me; document.getElementById("humanBadge").textContent = String(me).slice(0, 1).toUpperCase(); }
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
