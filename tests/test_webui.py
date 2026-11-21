@@ -117,7 +117,7 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     headers = {}
     payload = None
     if token:
-        headers["Cookie"] = f"{SESSION_COOKIE}={token}"
+        headers["Cookie"] = f"{webui.session_cookie_name(port)}={token}"
     if body is not None:
         payload = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
@@ -146,7 +146,7 @@ def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
     assert status == 204
     assert cookie is not None
     assert token not in cookie
-    assert cookie.startswith(f"{SESSION_COOKIE}=")
+    assert cookie.startswith(f"{webui.session_cookie_name(port)}=")
     assert cookie.endswith(
         f"; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_MAX_AGE_SECONDS}"
     )
@@ -515,7 +515,7 @@ def test_live_room_event_carries_pause_state(live_chat):
     port, _, session_id, store = live_chat
     store.pause("michal", "test")
     connection = HTTPConnection("127.0.0.1", port, timeout=3)
-    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{SESSION_COOKIE}={session_id}"})
+    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
     response = connection.getresponse()
     assert response.status == 200
     event = None
@@ -621,3 +621,17 @@ def test_room_stays_reachable_and_agent_state_comes_from_live_data():
                    "function agentStatus(key)", 'connectionMode !== "live"'):
         assert needle in PAGE_HTML, needle
     assert PAGE_HTML.count('class="agent-hero"') == 2
+
+
+def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_path: Path):
+    """Regrese 21. 11.: web na 8765 a náhled na 8766 si přepisovaly přihlašovací cookie (403)."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    preview = make_handler(store, settings, "secret", 8766)
+    preview.sessions["s"] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                             headers={"Cookie": f"{SESSION_COOKIE}=s"}, handler_type=preview)
+    assert status == 403                                   # cookie webu 8765 na náhledu neplatí
+    status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s"}, handler_type=preview)
+    assert status == 200

@@ -42,6 +42,12 @@ ASSETS = {"/assets/ada.webp": ("ada.webp", "image/webp"), "/assets/nox.webp": ("
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
 SESSION_COOKIE = "agent_lease_session"
+
+
+def session_cookie_name(port: int) -> str:
+    """Cookies prohlížeč neodděluje podle portu: dva weby na jednom stroji (8765 a náhled) by si přihlášení
+    přepisovaly (21. 11.). Výchozí port si jméno ponechá, ať stávající přihlášení dál platí."""
+    return SESSION_COOKIE if port == 8765 else f"{SESSION_COOKIE}_{port}"
 SESSION_MAX_AGE_SECONDS = 3600
 MAX_SSE_CONNECTIONS = 16
 REQUEST_SOCKET_TIMEOUT = 10.0
@@ -121,6 +127,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
         f"http://127.0.0.1:{port}", f"http://localhost:{port}", f"http://[::1]:{port}"
     }
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    cookie_name = session_cookie_name(port)
     sse_slots = BoundedSemaphore(MAX_SSE_CONNECTIONS)
     sessions: dict[str, float] = {}
     sessions_lock = Lock()
@@ -166,7 +173,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
         def _session_ok(self) -> bool:
             try:
                 cookie = SimpleCookie(self.headers.get("Cookie", ""))
-                value = cookie[SESSION_COOKIE].value
+                value = cookie[cookie_name].value
             except (CookieError, KeyError):
                 return False
             now = time.monotonic()
@@ -317,7 +324,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._security_headers()
             self.send_header(
                 "Set-Cookie",
-                f"{SESSION_COOKIE}={session_id}; HttpOnly; SameSite=Strict; Path=/; "
+                f"{cookie_name}={session_id}; HttpOnly; SameSite=Strict; Path=/; "
                 f"Max-Age={SESSION_MAX_AGE_SECONDS}",
             )
             self.send_header("Content-Length", "0")
