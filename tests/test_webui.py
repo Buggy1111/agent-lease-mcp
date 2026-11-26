@@ -857,10 +857,61 @@ def test_web_login_sends_code_only_to_verified_port(tmp_path: Path, monkeypatch)
 
 
 def test_windows_listener_check_accepts_only_wsl_forwarding(monkeypatch):
-    out = {"v": "wslrelay\n"}
+    out = {"v": "wslrelay\nAL-END\n"}
     monkeypatch.setattr(webui.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out["v"]})())
     assert webui.windows_port_forwards_to_wsl(8765) is True
-    out["v"] = ""
+    out["v"] = "AL-END\n"
     assert webui.windows_port_forwards_to_wsl(8765) is True
-    out["v"] = "evil\n"
-    assert webui.windows_port_forwards_to_wsl(8765) is False
+    for bad in ("evil\nAL-END\n", "unknown-process\nAL-END\n", "", "wslrelay\n"):   # cizí, neznámý, chyba dotazu
+        out["v"] = bad
+        assert webui.windows_port_forwards_to_wsl(8765) is False, bad
+
+
+def test_reaper_closes_connection_that_drips_past_the_deadline():
+    """Automatická bezpečnostní kontrola 27. 11.: limit socketu platí na jedno recv, hlídač zavře celé spojení."""
+    try:
+        a, b = socket.socketpair()
+    except PermissionError:
+        pytest.skip("sandbox zakazuje sockety")
+    reaper = webui._Reaper()
+    reaper.watch(a, time.monotonic() + 60)
+    assert reaper.reap() == 0
+    reaper.watch(a, time.monotonic() - 1)
+    assert reaper.reap() == 1
+    assert b.recv(1) == b""          # druhá strana vidí zavřené spojení
+    a.close(), b.close()
+
+
+def test_dripping_client_is_cut_off_at_the_absolute_deadline(tmp_path: Path, monkeypatch):
+    """Review #55: kapání po bajtu uvnitř jedné hlavičky nesmí držet vlákno déle než absolutní limit."""
+    monkeypatch.setattr(webui, "REQUEST_READ_DEADLINE", 1.0)
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, settings, "t", 0))
+    except PermissionError:
+        pytest.skip("sandbox zakazuje loopback socket")
+    server.RequestHandlerClass.reaper._period = 0.2
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = socket.create_connection(server.server_address, timeout=1)
+        client.sendall(b"GET / HTTP/1.1\r\nHost: x\r\nX-Slow: ")
+        started, closed = time.monotonic(), False
+        while time.monotonic() - started < 8:
+            try:
+                client.sendall(b"a")
+                client.settimeout(0.3)
+                if client.recv(1) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                continue
+            except OSError:
+                closed = True
+                break
+        assert closed and time.monotonic() - started < 4
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()

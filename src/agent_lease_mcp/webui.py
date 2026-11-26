@@ -30,7 +30,7 @@ import webbrowser
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import BoundedSemaphore, Lock
+from threading import BoundedSemaphore, Lock, Thread
 from urllib.parse import parse_qs, urlsplit
 
 from .config import HUMAN_AGENT, HUMAN_NAME_FILE, Settings, human_name
@@ -156,6 +156,49 @@ class _DeadlineReader:
         return getattr(self._raw, name)
 
 
+class _Reaper:
+    """Jediné vlákno hlídá termíny požadavků a po vypršení spojení zavře.
+
+    Časový limit socketu platí na jedno `recv`; kdo kape po bajtu uvnitř jednoho řádku hlavičky,
+    by ho obcházel donekonečna. Zavření socketu zvenku přeruší i blokující čtení.
+    """
+
+    def __init__(self, period: float = 1.0) -> None:
+        self._deadlines: dict = {}
+        self._lock = Lock()
+        self._period = period
+        self._thread = None
+
+    def watch(self, conn, deadline: float) -> None:
+        with self._lock:
+            self._deadlines[conn] = deadline
+            if self._thread is None:
+                self._thread = Thread(target=self._run, name="agent-lease-web-reaper", daemon=True)
+                self._thread.start()
+
+    def release(self, conn) -> None:
+        with self._lock:
+            self._deadlines.pop(conn, None)
+
+    def reap(self, now: float | None = None) -> int:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            late = [c for c, d in self._deadlines.items() if d <= now]
+            for c in late:
+                del self._deadlines[c]
+        for c in late:
+            try:
+                c.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        return len(late)
+
+    def _run(self) -> None:
+        while True:
+            time.sleep(self._period)
+            self.reap()
+
+
 class _ConnectionCap:
     """Strop souběžných spojení před vytvořením vlákna (ThreadingHTTPServer jinak neomezuje)."""
 
@@ -223,6 +266,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     # Cookie prohlížeč pošle i na jiný port localhostu (audit 26. 11.). Druhý klíč žije v localStorage,
     # které je oddělené podle původu (včetně portu), a chodí v hlavičce / parametru `k`.
     session_keys: dict[str, str] = {}
+    reaper = _Reaper()
     sessions_lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -237,9 +281,14 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.rfile = _DeadlineReader(self.rfile)
 
         def handle_one_request(self) -> None:
-            # Absolutní limit na hlavičky i tělo: kapání po bajtu neobejde časový limit socketu.
-            self.rfile.deadline = time.monotonic() + REQUEST_READ_DEADLINE
-            super().handle_one_request()
+            # Absolutní limit na celý požadavek (hlavičky, tělo, odpověď); SSE se z hlídání vyjme sám.
+            deadline = time.monotonic() + REQUEST_READ_DEADLINE
+            self.rfile.deadline = deadline
+            reaper.watch(self.connection, deadline)
+            try:
+                super().handle_one_request()
+            finally:
+                reaper.release(self.connection)
 
         def log_message(self, fmt: str, *args) -> None:
             pass  # ticho; kdo chce logy, spustí to z terminálu a uvidí je jinde
@@ -721,6 +770,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 next_room_at = 0.0
                 next_heartbeat_at = 0.0
                 stream_session = self._session_id()
+                reaper.release(getattr(self, "connection", None))   # stream je dlouhý záměrně; hlídá ho platnost přihlášení
                 while self._session_alive(stream_session):   # po vypršení přihlášení stream skončí
                     messages = store.inbox(since_id=since, limit=200)
                     for message in messages:
@@ -763,6 +813,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     Handler.sse_slots = sse_slots
     Handler.sessions = sessions
     Handler.session_keys = session_keys
+    Handler.reaper = reaper
     Handler.sessions_lock = sessions_lock
     return Handler
 
@@ -3135,15 +3186,20 @@ WSL_FORWARDERS = {"wslrelay", "wslhost", "wslservice"}
 def windows_port_forwards_to_wsl(port: int) -> bool:
     """Ve WSL prohlížeč jde na localhost Windows. Když tam port drží jiný program než předávání WSL, je to cizí cíl."""
     ps = shutil.which("powershell.exe") or "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-    script = (f"Get-NetTCPConnection -State Listen -LocalPort {int(port)} -ErrorAction SilentlyContinue | "
-              "ForEach-Object { (Get-Process -Id $_.OwningProcess).ProcessName }")
+    # Fail-closed (review #55): každá chyba dotazu ukončí skript bez koncové značky = neověřeno.
+    script = ("$ErrorActionPreference = 'Stop'; "
+              f"$l = @(Get-NetTCPConnection -State Listen | Where-Object {{ $_.LocalPort -eq {int(port)} }}); "
+              "foreach ($c in $l) { try { (Get-Process -Id $c.OwningProcess).ProcessName } catch { 'unknown-process' } }; "
+              "'AL-END'")
     try:
         out = subprocess.run([ps, "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=20,
                              cwd="/mnt/c" if Path("/mnt/c").is_dir() else None, check=True).stdout
     except (OSError, subprocess.SubprocessError):
         return False   # nejde ověřit = nepředávat
-    names = {n.strip().lower() for n in out.splitlines() if n.strip()}
-    return names <= WSL_FORWARDERS     # prázdné = WSL forwarding bez posluchače ve Windows (mirrored/localhost relay)
+    lines = [n.strip() for n in out.splitlines() if n.strip()]
+    if not lines or lines[-1] != "AL-END":
+        return False                   # dotaz nedoběhl celý = neověřeno
+    return {n.lower() for n in lines[:-1]} <= WSL_FORWARDERS   # nic = ve Windows port nikdo nedrží (mirrored)
 
 
 def login(port: int = 8765) -> int:
