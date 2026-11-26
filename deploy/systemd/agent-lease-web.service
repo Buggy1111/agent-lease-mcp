@@ -10,6 +10,14 @@ ExecStart=%h/.local/share/agent-lease/current/venv/bin/agent-lease web --host 12
 Restart=on-failure
 RestartSec=2
 UMask=0077
+# Zpevnění (bezpečnostní audit 26. 11.): žádná nová oprávnění, jen místní sítě, strop paměti a vláken.
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+TasksMax=128
 
 [Install]
 WantedBy=default.target

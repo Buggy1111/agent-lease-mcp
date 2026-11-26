@@ -30,7 +30,7 @@ import webbrowser
 from http.cookies import CookieError, SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import BoundedSemaphore, Lock
+from threading import BoundedSemaphore, Lock, Thread
 from urllib.parse import parse_qs, urlsplit
 
 from .config import HUMAN_AGENT, HUMAN_NAME_FILE, Settings, human_name
@@ -94,6 +94,136 @@ def load_or_create_token(settings: Settings) -> str:
     return token
 
 
+LOGIN_CODE_FILE = "webui.login"
+LOGIN_CODE_SECONDS = 120
+
+
+def issue_login_code(settings: Settings) -> str:
+    """Jednorázový kód na 2 min pro odkaz do prohlížeče: hlavní token se tak nedostane do URL ani historie."""
+    code = secrets.token_urlsafe(32)
+    path = settings.db_path.parent / LOGIN_CODE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    tmp = path.with_name(f"{LOGIN_CODE_FILE}.{secrets.token_hex(8)}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(f"{code} {time.time() + LOGIN_CODE_SECONDS:.0f}")
+    os.replace(tmp, path)   # platí jen poslední vydaný kód
+    return code
+
+
+def consume_login_code(settings: Settings, code: str) -> bool:
+    path = settings.db_path.parent / LOGIN_CODE_FILE
+    try:
+        stored, expires = path.read_text().split()
+    except (OSError, ValueError):
+        return False
+    if not code or not secrets.compare_digest(code, stored) or time.time() > float(expires):
+        return False
+    try:
+        path.unlink()           # jednorázový: kdo kód smaže první, ten se přihlásí
+    except FileNotFoundError:
+        return False
+    return True
+
+
+REQUEST_READ_DEADLINE = 20.0
+MAX_CONNECTIONS = 64
+
+
+class _DeadlineReader:
+    """Obal rfile: čtení po vypršení `deadline` skončí chybou (pomalý klient = slowloris)."""
+
+    def __init__(self, raw) -> None:
+        self._raw, self.deadline = raw, float("inf")
+
+    def _check(self) -> None:
+        if time.monotonic() > self.deadline:
+            raise TimeoutError("request read deadline")
+
+    def read(self, *a):
+        self._check()
+        return self._raw.read(*a)
+
+    def readline(self, *a):
+        self._check()
+        return self._raw.readline(*a)
+
+    def readinto(self, b):
+        self._check()
+        return self._raw.readinto(b)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _Reaper:
+    """Jediné vlákno hlídá termíny požadavků a po vypršení spojení zavře.
+
+    Časový limit socketu platí na jedno `recv`; kdo kape po bajtu uvnitř jednoho řádku hlavičky,
+    by ho obcházel donekonečna. Zavření socketu zvenku přeruší i blokující čtení.
+    """
+
+    def __init__(self, period: float = 1.0) -> None:
+        self._deadlines: dict = {}
+        self._lock = Lock()
+        self._period = period
+        self._thread = None
+
+    def watch(self, conn, deadline: float) -> None:
+        with self._lock:
+            self._deadlines[conn] = deadline
+            if self._thread is None:
+                self._thread = Thread(target=self._run, name="agent-lease-web-reaper", daemon=True)
+                self._thread.start()
+
+    def release(self, conn) -> None:
+        with self._lock:
+            self._deadlines.pop(conn, None)
+
+    def reap(self, now: float | None = None) -> int:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            late = [c for c, d in self._deadlines.items() if d <= now]
+            for c in late:
+                del self._deadlines[c]
+        for c in late:
+            try:
+                c.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        return len(late)
+
+    def _run(self) -> None:
+        while True:
+            time.sleep(self._period)
+            self.reap()
+
+
+class _ConnectionCap:
+    """Strop souběžných spojení před vytvořením vlákna (ThreadingHTTPServer jinak neomezuje)."""
+
+    max_connections = MAX_CONNECTIONS
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._slots = BoundedSemaphore(self.max_connections)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            return self.shutdown_request(request)
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 def _sse(event: str, event_id: int | None, payload: dict) -> bytes:
     lines = [f"event: {event}"]
     if event_id is not None:
@@ -133,6 +263,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     cookie_name = session_cookie_name(port)
     sse_slots = BoundedSemaphore(MAX_SSE_CONNECTIONS)
     sessions: dict[str, float] = {}
+    # Cookie prohlížeč pošle i na jiný port localhostu (audit 26. 11.). Druhý klíč žije v localStorage,
+    # které je oddělené podle původu (včetně portu), a chodí v hlavičce / parametru `k`.
+    session_keys: dict[str, str] = {}
+    reaper = _Reaper()
     sessions_lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -144,6 +278,17 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             # Platí už při parsování requestu, takže pomalý lokální klient
             # nemůže držet vlákno navždy ještě před vstupem do handleru.
             self.connection.settimeout(REQUEST_SOCKET_TIMEOUT)
+            self.rfile = _DeadlineReader(self.rfile)
+
+        def handle_one_request(self) -> None:
+            # Absolutní limit na celý požadavek (hlavičky, tělo, odpověď); SSE se z hlídání vyjme sám.
+            deadline = time.monotonic() + REQUEST_READ_DEADLINE
+            self.rfile.deadline = deadline
+            reaper.watch(self.connection, deadline)
+            try:
+                super().handle_one_request()
+            finally:
+                reaper.release(self.connection)
 
         def log_message(self, fmt: str, *args) -> None:
             pass  # ticho; kdo chce logy, spustí to z terminálu a uvidí je jinde
@@ -173,22 +318,36 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             header = self.headers.get("X-Agent-Lease-Token", "")
             return bool(header) and secrets.compare_digest(header, token)
 
-        def _session_ok(self) -> bool:
+        def _session_id(self) -> str:
             try:
-                cookie = SimpleCookie(self.headers.get("Cookie", ""))
-                value = cookie[cookie_name].value
+                return SimpleCookie(self.headers.get("Cookie", ""))[cookie_name].value
             except (CookieError, KeyError):
-                return False
+                return ""
+
+        def _session_ok(self) -> bool:
+            value = self._session_id()
+            key = self.headers.get("X-Agent-Lease-Key") or parse_qs(urlsplit(self.path).query).get("k", [""])[0]
             now = time.monotonic()
             with sessions_lock:
                 expired = [session_id for session_id, deadline in sessions.items() if deadline <= now]
                 for session_id in expired:
                     del sessions[session_id]
-                return bool(value) and sessions.get(value, 0) > now
+                    session_keys.pop(session_id, None)
+                stored = session_keys.get(value, "")
+                return (bool(value) and sessions.get(value, 0) > now and bool(key) and bool(stored)
+                        and secrets.compare_digest(key, stored))
+
+        def _session_alive(self, session_id: str) -> bool:
+            with sessions_lock:
+                return sessions.get(session_id, 0) > time.monotonic()
 
         def _origin_ok(self) -> bool:
-            origin = self.headers.get("Origin")
-            return origin is None or origin in allowed_origins
+            # Prohlížeč posílá Origin u každého POST z fetch; bez něj nebo cizí = odmítnout.
+            return self.headers.get("Origin") in allowed_origins
+
+        def _host_ok(self) -> bool:
+            # Obrana proti DNS rebindingu: cizí doména přesměrovaná na 127.0.0.1 má jiný Host.
+            return self.headers.get("Host") in allowed_hosts
 
         def _reject(self, code: int, message: str) -> None:
             body = message.encode("utf-8")
@@ -201,6 +360,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         # ── routování ───────────────────────────────────────────────────
         def do_GET(self) -> None:
+            if not self._host_ok():
+                return self._reject(403, "bad host")
             parts = urlsplit(self.path)
             qs = parse_qs(parts.query)
             if parts.path == "/":
@@ -239,6 +400,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._reject(404, "not found")
 
         def do_POST(self) -> None:
+            if not self._host_ok():
+                return self._reject(403, "bad host")
             parts = urlsplit(self.path)
             if parts.path == "/session":
                 return self._handle_session()
@@ -297,14 +460,16 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         # ── handlery ────────────────────────────────────────────────────
         def _handle_index(self) -> None:
-            body = PAGE_HTML.encode("utf-8")
+            nonce = secrets.token_urlsafe(16)
+            body = PAGE_HTML.replace("<script>", f'<script nonce="{nonce}">', 1).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self._security_headers()
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
-                "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+                f"default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; "
+                "connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; "
+                "frame-ancestors 'none'; form-action 'none'",
             )
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -318,13 +483,15 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 or self.headers.get("Host") not in allowed_hosts
             ):
                 return self._reject(403, "bad origin")
-            if not self._bearer_ok():
+            if not (self._bearer_ok() or consume_login_code(settings, self.headers.get("X-Agent-Lease-Token", ""))):
                 return self._reject(403, "bad token")
-            session_id = secrets.token_urlsafe(32)
+            session_id, session_key = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             with sessions_lock:
                 sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+                session_keys[session_id] = session_key
             self.send_response(204)
             self._security_headers()
+            self.send_header("X-Agent-Lease-Key", session_key)
             self.send_header(
                 "Set-Cookie",
                 f"{cookie_name}={session_id}; HttpOnly; SameSite=Strict; Path=/; "
@@ -365,7 +532,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.wfile.write(body)
 
         def _read_json(self) -> dict | None:
-            length = int(self.headers.get("Content-Length", "0") or "0")
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                length = -1
             if length <= 0 or length > 8192:
                 self._reject(400, "empty or too long body")
                 return None
@@ -599,7 +769,9 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
                 next_room_at = 0.0
                 next_heartbeat_at = 0.0
-                while True:
+                stream_session = self._session_id()
+                reaper.release(getattr(self, "connection", None))   # stream je dlouhý záměrně; hlídá ho platnost přihlášení
+                while self._session_alive(stream_session):   # po vypršení přihlášení stream skončí
                     messages = store.inbox(since_id=since, limit=200)
                     for message in messages:
                         self.wfile.write(_sse("message", message["id"], message))
@@ -640,6 +812,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
     Handler.sse_slots = sse_slots
     Handler.sessions = sessions
+    Handler.session_keys = session_keys
+    Handler.reaper = reaper
     Handler.sessions_lock = sessions_lock
     return Handler
 
@@ -1652,7 +1826,7 @@ i[data-ic] svg { width:22px; height:22px; }
       <section class="panel pg-list"><div class="panel-title"><i data-ic="doc"></i><h2>Kontroly kvality <span class="h-count" id="qgRepoCount"></span></h2></div><div class="chips" id="qgChips" role="group" aria-label="Filtr kontrol"></div><div class="panel-body pg-scroll" id="qgProjectTable"></div><div id="qgRequests" role="status"></div></section>
       <section class="panel pg-main"><div class="panel-title"><i data-ic="shield"></i><h2 id="qgProjectTitle" tabindex="-1">Detail kontroly</h2><span class="h-sub" id="qgLastCheck"></span></div><div class="panel-body pg-scroll" id="qgProjectDetail"></div></section>
       <section class="panel pg-side"><div class="panel-title"><i data-ic="review"></i><h2>Stav review</h2></div><ul class="stat-list" id="qgReviewStats"></ul></section>
-      <section class="panel pg-wide"><div class="panel-title"><i data-ic="review"></i><h2>Otevřená review <span class="h-count" id="qgOpenCount"></span></h2><span class="h-sub">Zavřít smí jen člověk nebo autor po schválení</span></div><div class="panel-body pg-scroll" id="qgOpenReviews"></div></section>
+      <section class="panel pg-wide"><div class="panel-title"><i data-ic="review"></i><h2>Otevřená review <span class="h-count" id="qgOpenCount"></span></h2><span class="h-sub">Zavřít smí jen člověk nebo autor po schválení</span></div><div class="chips" id="rvChips" role="group" aria-label="Filtr review"></div><div class="panel-body pg-scroll" id="qgOpenReviews"></div></section>
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita agentů</h2></div><ol class="activity" data-activity="agents"></ol></aside>
     </div></section>
   <section class="view-page" data-view-panel="catalog" hidden aria-labelledby="catalogTitle"><div class="view-header"><div><h2 id="catalogTitle" class="view-title" tabindex="-1">Katalog schopností</h2><p class="view-subtitle">Fáze D. Koncept: aplikace zatím nemá data ani API katalogu, proto zde nic není živé ani klikací.</p></div><button class="btn" data-view="overview">Zpět na přehled</button></div>
@@ -1692,6 +1866,7 @@ i[data-ic] svg { width:22px; height:22px; }
 </div>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
+const KEY_STORE = "agentLeaseKey";
 const feed = document.getElementById("feed");
 const statusDot = document.querySelector("#status .dot");
 const statusText = document.getElementById("statusText");
@@ -1977,7 +2152,7 @@ function renderDash() {
   setHTMLIfChanged(document.getElementById("recoList"), reco.length ? reco.slice(0, 4).map(x => `<li>${esc(x)}</li>`).join("") : "<li class='empty'>Nic nečeká na tvé rozhodnutí.</li>");
 }   // stáří dat se projeví i bez nové zprávy
 function renderActivity() {
-  const items = historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).slice(-8).reverse();
+  const items = dedupeActivity(historyMessages().filter(m => (m.agent === "claude-code" || m.agent === "codex") && !isSystem(m)).reverse()).slice(0, 8);
   setHTMLIfChanged(document.getElementById("activityList"), items.length ? items.map(m => {
     const key = m.agent === "claude-code" ? "ada" : "nox";
     return `<li class="act" data-agent="${key}"><img class="act-portrait" src="/assets/${key}.webp" alt=""><div class="act-body"><div class="act-head"><b>${key === "ada" ? "Ada" : "Nox"}</b><time>${clock(Date.now() / 1000 - (m.seconds_ago || 0))}</time></div><p>${esc((m.text || "").slice(0, 120))}${(m.text || "").length > 120 ? "…" : ""}</p></div></li>`;
@@ -2404,7 +2579,7 @@ function syncHint() {
 }
 
 function connect(since) {
-  const es = new EventSource("/api/events?since=" + since);
+  const es = new EventSource("/api/events?since=" + since + "&k=" + encodeURIComponent(sessionKey()));
   es.addEventListener("message", e => renderMessage(JSON.parse(e.data), {live:true}));
   es.addEventListener("room", e => renderRoom(JSON.parse(e.data)));
   es.onopen = () => updateStatus("live");
@@ -2416,26 +2591,29 @@ function connect(since) {
 async function establishSession() {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   history.replaceState(null, "", location.pathname + location.search);
-  if (!token) return;  // bez tokenu zkusíme existující cookie
+  if (!token) return;  // bez tokenu zkusíme existující cookie a uložený klíč
   const response = await fetch("/session", { method: "POST", headers: { "X-Agent-Lease-Token": token } });
   if (!response.ok) throw new Error("Login failed");
+  localStorage.setItem(KEY_STORE, response.headers.get("X-Agent-Lease-Key") || "");
 }
 
 // 403 = přihlášení na tomto serveru neplatí (např. po jeho restartu): říct to jasně, ne jen chybou v konzoli.
 const rawFetch = window.fetch.bind(window);
 let sessionLostShown = false;
-window.fetch = (...args) => rawFetch(...args).then(r => {
-  if (r.status === 403 && !String(args[0]).startsWith("/session") && !sessionLostShown) { sessionLostShown = true; showSessionLost(); }
+// Druhý klíč přihlášení: localStorage je oddělené podle portu, cookie ne (bezpečnostní audit 26. 11.).
+const sessionKey = () => localStorage.getItem(KEY_STORE) || "";
+window.fetch = (url, opts = {}) => rawFetch(url, {...opts, headers: {...(opts.headers || {}), "X-Agent-Lease-Key": sessionKey()}}).then(r => {
+  if (r.status === 403 && !String(url).startsWith("/session") && !sessionLostShown) { sessionLostShown = true; showSessionLost(); }
   return r;
 });
 function showSessionLost() {
   updateStatus("retry");
   const bar = document.createElement("div"); bar.className = "session-lost"; bar.setAttribute("role", "alert");
-  bar.innerHTML = "Přihlášení k webu vypršelo (server se mezitím restartoval). Spusť v terminálu <b>agent-lease web --open</b> a pokračuj v nově otevřeném okně.";
+  bar.innerHTML = "Přihlášení k webu vypršelo (server se mezitím restartoval). Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.";
   document.body.prepend(bar);
 }
 function showLoginHelp() {
-  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Spusť v terminálu <b>agent-lease web --open</b> — otevře se ti přihlášená stránka.</div></div>`;
+  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.</div></div>`;
 }
 
 establishSession()
@@ -2513,7 +2691,7 @@ function qgSummary(records) {
 function qgLogs(record) {
   const logs = Array.isArray(record.logs) ? record.logs : [];
   const safe = logs.filter(log => /^[/]api[/]quality-log[?]run_id=[1-9][0-9]*&check=(tests|lint|typecheck|build|coverage)$/.test(log.url || ""));
-  return safe.length ? `<ul>${safe.map(log => `<li><a href="${esc(log.url)}" target="_blank" rel="noopener">${esc(log.check)} · procesní protokol</a></li>`).join("")}</ul>` : "";
+  return safe.length ? `<ul>${safe.map(log => `<li><a href="${esc(log.url + "&k=" + encodeURIComponent(sessionKey()))}" target="_blank" rel="noopener noreferrer">${esc(log.check)} · procesní protokol</a></li>`).join("")}</ul>` : "";
 }
 function qgDate(value) { return value ? new Date(value).toLocaleString("cs-CZ") : "Není známá"; }
 function qgTable(records,{compact=false}={}) {
@@ -2597,8 +2775,12 @@ function mdLite(text) {
   if (list) out.push("</ul>");
   return `<div class="md">${out.join("")}</div>`;
 }
+function dedupeActivity(list) {
+  const seen = new Set();   // Nox posílá výsledek úkolu i jako odpověď na každou navázanou zprávu
+  return list.filter(m => { const k = m.agent + "|" + String(m.text || "").replace(/^(Done|Hotovo) #[0-9]+: */, "").slice(0, 120); return !seen.has(k) && seen.add(k); });
+}
 function renderPageActivity() {
-  const items = historyMessages().filter(m => agentKey(m.agent) && !isSystem(m)).slice(-8).reverse();
+  const items = dedupeActivity(historyMessages().filter(m => agentKey(m.agent) && !isSystem(m)).reverse()).slice(0, 8);
   const html = items.length ? items.map(m => actItem(m.agent, Date.now() / 1000 - (m.seconds_ago || 0), m.text)).join("") : "<li class='empty'>Čekám na zprávy Ady a Noxe.</li>";
   document.querySelectorAll('[data-activity="agents"]').forEach(el => setHTMLIfChanged(el, html));
 }
@@ -2611,7 +2793,7 @@ function renderPages() {
 }
 
 // ── Kvalita ──
-let qgFilter = "all";
+let qgFilter = "all", rvFilter = "you";
 const QG_OPEN = s => ["REVIEW", "SETUP_REQUIRED"].includes(s);
 function qgLatest() {
   const seen = new Set();
@@ -2652,12 +2834,17 @@ function renderQualityGate() {
   // stav review
   const RS = [["approved", "Schválená", "ok", "✓"], ["awaiting_review", "Čeká na review", "work", "○"], ["changes_requested", "Požadované změny", "warn", "!"], ["escalated", "Čeká na tebe", "bad", "!"], ["closed", "Uzavřená", "", "–"]];
   setHTMLIfChanged(document.getElementById("qgReviewStats"), latestReviewsAll === null ? "<li class='empty'>Načítám…</li>" : RS.map(([s, label, tone, sym]) => `<li><span class="st-dot ${tone}" aria-hidden="true">${sym}</span>${label}<b>${all.filter(r => r.state === s).length}</b></li>`).join(""));
-  const open = all.filter(r => r.state !== "closed").sort((a, b) => (b.state === "escalated") - (a.state === "escalated") || b.id - a.id);
-  document.getElementById("qgOpenCount").textContent = latestReviewsAll === null ? "" : `(${open.length})`;
+  const openAll = all.filter(r => r.state !== "closed").sort((a, b) => (b.state === "escalated") - (a.state === "escalated") || b.id - a.id);
+  const RV = {you: r => r.state === "escalated", merge: r => r.state === "approved", work: r => ["awaiting_review", "changes_requested", "working"].includes(r.state), all: () => true};
+  if (rvFilter === "you" && latestReviewsAll !== null && !openAll.some(RV.you)) rvFilter = "all";
+  const open = openAll.filter(RV[rvFilter]);
+  document.getElementById("qgOpenCount").textContent = latestReviewsAll === null ? "" : `(${openAll.length})`;
+  setHTMLIfChanged(document.getElementById("rvChips"), chipsHTML([["you", `Čeká na tebe (${openAll.filter(RV.you).length})`], ["merge", `Schválené k uzavření (${openAll.filter(RV.merge).length})`], ["work", `Rozpracované (${openAll.filter(RV.work).length})`], ["all", "Vše"]], rvFilter, "data-rv-filter"));
+  document.querySelectorAll("[data-rv-filter]").forEach(b => b.onclick = () => { rvFilter = b.dataset.rvFilter; renderQualityGate(); });
   setHTMLIfChanged(document.getElementById("qgOpenReviews"), open.length ? open.map(v => {
     const st = REVIEW[v.state] || [v.state, ""];
     return `<div class="rv-row"><span class="st-dot ${st[1] === "gone" ? "" : st[1]}" aria-hidden="true">${v.state === "approved" ? "✓" : v.state === "escalated" || v.state === "changes_requested" ? "!" : "○"}</span><div class="rv-main"><b title="${esc(v.topic)}">#${v.id} ${esc(v.topic)}</b><span>${esc(String(v.repo || "").split("/").pop())} · ${esc(nameOf(v.author))}${v.reviewer ? " → " + esc(nameOf(v.reviewer)) : ""} · ${esc(st[0])}</span></div>${v.state === "escalated" ? `<button class="btn" data-rv-grant="${v.id}">Povolit kolo</button>` : ""}<button class="btn" data-rv-close="${v.id}" data-rv-state="${esc(v.state)}">Uzavřít</button></div>`;
-  }).join("") : `<div class="empty">${latestReviewsAll === null ? "Načítám…" : "Žádné otevřené review."}</div>`);
+  }).join("") : `<div class="empty">${latestReviewsAll === null ? "Načítám…" : rvFilter === "all" ? "Žádné otevřené review." : "V této skupině nic není."}</div>`);
   document.querySelectorAll("[data-rv-close]").forEach(b => b.onclick = () => {
     const reason = prompt(`Proč uzavřít review #${b.dataset.rvClose}? (zapíše se do historie)`, b.dataset.rvState === "approved" ? "zamergováno" : "nahrazeno novějším review");
     if (reason && reason.trim()) { b.disabled = true; post("/api/review-close", {id: Number(b.dataset.rvClose), reason}).then(ok => { if (!ok) b.disabled = false; }); }
@@ -2993,12 +3180,38 @@ def listener_owned_by_me(port: int, tables: tuple[str, ...] = PROC_TCP_TABLES) -
     return found
 
 
+WSL_FORWARDERS = {"wslrelay", "wslhost", "wslservice"}
+
+
+def windows_port_forwards_to_wsl(port: int) -> bool:
+    """Ve WSL prohlížeč jde na localhost Windows. Když tam port drží jiný program než předávání WSL, je to cizí cíl."""
+    ps = shutil.which("powershell.exe") or "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+    # Fail-closed (review #55): každá chyba dotazu ukončí skript bez koncové značky = neověřeno.
+    script = ("$ErrorActionPreference = 'Stop'; "
+              f"$l = @(Get-NetTCPConnection -State Listen | Where-Object {{ $_.LocalPort -eq {int(port)} }}); "
+              "foreach ($c in $l) { try { (Get-Process -Id $c.OwningProcess).ProcessName } catch { 'unknown-process' } }; "
+              "'AL-END'")
+    try:
+        out = subprocess.run([ps, "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=20,
+                             cwd="/mnt/c" if Path("/mnt/c").is_dir() else None, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False   # nejde ověřit = nepředávat
+    lines = [n.strip() for n in out.splitlines() if n.strip()]
+    if not lines or lines[-1] != "AL-END":
+        return False                   # dotaz nedoběhl celý = neověřeno
+    return {n.lower() for n in lines[:-1]} <= WSL_FORWARDERS   # nic = ve Windows port nikdo nedrží (mirrored)
+
+
 def login(port: int = 8765) -> int:
     """`agent-lease web-login`: otevře už běžící web (služba agent-lease-web) přihlášený, token nevypisuje."""
     owner = listener_owned_by_me(port)
-    if owner is False:
-        # Port obsadil cizí uživatel: token by přes prohlížeč dostala jeho stránka (location.hash).
-        print(f"Port {port} drží proces jiného uživatele. Token neposílám.", file=sys.stderr)
+    if owner is not True:
+        # Kód by přes prohlížeč dostala stránka toho, kdo port drží (location.hash) — posílá se jen na ověřený port.
+        print(f"Web na http://localhost:{port}/ neběží pod tímto uživatelem (nebo to nejde ověřit). "
+              "Spusť: systemctl --user start agent-lease-web", file=sys.stderr)
+        return 2 if owner is False else 1
+    if _is_wsl() and not windows_port_forwards_to_wsl(port):
+        print(f"Port {port} ve Windows drží jiný program než WSL. Kód neposílám.", file=sys.stderr)
         return 2
     try:
         socket.create_connection(("127.0.0.1", port), timeout=2).close()
@@ -3006,8 +3219,9 @@ def login(port: int = 8765) -> int:
         print(f"Web na http://localhost:{port}/ neběží. Spusť: systemctl --user start agent-lease-web",
               file=sys.stderr)
         return 1
-    token = load_or_create_token(Settings.from_env())
-    if not open_url(f"http://localhost:{port}/#token={token}"):
+    settings = Settings.from_env()
+    load_or_create_token(settings)
+    if not open_url(f"http://localhost:{port}/#token={issue_login_code(settings)}"):
         print("Prohlížeč se nepodařilo otevřít.", file=sys.stderr)
         return 1
     print(f"Otevřeno: http://localhost:{port}/ (přihlášení platí {SESSION_MAX_AGE_SECONDS // 86400} dní)")
@@ -3019,18 +3233,14 @@ def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False
     store = Store(settings=settings)
     token = load_or_create_token(settings)
     handler = make_handler(store, settings, token, port)
-    server = ThreadingHTTPServer((host, port), handler)
+    server = type("CappedServer", (_ConnectionCap, ThreadingHTTPServer), {})((host, port), handler)
     server.daemon_threads = True
     url = f"http://{host}:{port}/"
     print(f"Live room at {url}")
     if open_browser:
-        login_url = f"{url}#token={token}"
-        if not open_url(login_url):
-            print(
-                "Could not open a browser. WARNING: the following URL carries full "
-                f"human authority for this room: {login_url}",
-                file=sys.stderr,
-            )
+        if not open_url(f"{url}#token={issue_login_code(settings)}"):
+            print("Could not open a browser. Run `agent-lease web-login` once a browser is available.",
+                  file=sys.stderr)
     else:
         print("To log in safely, run again with --open.")
     try:

@@ -43,6 +43,10 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
     raw = json.dumps(body).encode() if body is not None else b""
     handler.path = path
     handler.headers = dict(headers or {})
+    handler.headers.setdefault("Host", "localhost:8765")
+    handler.headers.setdefault("X-Agent-Lease-Key", "key")   # klíč z localStorage, jako skutečný prohlížeč
+    if method == "POST":
+        handler.headers.setdefault("Origin", "http://localhost:8765")
     if raw:
         handler.headers.setdefault("Content-Length", str(len(raw)))
         handler.headers.setdefault("Content-Type", "application/json")
@@ -59,6 +63,7 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
 def authenticated_handler(store: Store, settings: Settings, token: str, session_id: str = "session"):
     handler_type = make_handler(store, settings, token, 8765)
     handler_type.sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    handler_type.session_keys[session_id] = "key"
     return handler_type
 
 
@@ -77,6 +82,9 @@ def test_unconfirmed_pause_returns_an_error(tmp_path: Path, monkeypatch):
     assert status == 503 and b"could not be confirmed" in body
 
 
+SESSION_KEYS: dict[int, str] = {}
+
+
 def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     connection.request(
@@ -90,6 +98,7 @@ def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     )
     response = connection.getresponse()
     cookie = response.getheader("Set-Cookie")
+    SESSION_KEYS[port] = response.getheader("X-Agent-Lease-Key") or ""
     response.read()
     status = response.status
     connection.close()
@@ -124,6 +133,9 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     payload = None
     if token:
         headers["Cookie"] = f"{webui.session_cookie_name(port)}={token}"
+        headers["X-Agent-Lease-Key"] = SESSION_KEYS.get(port, "")
+    if method == "POST":
+        headers["Origin"] = f"http://127.0.0.1:{port}"   # jako prohlížeč na stejném původu
     if body is not None:
         payload = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
@@ -343,9 +355,9 @@ def test_open_passes_fragment_to_browser_without_printing_it(tmp_path: Path, mon
 
     assert webui.run(port=9876, open_browser=True) == 0
     captured = capsys.readouterr()
-    assert opened == ["http://127.0.0.1:9876/#token=browser-secret"]
-    assert "browser-secret" not in captured.out
-    assert "browser-secret" not in captured.err
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    assert opened == [f"http://127.0.0.1:9876/#token={code}"]   # jednorázový kód, ne hlavní token
+    assert "browser-secret" not in captured.out + captured.err + opened[0]
 
 
 def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeypatch, capsys):
@@ -370,9 +382,9 @@ def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeyp
 
     assert webui.run(port=9876, open_browser=True) == 0
     captured = capsys.readouterr()
-    assert "fallback-secret" not in captured.out
-    assert captured.err.count("fallback-secret") == 1
-    assert "WARNING" in captured.err
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    out = captured.out + captured.err                      # audit 26. 11.: nic tajného na výstup
+    assert "fallback-secret" not in out and code not in out and "web-login" in captured.err
 
 
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
@@ -521,7 +533,8 @@ def test_live_room_event_carries_pause_state(live_chat):
     port, _, session_id, store = live_chat
     store.pause("michal", "test")
     connection = HTTPConnection("127.0.0.1", port, timeout=3)
-    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
+    connection.request("GET", f"/api/events?since=0&k={SESSION_KEYS[port]}",
+                       headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
     response = connection.getresponse()
     assert response.status == 200
     event = None
@@ -635,11 +648,12 @@ def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_pa
     store = Store(settings=settings)
     preview = make_handler(store, settings, "secret", 8766)
     preview.sessions["s"] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    preview.session_keys["s"] = "key"
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
-                             headers={"Cookie": f"{SESSION_COOKIE}=s"}, handler_type=preview)
+                             headers={"Cookie": f"{SESSION_COOKIE}=s", "Host": "localhost:8766"}, handler_type=preview)
     assert status == 403                                   # cookie webu 8765 na náhledu neplatí
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
-                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s"}, handler_type=preview)
+                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s", "Host": "localhost:8766"}, handler_type=preview)
     assert status == 200
 
 
@@ -659,7 +673,8 @@ def test_web_login_opens_running_web_logged_in_without_printing_token(tmp_path: 
     monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
     assert webui.login(8765) == 0
     token = (tmp_path / "webui.token").read_text().strip()
-    assert opened == [f"http://localhost:8765/#token={token}"]
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    assert opened == [f"http://localhost:8765/#token={code}"] and code != token
     out = capsys.readouterr()
     assert token not in out.out + out.err
 
@@ -725,3 +740,178 @@ def test_pages_refresh_without_new_messages_and_never_keep_stale_bridges_online(
     assert "return !stale && !!(p && p.active" in PAGE_HTML
     assert 'if (currentView === "research") loadResearch();' in PAGE_HTML
     assert "setTimeout(renderPages);" in PAGE_HTML
+
+
+def test_login_code_is_single_use_and_expires(tmp_path: Path, monkeypatch):
+    """Bezpečnostní audit 26. 11.: do URL a historie prohlížeče jde jen jednorázový kód na 2 min."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    code = webui.issue_login_code(settings)
+    assert stat.S_IMODE((tmp_path / "webui.login").stat().st_mode) == 0o600
+    hdr = {"Origin": "http://localhost:8765", "Host": "localhost:8765", "X-Agent-Lease-Token": code}
+    assert call_handler(store, settings, "secret", "POST", "/session", headers=hdr)[0] == 204
+    assert call_handler(store, settings, "secret", "POST", "/session", headers=hdr)[0] == 403   # podruhé ne
+    code = webui.issue_login_code(settings)
+    monkeypatch.setattr(webui.time, "time", lambda: 10**12)
+    assert call_handler(store, settings, "secret", "POST", "/session",
+                        headers={**hdr, "X-Agent-Lease-Token": code})[0] == 403                 # prošlý
+
+
+def test_foreign_host_and_missing_origin_are_rejected(tmp_path: Path):
+    """DNS rebinding (cizí Host) a POST bez Origin neprojdou ani s platnou session."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session"}
+    assert call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                        headers={**cookie, "Host": "evil.example:8765"}, handler_type=handler)[0] == 403
+    assert call_handler(store, settings, "secret", "GET", "/",
+                        headers={"Host": "evil.example:8765"}, handler_type=handler)[0] == 403
+    assert call_handler(store, settings, "secret", "POST", "/api/pause", body={"reason": "x"},
+                        headers={**cookie, "Origin": ""}, handler_type=handler)[0] == 403
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/pause", body={"reason": "x"},
+                             headers={**cookie, "Content-Length": "abc"}, handler_type=handler)
+    assert status == 400
+
+
+def test_index_csp_uses_per_response_nonce_instead_of_unsafe_inline_script(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    sent = {}
+    handler_type = make_handler(store, settings, "secret", 8765)
+    handler = object.__new__(handler_type)
+    handler.path, handler.headers = "/", {"Host": "localhost:8765"}
+    handler.wfile, handler.rfile = BytesIO(), BytesIO()
+    handler.send_response = lambda code: None
+    handler.send_header = lambda k, v: sent.__setitem__(k, v)
+    handler.end_headers = lambda: None
+    handler.do_GET()
+    csp = sent["Content-Security-Policy"]
+    nonce = csp.split("'nonce-")[1].split("'")[0]
+    assert "script-src 'unsafe-inline'" not in csp and "object-src 'none'" in csp
+    assert f'<script nonce="{nonce}">'.encode() in handler.wfile.getvalue()
+
+
+def test_cookie_alone_is_not_enough_session_key_is_origin_bound(live_chat):
+    """Audit #2098 P2: cookie jde i na jiný port localhostu; bez klíče z localStorage nic nepřečte ani nezmění."""
+    port, _, session_id, _ = live_chat
+    cookie = {"Cookie": f"{webui.session_cookie_name(port)}={session_id}"}
+    for headers in (cookie, {**cookie, "X-Agent-Lease-Key": "wrong"}):
+        connection = HTTPConnection("127.0.0.1", port, timeout=2)
+        connection.request("GET", "/api/snapshot?since=0", headers=headers)
+        assert connection.getresponse().status == 403
+        connection.close()
+    assert request(port, "GET", "/api/snapshot?since=0", token=session_id)[0] == 200
+
+
+def test_event_stream_ends_when_session_expires(tmp_path: Path, monkeypatch):
+    """Audit #2098 P2: otevřený stream nesmí po vypršení přihlášení dál posílat data."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler_type = authenticated_handler(store, settings, "secret")
+    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    status, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
+                               headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
+    assert raw.count(b"event: room") == 1            # jedna dávka, pak konec místo nekonečné smyčky
+    assert handler_type.sse_slots.acquire(blocking=False)   # slot se vrátil
+
+
+def test_slow_request_hits_absolute_read_deadline():
+    """Audit #2098 P2: kapání po bajtu neobejde limit; čtení po termínu skončí."""
+    reader = webui._DeadlineReader(BytesIO(b"GET / HTTP/1.1"))
+    reader.deadline = time.monotonic() - 1
+    with pytest.raises(TimeoutError):
+        reader.readline()
+
+
+def test_connection_cap_refuses_extra_connections():
+    closed = []
+
+    class Base:
+        def __init__(self, *a, **k):
+            pass
+
+        def process_request(self, request, addr):
+            pass
+
+        def shutdown_request(self, request):
+            closed.append(request)
+
+    capped = type("Capped", (webui._ConnectionCap, Base), {"max_connections": 2})()
+    for i in range(3):
+        capped.process_request(i, None)
+    assert closed == [2]
+
+
+def test_web_login_sends_code_only_to_verified_port(tmp_path: Path, monkeypatch):
+    """Audit #2098 P2: neověřitelný vlastník portu nebo cizí program ve Windows = kód se neposílá."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setattr(webui, "open_url", lambda url: pytest.fail("kód nesmí odejít"))
+    monkeypatch.setattr(webui.socket, "create_connection", lambda *a, **k: socket.socket())
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: None)
+    assert webui.login(8765) == 1
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: True)
+    monkeypatch.setattr(webui, "_is_wsl", lambda: True)
+    monkeypatch.setattr(webui, "windows_port_forwards_to_wsl", lambda port: False)
+    assert webui.login(8765) == 2
+
+
+def test_windows_listener_check_accepts_only_wsl_forwarding(monkeypatch):
+    out = {"v": "wslrelay\nAL-END\n"}
+    monkeypatch.setattr(webui.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out["v"]})())
+    assert webui.windows_port_forwards_to_wsl(8765) is True
+    out["v"] = "AL-END\n"
+    assert webui.windows_port_forwards_to_wsl(8765) is True
+    for bad in ("evil\nAL-END\n", "unknown-process\nAL-END\n", "", "wslrelay\n"):   # cizí, neznámý, chyba dotazu
+        out["v"] = bad
+        assert webui.windows_port_forwards_to_wsl(8765) is False, bad
+
+
+def test_reaper_closes_connection_that_drips_past_the_deadline():
+    """Automatická bezpečnostní kontrola 27. 11.: limit socketu platí na jedno recv, hlídač zavře celé spojení."""
+    try:
+        a, b = socket.socketpair()
+    except PermissionError:
+        pytest.skip("sandbox zakazuje sockety")
+    reaper = webui._Reaper()
+    reaper.watch(a, time.monotonic() + 60)
+    assert reaper.reap() == 0
+    reaper.watch(a, time.monotonic() - 1)
+    assert reaper.reap() == 1
+    assert b.recv(1) == b""          # druhá strana vidí zavřené spojení
+    a.close(), b.close()
+
+
+def test_dripping_client_is_cut_off_at_the_absolute_deadline(tmp_path: Path, monkeypatch):
+    """Review #55: kapání po bajtu uvnitř jedné hlavičky nesmí držet vlákno déle než absolutní limit."""
+    monkeypatch.setattr(webui, "REQUEST_READ_DEADLINE", 1.0)
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(store, settings, "t", 0))
+    except PermissionError:
+        pytest.skip("sandbox zakazuje loopback socket")
+    server.RequestHandlerClass.reaper._period = 0.2
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = socket.create_connection(server.server_address, timeout=1)
+        client.sendall(b"GET / HTTP/1.1\r\nHost: x\r\nX-Slow: ")
+        started, closed = time.monotonic(), False
+        while time.monotonic() - started < 8:
+            try:
+                client.sendall(b"a")
+                client.settimeout(0.3)
+                if client.recv(1) == b"":
+                    closed = True
+                    break
+            except socket.timeout:
+                continue
+            except OSError:
+                closed = True
+                break
+        assert closed and time.monotonic() - started < 4
+        client.close()
+    finally:
+        server.shutdown()
+        server.server_close()
