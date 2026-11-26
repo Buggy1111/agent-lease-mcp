@@ -15,3 +15,22 @@ ať už konečně vás můžu řídit z toho webu“. Review #54 (nahrazuje #49)
 | Přihlášení | `agent-lease web-login` (ve WSL otevře prohlížeč ve Windows), ikona **Agent Lease** na ploše; přihlášení platí 7 dní |
 
 **Rollback:** `systemctl --user disable --now agent-lease-web`, `current` atomicky zpět na `runtime-97aebc7`.
+
+## Bezpečnostní kolo — 27. 11. 2026 (`95e008d`, review #55, security pass)
+
+Michal: „pořádně to dodělejte s Noxem, i tu security … ať na to nemusíme šáhnout“. Nox udělal samostatný
+audit (#2098, 5×P2), opravy prošly review #55 (2 kola), full 1018 PASS.
+
+| Oblast | Stav po nasazení |
+| --- | --- |
+| Přihlášení | do prohlížeče jde jen jednorázový kód na 120 s (`webui.login`, 0600), hlavní token nikdy v URL, historii ani na výstupu |
+| Session | cookie + druhý klíč v localStorage (oddělený podle portu); samotná cookie → 403 |
+| web-login | kód jen na port, jehož posluchač patří tomuto uživateli; ve Windows jen přes `wslrelay` (fail-closed) |
+| Požadavky | Host kontrolován všude (DNS rebinding), POST jen s povoleným Origin, CSP s nonce místo `unsafe-inline` |
+| Odolnost | strop 64 spojení, absolutní limit 20 s na požadavek (hlídací vlákno zavře socket), SSE končí s přihlášením |
+| Služba | `NoNewPrivileges`, omezené rodiny socketů, `MemoryMax=512M`, `TasksMax=128` |
+| Ověření živě | E2E: přihlášení kódem, reload, živý stream, cookie bez klíče 403, opakovaný kód 403, cizí Host 403, 0 chyb konzole; 5 služeb active, DB `delete` |
+
+Runtime `runtime-95e008d` (proti `runtime-fa89060` změněn jen `webui.py`), wheel SHA-256
+`94f1cdd3443a74898f062656691089159e3fa1b6718fc2bbcec8151abe71867e`. Broker a mosty nerestartovány.
+Rollback: `current` zpět na `runtime-fa89060`, `systemctl --user restart agent-lease-web`.
