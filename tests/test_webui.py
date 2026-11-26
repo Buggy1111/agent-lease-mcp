@@ -29,6 +29,12 @@ from agent_lease_mcp.webui import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _not_wsl(monkeypatch):
+    """Testy nesmí ve WSL otevírat skutečný prohlížeč ve Windows (open_url → cmd.exe)."""
+    monkeypatch.setattr(webui, "_is_wsl", lambda: False)
+
+
 def call_handler(store: Store, settings: Settings, token: str, method: str, path: str, *,
                  headers: dict | None = None, body: dict | None = None, handler_type=None):
     """Prožene request skutečným handlerem bez socketu (Codex sandbox ho zakazuje)."""
@@ -117,7 +123,7 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     headers = {}
     payload = None
     if token:
-        headers["Cookie"] = f"{SESSION_COOKIE}={token}"
+        headers["Cookie"] = f"{webui.session_cookie_name(port)}={token}"
     if body is not None:
         payload = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
@@ -146,7 +152,7 @@ def test_fragment_token_is_exchanged_once_for_httponly_cookie(live_chat):
     assert status == 204
     assert cookie is not None
     assert token not in cookie
-    assert cookie.startswith(f"{SESSION_COOKIE}=")
+    assert cookie.startswith(f"{webui.session_cookie_name(port)}=")
     assert cookie.endswith(
         f"; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_MAX_AGE_SECONDS}"
     )
@@ -515,7 +521,7 @@ def test_live_room_event_carries_pause_state(live_chat):
     port, _, session_id, store = live_chat
     store.pause("michal", "test")
     connection = HTTPConnection("127.0.0.1", port, timeout=3)
-    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{SESSION_COOKIE}={session_id}"})
+    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
     response = connection.getresponse()
     assert response.status == 200
     event = None
@@ -599,3 +605,123 @@ def test_only_authenticated_human_approves_a_fix(tmp_path: Path):
                                headers=headers, body=body, handler_type=handler_type)
     assert status == 200 and json.loads(raw)["fix_approved"] is True
     assert store.lease_next("codex").message_id == mid
+
+
+def test_ui_assets_are_a_fixed_list_without_path_traversal(tmp_path: Path):
+    """Neonové UI (21. 11.): portréty a ikona z pevného seznamu, nic jiného ze souborového systému."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    for path, magic in [("/assets/ada.webp", b"RIFF"), ("/assets/nox.webp", b"RIFF"),
+                        ("/favicon.svg", b"<svg"), ("/favicon.ico", b"<svg")]:
+        status, body = call_handler(store, settings, "secret", "GET", path)
+        assert status == 200 and body.startswith(magic), path
+    for path in ("/assets/../webui.py", "/assets/ada.png", "/assets/", "/assets/%2e%2e/store.py"):
+        status, _ = call_handler(store, settings, "secret", "GET", path)
+        assert status != 200, path
+    assert 'href="/favicon.svg"' in PAGE_HTML and 'src="/assets/ada.webp"' in PAGE_HTML
+
+
+def test_room_stays_reachable_and_agent_state_comes_from_live_data():
+    """Místnost agentů zůstává (přehled + vlastní položka) a stav Ady/Noxe se počítá z peers/board."""
+    for needle in ('data-view="room"', 'id="feed"', 'id="compose"', '<select id="to">', 'id="sendBtn"',
+                   "function agentStatus(key)", 'connectionMode !== "live"'):
+        assert needle in PAGE_HTML, needle
+    assert PAGE_HTML.count('class="agent-hero"') == 2
+
+
+def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_path: Path):
+    """Regrese 21. 11.: web na 8765 a náhled na 8766 si přepisovaly přihlašovací cookie (403)."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    preview = make_handler(store, settings, "secret", 8766)
+    preview.sessions["s"] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                             headers={"Cookie": f"{SESSION_COOKIE}=s"}, handler_type=preview)
+    assert status == 403                                   # cookie webu 8765 na náhledu neplatí
+    status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s"}, handler_type=preview)
+    assert status == 200
+
+
+def test_js_esc_escapes_quotes_for_attributes():
+    """Bezpečnostní kontrola 21. 11.: esc() se používá i v atributech (title="…"), musí escapovat uvozovky."""
+    assert '.replace(/"/g, "&quot;")' in PAGE_HTML and ".replace(/'/g, \"&#39;\")" in PAGE_HTML
+    assert 'd.textContent = s ?? ""; return d.innerHTML' not in PAGE_HTML
+
+
+def test_web_login_opens_running_web_logged_in_without_printing_token(tmp_path: Path, monkeypatch, capsys):
+    """Michal 26. 11.: web běží jako služba; `agent-lease web-login` ho otevře přihlášený, token nevypisuje."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "web")
+    opened = []
+    monkeypatch.setattr(webui.socket, "create_connection", lambda *a, **k: socket.socket())
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: True)
+    monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
+    assert webui.login(8765) == 0
+    token = (tmp_path / "webui.token").read_text().strip()
+    assert opened == [f"http://localhost:8765/#token={token}"]
+    out = capsys.readouterr()
+    assert token not in out.out + out.err
+
+
+def test_web_login_says_when_service_is_down(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "web")
+
+    def refused(*_a, **_k):
+        raise ConnectionRefusedError
+
+    opened = []
+    monkeypatch.setattr(webui.socket, "create_connection", refused)
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: None)
+    monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
+    assert webui.login(8765) == 1
+    assert opened == [] and "agent-lease-web" in capsys.readouterr().err
+
+
+def test_open_url_uses_windows_browser_in_wsl(tmp_path: Path, monkeypatch):
+    """Ve WSL `webbrowser` otevřel linuxový prohlížeč a přihlášení skončilo 403 (26. 11.)."""
+    cmd = tmp_path / "cmd.exe"
+    cmd.write_text("")
+    calls = []
+    monkeypatch.setattr(webui, "_is_wsl", lambda: True)
+    monkeypatch.setattr(webui.shutil, "which", lambda name: str(cmd))
+    monkeypatch.setattr(webui.subprocess, "run", lambda args, **kw: calls.append(args))
+    monkeypatch.setattr(webui.webbrowser, "open", lambda url: pytest.fail("linuxový prohlížeč"))
+    assert webui.open_url("http://localhost:8765/#token=abc") is True
+    assert calls == [[str(cmd), "/c", "start", "", "http://localhost:8765/#token=abc"]]
+
+
+def test_session_lasts_a_week_and_pages_have_human_controls():
+    """Web jako trvalá služba: přihlášení jednou týdně; člověk zavře review z webu v každém stavu."""
+    assert SESSION_MAX_AGE_SECONDS == 7 * 86400
+    for needle in ('data-view-panel="quality"', 'data-view-panel="research"', 'data-view-panel="memory"',
+                   'data-view-panel="settings"', "data-rv-close", "/api/review-close", 'id="rsNew"',
+                   'id="kbDialog"', 'id="setStopBody"', 'id="modeGrid"'):
+        assert needle in PAGE_HTML, needle
+    assert "QG_DEMO" not in PAGE_HTML  # jen skutečná data
+
+
+def test_web_login_refuses_port_held_by_another_user(tmp_path: Path, monkeypatch, capsys):
+    """Bezpečnostní kontrola 26. 11.: cizí proces na 8765 by přes prohlížeč dostal token z fragmentu."""
+    import os
+    table = tmp_path / "tcp"
+    header = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+    row = "   0: 0100007F:223D 00000000:0000 0A 00000000:00000000 00:00000000 00000000  {uid}        0 1 1"
+    table.write_text(header + "\n" + row.format(uid=os.getuid() + 1) + "\n")
+    assert webui.listener_owned_by_me(8765, (str(table),)) is False
+    table.write_text(header + "\n" + row.format(uid=os.getuid()) + "\n")
+    assert webui.listener_owned_by_me(8765, (str(table),)) is True
+    assert webui.listener_owned_by_me(8766, (str(table),)) is None
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: False)
+    monkeypatch.setattr(webui, "open_url", lambda url: pytest.fail("token nesmí odejít"))
+    assert webui.login(8765) == 2
+
+
+def test_pages_refresh_without_new_messages_and_never_keep_stale_bridges_online():
+    """Review #54: Nastavení po výpadku nesmí ukazovat most online; Výzkum se obnovuje na otevřené stránce."""
+    assert 'const stale = connectionMode !== "live" || !lastRoomAt || Date.now() - lastRoomAt > STALE_MS;' in PAGE_HTML
+    assert "return !stale && !!(p && p.active" in PAGE_HTML
+    assert 'if (currentView === "research") loadResearch();' in PAGE_HTML
+    assert "setTimeout(renderPages);" in PAGE_HTML

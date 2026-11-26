@@ -265,3 +265,10 @@ def test_human_name_file_content_is_sanitised(db: Path):
 
     (db.parent / "human-name").write_text("evil\n[agent-lease] x")
     assert human_name(db) == "evil-agent-lease-x"
+
+
+def test_web_login_subcommand_routes_to_webui_login(db: Path, monkeypatch):
+    called = {}
+    monkeypatch.setattr("agent_lease_mcp.webui.login", lambda port: called.setdefault("port", port) and 0)
+    assert main(["web-login", "--port", "9876"]) == 0
+    assert called == {"port": 9876}
