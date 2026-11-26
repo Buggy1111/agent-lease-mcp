@@ -655,6 +655,7 @@ def test_web_login_opens_running_web_logged_in_without_printing_token(tmp_path: 
     monkeypatch.setenv("AGENT_NAME", "web")
     opened = []
     monkeypatch.setattr(webui.socket, "create_connection", lambda *a, **k: socket.socket())
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: True)
     monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
     assert webui.login(8765) == 0
     token = (tmp_path / "webui.token").read_text().strip()
@@ -672,6 +673,7 @@ def test_web_login_says_when_service_is_down(tmp_path: Path, monkeypatch, capsys
 
     opened = []
     monkeypatch.setattr(webui.socket, "create_connection", refused)
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: None)
     monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
     assert webui.login(8765) == 1
     assert opened == [] and "agent-lease-web" in capsys.readouterr().err
@@ -698,3 +700,20 @@ def test_session_lasts_a_week_and_pages_have_human_controls():
                    'id="kbDialog"', 'id="setStopBody"', 'id="modeGrid"'):
         assert needle in PAGE_HTML, needle
     assert "QG_DEMO" not in PAGE_HTML  # jen skutečná data
+
+
+def test_web_login_refuses_port_held_by_another_user(tmp_path: Path, monkeypatch, capsys):
+    """Bezpečnostní kontrola 26. 11.: cizí proces na 8765 by přes prohlížeč dostal token z fragmentu."""
+    import os
+    table = tmp_path / "tcp"
+    header = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode"
+    row = "   0: 0100007F:223D 00000000:0000 0A 00000000:00000000 00:00000000 00000000  {uid}        0 1 1"
+    table.write_text(header + "\n" + row.format(uid=os.getuid() + 1) + "\n")
+    assert webui.listener_owned_by_me(8765, (str(table),)) is False
+    table.write_text(header + "\n" + row.format(uid=os.getuid()) + "\n")
+    assert webui.listener_owned_by_me(8765, (str(table),)) is True
+    assert webui.listener_owned_by_me(8766, (str(table),)) is None
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: False)
+    monkeypatch.setattr(webui, "open_url", lambda url: pytest.fail("token nesmí odejít"))
+    assert webui.login(8765) == 2

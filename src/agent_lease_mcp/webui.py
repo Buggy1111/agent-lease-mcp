@@ -2966,8 +2966,33 @@ def open_url(url: str) -> bool:
     return webbrowser.open(url)
 
 
+PROC_TCP_TABLES = ("/proc/net/tcp", "/proc/net/tcp6")
+
+
+def listener_owned_by_me(port: int, tables: tuple[str, ...] = PROC_TCP_TABLES) -> bool | None:
+    """Naslouchá na portu proces tohoto uživatele? None = nejde zjistit (není Linux /proc)."""
+    found = None
+    for name in tables:
+        try:
+            rows = Path(name).read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            f = row.split()
+            if len(f) > 7 and f[3] == "0A" and int(f[1].rsplit(":", 1)[1], 16) == port:   # 0A = LISTEN
+                if int(f[7]) != os.getuid():
+                    return False
+                found = True
+    return found
+
+
 def login(port: int = 8765) -> int:
     """`agent-lease web-login`: otevře už běžící web (služba agent-lease-web) přihlášený, token nevypisuje."""
+    owner = listener_owned_by_me(port)
+    if owner is False:
+        # Port obsadil cizí uživatel: token by přes prohlížeč dostala jeho stránka (location.hash).
+        print(f"Port {port} drží proces jiného uživatele. Token neposílám.", file=sys.stderr)
+        return 2
     try:
         socket.create_connection(("127.0.0.1", port), timeout=2).close()
     except OSError:
