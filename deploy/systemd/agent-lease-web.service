@@ -1,0 +1,15 @@
+[Unit]
+Description=agent-lease web (jen loopback, http://localhost:8765; přihlášení: agent-lease web-login)
+After=agent-lease-broker.service
+
+[Service]
+EnvironmentFile=-%h/.config/agent-lease/environment
+# Web zapisuje za člověka; jméno agenta „web" (lidská jména jsou vyhrazená, viz ensure_human_name).
+Environment=AGENT_NAME=web
+ExecStart=%h/.local/share/agent-lease/current/venv/bin/agent-lease web --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=2
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -21,6 +21,9 @@ import argparse
 import json
 import os
 import secrets
+import shutil
+import socket
+import subprocess
 import sys
 import time
 import webbrowser
@@ -37,7 +40,7 @@ from .store import Store
 # Statické soubory UI (portréty Ady a Noxe, ikona). Pevný seznam: žádné cesty z požadavku.
 _ASSET_DIR = Path(__file__).with_name("assets")
 ASSETS = {"/assets/ada.webp": ("ada.webp", "image/webp"), "/assets/nox.webp": ("nox.webp", "image/webp"),
-          "/favicon.svg": ("favicon.svg", "image/svg+xml"), "/favicon.ico": ("favicon.svg", "image/svg+xml")}
+          "/favicon.svg": ("favicon.svg", "image/svg+xml"), "/assets/wave.svg": ("wave.svg", "image/svg+xml"), "/favicon.ico": ("favicon.svg", "image/svg+xml")}
 
 POLL_SECONDS = 0.7
 ROOM_SECONDS = 2.0
@@ -48,7 +51,7 @@ def session_cookie_name(port: int) -> str:
     """Cookies prohlížeč neodděluje podle portu: dva weby na jednom stroji (8765 a náhled) by si přihlášení
     přepisovaly (21. 11.). Výchozí port si jméno ponechá, ať stávající přihlášení dál platí."""
     return SESSION_COOKIE if port == 8765 else f"{SESSION_COOKIE}_{port}"
-SESSION_MAX_AGE_SECONDS = 3600
+SESSION_MAX_AGE_SECONDS = 7 * 86400   # web běží trvale jako služba; přihlášení stačí jednou týdně (Michal 26. 11.)
 MAX_SSE_CONNECTIONS = 16
 REQUEST_SOCKET_TIMEOUT = 10.0
 SSE_HEARTBEAT_SECONDS = 10.0
@@ -614,7 +617,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             # „Obnovit" na „Zastavit" a člověk by stop zapnul znovu.
                             "paused": store.paused(),
                             "reviews": store.reviews(limit=30),
-                "reviews_all": store.reviews(limit=200, include_closed=True),   # Přehled: postup i u uzavřených
+                            "mode": store.mode(),
+                            "reviews_all": store.reviews(limit=200, include_closed=True),   # Přehled: postup i u uzavřených
                             "quality_runs": store.quality_runs(limit=30),
                             "quality_requests": store.quality_requests(limit=30),
                             "messages": store.latest_messages(limit=200),
@@ -1307,6 +1311,41 @@ body.room-focus #dash { display:none; }
 }
 @media(max-width:1280px) { #masthead { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"brand tools" "heroes heroes" "nav nav" "pause pause"; } #pause { grid-area:pause; justify-self:start; margin-top:0; } .agent-hero { width:min(380px,100%); } }
 @media(max-width:899px) { .agent-hero,.agent-hero[data-agent="nox"] { padding:10px 14px 10px 120px; } .agent-hero[data-agent="nox"] .portrait-wrap { right:auto; left:-6px; } .portrait-wrap,.portrait { width:120px; height:116px; } .hub { display:none; } .primary-nav { justify-content:flex-start; } .primary-nav button { font-size:15px; padding:8px 14px; } }
+/* ── 2. kolo porovnání s výřezem 1:1 (jen desktop; mobil má vlastní hlavičku) ── */
+@media(min-width:900px) {
+#masthead { padding-top:0; }
+.agent-hero { height:122px; margin-top:12px; border:2px solid color-mix(in srgb,var(--c) 90%,white 0%); box-shadow:0 0 22px color-mix(in srgb,var(--c) 55%,transparent),0 0 50px color-mix(in srgb,var(--c) 22%,transparent),inset 0 0 26px color-mix(in srgb,var(--c) 14%,transparent); background:linear-gradient(100deg,color-mix(in srgb,var(--c) 34%,#0B1230),rgba(8,13,34,.97) 58%); padding-left:168px; }
+.agent-hero[data-agent="nox"] { background:linear-gradient(260deg,color-mix(in srgb,var(--c) 34%,#0B1230),rgba(8,13,34,.97) 58%); padding-right:168px; padding-left:18px; }
+.portrait-wrap,.portrait { width:190px; height:182px; }
+.portrait-wrap { left:-14px; } .agent-hero[data-agent="nox"] .portrait-wrap { right:-14px; }
+.portrait { filter:drop-shadow(0 0 16px color-mix(in srgb,var(--c) 80%,transparent)) drop-shadow(0 0 4px color-mix(in srgb,var(--c) 60%,transparent)); }
+.halo { width:170px; height:140px; left:6px; opacity:.7; }
+.agent-name { font-size:31px; } .agent-hero .vendor-mark { width:30px; min-width:30px; height:26px; }
+.agent-vendor { font-size:17px; color:#F1F4FF; } .agent-role { font-size:15.5px; color:#DCE3F5; }
+.agent-state { font-size:17px; margin-top:6px; } .state-dot { width:13px; height:13px; }
+.agent-hero[data-state="limited"],.agent-hero[data-state="offline"],.agent-hero[data-state="unknown"] { filter:saturate(.6); }
+.hub { width:112px; height:112px; border-width:3px; box-shadow:0 0 30px rgba(146,59,255,.75),0 0 70px rgba(4,207,255,.25),inset 0 0 26px rgba(146,59,255,.35); }
+.hub svg { width:78px; height:40px; filter:drop-shadow(0 0 10px rgba(4,207,255,.7)); }
+#brand .mark,#brand .mark svg { width:92px; height:48px; } #brand .name { font-size:38px; }
+.mode-badge { font-size:15px; padding:10px 18px; border:2px solid rgba(146,59,255,.7); }
+.icon-btn .nav-ic { width:30px; height:30px; }
+/* navigace: položky za sebou s pravidelným rozestupem, svítící vlna */
+.primary-nav { justify-content:flex-start; gap:34px; padding:10px 0 26px; }
+.primary-nav button,.primary-nav a { font-size:20px; padding:10px 26px; min-height:52px; }
+.primary-nav .current { min-width:200px; justify-content:center; background:linear-gradient(135deg,#8A3BF0,#6A24D8); }
+.nav-ic { width:30px; height:30px; }
+.primary-nav::after { display:none; }
+.primary-nav::before { left:0; right:-24px; bottom:-4px; height:46px; background:none;
+  background-image:url("/assets/wave.svg"); background-size:100% 100%; background-repeat:no-repeat; }
+/* metriky: jasnější okraje a záře */
+.metric { border-width:2px!important; border-color:color-mix(in srgb,var(--t) 85%,transparent)!important; box-shadow:0 0 20px color-mix(in srgb,var(--t) 45%,transparent),inset 0 0 22px color-mix(in srgb,var(--t) 16%,transparent); }
+.metric-label { font-size:17px; font-weight:500; }
+@media(min-width:1100px) and (max-height:900px) {
+  .agent-hero { height:106px; width:380px; padding-left:146px; } .agent-hero[data-agent="nox"] { padding-right:146px; }
+  .portrait-wrap,.portrait { width:162px; height:158px; } .agent-vendor { font-size:15px; } .agent-role { font-size:14px; } .agent-state { font-size:15px; }
+  .hub { width:96px; height:96px; } .primary-nav { gap:20px; } .primary-nav button { font-size:17px; padding:8px 20px; min-height:44px; } .nav-ic { width:24px; height:24px; }
+}
+}
 .session-lost { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:50; max-width:min(720px,calc(100vw - 32px)); padding:12px 18px; border-radius:12px; border:1px solid #FF8A18; background:#2A1608; color:#FFE2C4; box-shadow:0 0 24px rgba(255,138,24,.35); font-size:14px; }
 /* ── Výraznější neon + Přehled na jednu obrazovku (Michal 21. 11.: „výrazné jako na obrázku, žádný scroll“) ── */
 body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),transparent 62%),radial-gradient(700px 400px at 0% 100%,rgba(4,207,255,.10),transparent 60%),radial-gradient(700px 400px at 100% 100%,rgba(146,59,255,.12),transparent 60%),#060B1C; }
@@ -1378,6 +1417,161 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
   .agent-name { font-size:22px; } .hub { width:76px; height:76px; } #brand .name { font-size:28px; }
   .metric { padding:10px 14px; } .metric-value { font-size:26px; } .metric-icon { width:40px; height:40px; } .metric-icon svg { width:34px; height:34px; }
   .primary-nav button { min-height:42px; padding:8px 18px; font-size:16px; }
+}
+/* ── Stránky Kvalita, Výzkum, Paměť, Nastavení podle předloh 01/03/04/06 (Michal 26. 11.) ── */
+i[data-ic] { display:inline-grid; place-items:center; flex:none; font-style:normal; }
+i[data-ic] svg { width:22px; height:22px; }
+.panel-title i[data-ic] { color:var(--cyan); filter:drop-shadow(0 0 6px rgba(4,207,255,.6)); }
+.pg-page { display:flex; flex-direction:column; gap:14px; padding-top:14px; }
+.metrics-row { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:18px; }
+.metrics-row .metric-value { font-size:26px; overflow-wrap:anywhere; } .metrics-row .metric-value.small { font-size:18px; margin-top:2px; }
+.pg { display:grid; gap:14px; grid-template-columns:minmax(0,1.05fr) minmax(0,1.6fr) minmax(0,1.05fr) minmax(0,.95fr); }
+.pg > .panel { min-height:0; overflow:hidden; display:flex; flex-direction:column; }
+.pg-list { grid-area:list; } .pg-main { grid-area:main; } .pg-side { grid-area:side; } .pg-side2 { grid-area:side2; } .pg-act { grid-area:act; }
+.pg-wide { grid-area:wide; } .pg-search { grid-area:search; } .pg-results { grid-area:results; } .pg-stop { grid-area:stop; } .pg-sec { grid-area:sec; } .pg-login { grid-area:login; }
+.pg-quality { grid-template-areas:"list main side act" "list wide wide act"; grid-template-rows:minmax(300px,auto) minmax(220px,auto); }
+.pg-research { grid-template-areas:"list main side act" "list main side2 act"; grid-template-rows:minmax(260px,auto) minmax(200px,auto); }
+.pg-memory { grid-template-areas:"list search side act" "list results side act"; grid-template-rows:auto minmax(380px,1fr); }
+.pg-settings { grid-template-columns:minmax(0,.7fr) minmax(0,1.35fr) minmax(0,1.35fr) minmax(0,1fr); grid-template-areas:"list main side act" "list stop side act" "list sec login act"; }
+.pg-scroll { overflow:auto; min-height:0; flex:1; }
+.pg .activity { overflow:auto; min-height:0; flex:1; }
+.h-sub { margin-left:auto; color:var(--text-dim); font-size:12.5px; text-align:right; }
+.panel-title .h-sub + .btn-new, .panel-title h2 + .btn-new { margin-left:auto; }
+.btn-new { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:6px 14px; border-radius:10px; border:0; background:var(--grad); color:#fff; font-size:14px; font-weight:600; box-shadow:0 0 14px rgba(146,59,255,.45); cursor:pointer; }
+.btn-new i[data-ic] svg { width:16px; height:16px; }
+.btn-new:hover { box-shadow:0 0 22px rgba(146,59,255,.7); }
+/* seznam vlevo (výzkumy, kontroly, projekty) */
+.pg-item { display:flex; gap:12px; width:100%; padding:12px 14px; margin-bottom:8px; border-radius:12px; border:1px solid var(--border-soft); background:rgba(16,27,56,.6); color:var(--text); text-align:left; cursor:pointer; font:inherit; }
+.pg-item:hover { border-color:rgba(146,59,255,.55); }
+.pg-item.on { border-color:rgba(255,138,24,.75); background:linear-gradient(120deg,rgba(255,138,24,.18),rgba(16,27,56,.7) 70%); box-shadow:0 0 16px rgba(255,138,24,.2); }
+.pg-item .pg-ic { color:var(--text-dim); } .pg-item.on .pg-ic { color:var(--ada); } .pg-item .pg-ic svg { width:26px; height:26px; }
+.pg-item-body { min-width:0; flex:1; display:flex; flex-direction:column; gap:3px; }
+.pg-item-title { font-weight:650; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.pg-item-sub { font-size:12.5px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pg-item-foot { display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap; }
+.pg-item-foot .bar { flex:1; min-width:60px; margin:0; } .pg-item.on .bar i { background:linear-gradient(90deg,#FF7A00,#FF8A18); box-shadow:0 0 8px rgba(255,138,24,.6); }
+.pg-item-foot b { font-variant-numeric:tabular-nums; font-size:13px; }
+.pg-item .count-pill { margin-left:auto; flex:none; color:var(--text); font-weight:600; font-size:13px; white-space:nowrap; }
+/* detail uprostřed */
+.pg-head { display:flex; align-items:flex-start; gap:10px; padding:14px 16px 6px; }
+.pg-head h2 { margin:0; font-size:18px; line-height:1.3; flex:1; min-width:0; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.pg-head i[data-ic] { color:var(--cyan); margin-top:2px; }
+.pill { flex:none; padding:3px 12px; border-radius:999px; font-size:12.5px; border:1px solid rgba(146,59,255,.7); background:rgba(146,59,255,.22); color:#E4D2FF; white-space:nowrap; }
+.pill.ok { border-color:rgba(0,231,121,.6); background:rgba(0,231,121,.14); color:#8AF7C2; } .pill.bad { border-color:rgba(255,90,110,.65); background:rgba(255,90,110,.14); color:var(--bad-text); } .pill.muted { border-color:var(--border); background:none; color:var(--text-dim); }
+.pg-desc { margin:0; padding:0 16px; color:var(--text-dim); font-size:13.5px; }
+.pg-progress { display:flex; align-items:center; gap:14px; margin:12px 16px 0; padding:12px 14px; border-radius:12px; background:rgba(16,27,56,.55); border:1px solid var(--border-soft); font-size:14px; }
+.pg-progress .bar { flex:1; height:9px; margin:0; } .pg-progress .bar i { background:var(--grad); box-shadow:0 0 10px rgba(146,59,255,.7); }
+.pg-progress b { font-size:16px; font-variant-numeric:tabular-nums; }
+.stepper { display:flex; justify-content:space-between; position:relative; margin:14px 16px 4px; padding:0 4px; list-style:none; }
+.stepper::before { content:""; position:absolute; left:8%; right:8%; top:14px; height:2px; background:rgba(120,150,255,.25); }
+.stepper li { position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim); text-align:center; min-width:0; }
+.stepper .node { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; border:2px solid #56628A; background:#0B1230; color:#06130C; font-weight:800; font-size:14px; }
+.stepper .done .node { background:var(--nox); border-color:var(--nox); box-shadow:0 0 10px rgba(0,231,121,.7); }
+.stepper .now .node { border-color:var(--purple); box-shadow:0 0 12px rgba(146,59,255,.85),inset 0 0 6px rgba(146,59,255,.6); }
+.stepper .fail .node { background:#FF5A6E; border-color:#FF5A6E; color:#fff; box-shadow:0 0 10px rgba(255,90,110,.7); }
+.stepper .warn .node { background:#FFB020; border-color:#FFB020; color:#231500; }
+.stepper .done,.stepper .now { color:var(--text); }
+.tabs { display:flex; flex-wrap:wrap; gap:6px; margin:12px 16px 0; padding:4px; border-radius:12px; background:rgba(16,27,56,.6); border:1px solid var(--border-soft); }
+.tabs button { flex:1; min-height:34px; border:0; border-radius:9px; background:none; color:var(--text-dim); font-size:13.5px; cursor:pointer; }
+.tabs button[aria-selected="true"] { background:var(--grad); color:#fff; box-shadow:0 0 12px rgba(146,59,255,.5); }
+.tab-body { padding:10px 16px; overflow:auto; min-height:0; flex:1; font-size:14px; }
+.tab-body .md p { margin:0 0 8px; } .tab-body .md h4 { margin:12px 0 6px; font-size:14px; color:var(--cyan); }
+.tab-body .md li { margin:0 0 4px; } .tab-body .md ul { margin:0 0 8px; padding-left:20px; }
+.tab-body code { font-size:12.5px; }
+.conclusion { margin:4px 16px 14px; padding:12px 14px; border-radius:12px; border:1.5px solid rgba(0,231,121,.65); background:rgba(0,231,121,.07); box-shadow:0 0 18px rgba(0,231,121,.18); font-size:14px; display:flex; gap:10px; }
+.conclusion i[data-ic] { color:var(--nox); } .conclusion b { color:#8AF7C2; display:block; }
+.conclusion.warn { border-color:rgba(255,176,32,.7); background:rgba(255,176,32,.07); box-shadow:0 0 18px rgba(255,176,32,.15); } .conclusion.warn i[data-ic],.conclusion.warn b { color:#FFD27A; }
+.pg-actions { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 14px; }
+.kv { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:0; font-size:13.5px; } .kv dt { color:var(--text-dim); } .kv dd { margin:0; overflow-wrap:anywhere; }
+/* odkazy, statistiky */
+.link-row { display:flex; align-items:center; gap:10px; padding:9px 12px; margin-bottom:8px; border-radius:10px; border:1px solid var(--border-soft); background:rgba(16,27,56,.55); color:var(--text); text-decoration:none; font-size:13.5px; }
+.link-row span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .link-row:hover { border-color:var(--cyan); }
+.stat-list { list-style:none; margin:0; padding:8px 16px 14px; display:flex; flex-direction:column; gap:4px; }
+.stat-list li { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border-soft); font-size:14px; } .stat-list li:last-child { border-bottom:0; }
+.stat-list b { margin-left:auto; font-variant-numeric:tabular-nums; }
+.st-dot { width:18px; height:18px; flex:none; border-radius:50%; display:grid; place-items:center; font-size:11px; font-weight:800; border:1.5px solid #8B96B8; color:#8B96B8; }
+.st-dot.ok { background:var(--nox); border-color:var(--nox); color:#06130C; box-shadow:0 0 8px rgba(0,231,121,.6); }
+.st-dot.bad { background:#FF5A6E; border-color:#FF5A6E; color:#fff; } .st-dot.warn { border-color:#FFB020; color:#FFB020; } .st-dot.work { border-color:var(--purple); color:#C9A2FF; }
+/* review s akcemi */
+.rv-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-soft); font-size:14px; } .rv-row:last-child { border-bottom:0; }
+.rv-main { flex:1; min-width:0; } .rv-main b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .rv-main span { font-size:12.5px; color:var(--text-dim); }
+.rv-row .btn { flex:none; min-height:32px; padding:4px 12px; font-size:13px; }
+/* paměť */
+.kb-search { display:flex; align-items:center; gap:10px; padding:0 14px; border-radius:999px; border:1.5px solid rgba(146,59,255,.7); background:rgba(16,27,56,.7); box-shadow:0 0 14px rgba(146,59,255,.25); }
+.kb-search input { flex:1; border:0; background:none; min-height:44px; color:var(--text); font-size:15px; outline:none; } .kb-search:focus-within { box-shadow:0 0 0 2px var(--cyan),0 0 18px rgba(4,207,255,.35); }
+.kb-search i[data-ic] { color:var(--text-dim); }
+.kb-chips { padding:10px 0 0; }
+.kb-row { display:flex; align-items:center; gap:10px; width:100%; padding:10px 4px; border:0; border-bottom:1px solid var(--border-soft); background:none; color:var(--text); text-align:left; font:inherit; font-size:14px; cursor:pointer; }
+.kb-row:hover,.kb-row.on { background:rgba(146,59,255,.1); } .kb-row .task-text { flex:1; }
+.kb-row time { flex:none; font-size:12.5px; color:var(--text-dim); }
+.kb-proj { flex:none; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:2px 10px; border-radius:8px; font-size:12px; border:1px solid rgba(255,138,24,.6); color:#FFC08A; background:rgba(255,138,24,.1); }
+.kb-detail dl { display:grid; gap:4px; margin:0 0 12px; } .kb-detail dt { color:var(--cyan); font-size:12.5px; margin-top:8px; } .kb-detail dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; }
+.pg-dialog { max-width:min(560px,calc(100vw - 32px)); width:100%; border:1px solid rgba(146,59,255,.6); border-radius:16px; background:#0D1633; color:var(--text); box-shadow:0 0 40px rgba(146,59,255,.35); padding:20px; }
+.pg-dialog::backdrop { background:rgba(3,6,18,.7); }
+.pg-dialog h2 { margin:0 0 12px; font-size:18px; } .pg-dialog .kb-form { display:flex; flex-direction:column; gap:10px; }
+.pg-dialog label { display:flex; flex-direction:column; gap:4px; font-size:13.5px; color:var(--text-dim); }
+.pg-dialog .btns { display:flex; justify-content:flex-end; gap:8px; }
+/* nastavení */
+.set-nav a { display:flex; align-items:center; gap:12px; margin:6px 10px 0; padding:11px 14px; border-radius:12px; color:var(--text); text-decoration:none; font-size:15px; border:1px solid transparent; }
+.set-nav a:hover { border-color:rgba(146,59,255,.5); background:rgba(146,59,255,.1); }
+.set-nav a.on { background:var(--grad); box-shadow:0 0 16px rgba(146,59,255,.5); }
+.set-nav a i[data-ic] { color:var(--text-dim); } .set-nav a.on i[data-ic] { color:#fff; }
+.set-agent { display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-soft); } .set-agent:last-child { border-bottom:0; }
+.set-agent img { width:58px; height:58px; border-radius:50%; object-fit:cover; object-position:top; border:2px solid var(--c); box-shadow:0 0 12px color-mix(in srgb,var(--c) 60%,transparent); flex:none; }
+.set-agent[data-agent="ada"] { --c:var(--ada); } .set-agent[data-agent="nox"] { --c:var(--nox); }
+.set-agent-body { flex:1; min-width:0; } .set-agent-body b { font-size:16px; } .set-agent-body p { margin:2px 0 0; font-size:13px; color:var(--text-dim); overflow-wrap:anywhere; }
+.set-agent .tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.pg-settings .mode-grid { display:flex; flex-direction:column; gap:8px; }
+.pg-settings .mode-card { text-align:left; padding:10px 14px; } .pg-settings .mode-card h3 { margin:0 0 4px; font-size:14.5px; } .pg-settings .mode-card ul { margin:0; padding-left:18px; font-size:12.5px; color:var(--text-dim); }
+.pg-settings .mode-card[aria-checked="true"] { border-color:var(--purple); box-shadow:0 0 16px rgba(146,59,255,.5); background:rgba(146,59,255,.14); }
+.stop-box { display:flex; align-items:center; gap:14px; flex-wrap:wrap; } .stop-box p { margin:0; flex:1; min-width:200px; font-size:14px; }
+.stop-box .btn.danger { border-color:#FF5A6E; color:#FFD0D6; background:rgba(255,90,110,.14); }
+.pg-login p { margin:0 0 8px; font-size:14px; }
+@media(max-width:1500px) { .metrics-row { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } }
+@media(max-width:1280px) {
+  .pg { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:none!important; }
+  .pg-quality { grid-template-areas:"list main" "side wide" "act act"; }
+  .pg-research { grid-template-areas:"list main" "side side2" "act act"; }
+  .pg-memory { grid-template-areas:"search search" "list results" "side side" "act act"; }
+  .pg-settings { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:"list main" "side stop" "sec login" "act act"; }
+  .pg > .panel { max-height:640px; }
+}
+@media(max-width:899px) {
+  .metrics-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .pg,.pg-settings { grid-template-columns:1fr; }
+  .pg-quality { grid-template-areas:"list" "main" "side" "wide" "act"; }
+  .pg-research { grid-template-areas:"list" "main" "side" "side2" "act"; }
+  .pg-memory { grid-template-areas:"search" "results" "side" "list" "act"; }
+  .pg-settings { grid-template-areas:"main" "side" "stop" "sec" "login" "act"; } .set-nav { display:none!important; }
+  .stepper li { font-size:11px; } .stepper .node { width:24px; height:24px; }
+}
+@media(min-width:1281px) and (min-height:860px) {
+  .pg-page:not([hidden]) { overflow:hidden; }
+  .pg { flex:1; min-height:0; } .pg-quality,.pg-research { grid-template-rows:minmax(0,1.2fr) minmax(0,1fr); } .pg-memory { grid-template-rows:auto minmax(0,1fr); }
+  .pg-settings { grid-template-rows:minmax(0,1.1fr) minmax(0,.7fr) minmax(0,.9fr); }
+}
+.act-initial { display:grid; place-items:center; background:var(--grad); color:#fff; font-weight:700; border-color:var(--purple)!important; }
+.qg-req { margin:0 12px 12px; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,176,32,.5); background:rgba(255,176,32,.07); font-size:13px; } .qg-req ul { margin:4px 0 0; padding-left:18px; }
+.qg-kv { margin:10px 16px; } #qgProjectDetail .qg-check-grid { margin:0 16px 12px; } #qgProjectDetail .detail-section { margin:0 16px 12px; }
+.ic { width:20px; height:20px; flex:none; }
+.pg-head .ic { width:24px; height:24px; color:var(--cyan); margin-top:2px; } .link-row .ic { width:18px; height:18px; color:var(--cyan); flex:none; }
+.conclusion .ic { width:22px; height:22px; color:var(--nox); flex:none; } .conclusion.warn .ic { color:#FFD27A; }
+.btn-new { white-space:nowrap; flex:none; } .panel-title h2 { min-width:0; }
+.kb-search { width:100%; box-sizing:border-box; }
+.mode-dot { display:inline-block; width:10px; height:10px; margin-right:8px; border-radius:50%; vertical-align:1px; }
+.mode-dot.basic { background:var(--nox); box-shadow:0 0 8px var(--nox); } .mode-dot.intelligent { background:var(--cyan); box-shadow:0 0 8px var(--cyan); } .mode-dot.autonomous { background:var(--purple); box-shadow:0 0 8px var(--purple); }
+.pg-settings .mode-card ul { display:none; } .pg-settings .mode-card[aria-checked="true"] ul { display:block; }
+.pg-progress .h-sub { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media(min-width:1281px) and (min-height:860px) { .pg-settings { grid-template-rows:minmax(0,1.15fr) minmax(0,.75fr) minmax(0,1fr); } .pg-sec .check-list { overflow:auto; min-height:0; } }
+.pg > .panel { max-height:640px; }
+@media(min-width:1281px) and (min-height:860px) { .pg > .panel { max-height:none; } }
+@media(min-width:1100px) and (min-height:680px) { .metrics-row { grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; } }
+@media(min-width:1100px) and (max-width:1500px) { .metrics-row .metric { padding:10px 12px; gap:10px; } .metrics-row .metric-label { font-size:13px; } .metrics-row .metric-value { font-size:22px; } .metrics-row .metric-value.small { font-size:15px; } .metrics-row .metric-icon { width:34px; height:34px; } .metrics-row .metric-icon svg { width:28px; height:28px; } }
+@media(max-width:599px) {
+  #masthead { grid-template-columns:minmax(0,1fr)!important; grid-template-areas:"brand" "tools" "heroes" "nav" "pause"!important; }
+  #brand .name { font-size:28px; } #brand .sub { display:none; } #brand .mark,#brand .mark svg { width:56px; height:30px; }
+  .metric,.metrics-row .metric { padding:10px; gap:8px; } .metric-icon,.metrics-row .metric-icon { width:32px; height:32px; } .metric-icon svg,.metrics-row .metric-icon svg { width:26px; height:26px; }
+  .metric-label { font-size:12.5px; white-space:normal; overflow:visible; text-overflow:clip; } .metric-value { font-size:22px; }
 }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
@@ -1452,18 +1646,49 @@ body { background:radial-gradient(900px 420px at 50% -6%,rgba(146,59,255,.30),tr
     </aside>
   </div>
 </div>
-  <section id="qualityPage" class="view-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><div class="view-header"><div><h2 id="qualityTitle" class="view-title" tabindex="-1"><svg class="qg-shield" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8 12 3 3 5-6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg> Quality Gate</h2><p class="view-subtitle">Kvalita práce napříč repozitáři</p></div><div class="qg-actions"><span class="qg-mode" data-qg-mode></span><button class="btn" data-qg-demo aria-pressed="false">Zobrazit demo</button><button class="btn" data-view="overview">Zpět do místnosti</button></div></div><p class="qg-demo-note">Přehled kontrol pro konkrétní commity. Demo obsahuje pouze ukázková data.</p><div class="qg-page-stats"><p>Kontrolované repozitáře: <strong id="qgRepoCount">—</strong><br>Poslední kontrola: <strong id="qgLastCheck">Není známá</strong></p><div class="qg-summary" id="qgPageSummary"></div></div><div id="qgRequests" role="status"></div><div class="qg-page-grid"><section class="panel"><div class="panel-title"><h2>Výsledky projektů</h2></div><div class="panel-body" id="qgProjectTable"></div></section><section class="panel"><div class="panel-title"><h2 id="qgProjectTitle" tabindex="-1">Detail repozitáře</h2></div><div class="panel-body" id="qgProjectDetail"></div></section></div></section>
+  <section id="qualityPage" class="view-page pg-page" data-view-panel="quality" hidden aria-labelledby="qualityTitle"><h2 id="qualityTitle" class="view-title sr-only" tabindex="-1">Kvalita</h2>
+    <div class="metrics-row" id="qgMetrics"></div>
+    <div class="pg pg-quality">
+      <section class="panel pg-list"><div class="panel-title"><i data-ic="doc"></i><h2>Kontroly kvality <span class="h-count" id="qgRepoCount"></span></h2></div><div class="chips" id="qgChips" role="group" aria-label="Filtr kontrol"></div><div class="panel-body pg-scroll" id="qgProjectTable"></div><div id="qgRequests" role="status"></div></section>
+      <section class="panel pg-main"><div class="panel-title"><i data-ic="shield"></i><h2 id="qgProjectTitle" tabindex="-1">Detail kontroly</h2><span class="h-sub" id="qgLastCheck"></span></div><div class="panel-body pg-scroll" id="qgProjectDetail"></div></section>
+      <section class="panel pg-side"><div class="panel-title"><i data-ic="review"></i><h2>Stav review</h2></div><ul class="stat-list" id="qgReviewStats"></ul></section>
+      <section class="panel pg-wide"><div class="panel-title"><i data-ic="review"></i><h2>Otevřená review <span class="h-count" id="qgOpenCount"></span></h2><span class="h-sub">Zavřít smí jen člověk nebo autor po schválení</span></div><div class="panel-body pg-scroll" id="qgOpenReviews"></div></section>
+      <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita agentů</h2></div><ol class="activity" data-activity="agents"></ol></aside>
+    </div></section>
   <section class="view-page" data-view-panel="catalog" hidden aria-labelledby="catalogTitle"><div class="view-header"><div><h2 id="catalogTitle" class="view-title" tabindex="-1">Katalog schopností</h2><p class="view-subtitle">Fáze D. Koncept: aplikace zatím nemá data ani API katalogu, proto zde nic není živé ani klikací.</p></div><button class="btn" data-view="overview">Zpět na přehled</button></div>
     <div class="concept-grid"><section class="panel concept"><div class="panel-title"><h2>Co katalog bude umět</h2><span class="concept-badge">koncept</span></div><div class="panel-body"><ul class="concept-list"><li>Seznam schopností Ady a Noxe: nástroje, skilly, MCP servery.</li><li>U každé položky účel, vstupy a výstupy, závislosti, testy a dokumentace.</li><li>Kompatibilita s Adou a Noxem jen ověřená, nikdy automaticky „oba“.</li><li>Výběr krátkého seznamu nástrojů k úkolu, aby agent nemusel číst celý inventář.</li></ul></div></section>
     <section class="panel concept"><div class="panel-title"><h2>Kde jsou data dnes</h2><span class="concept-badge">jen dokument</span></div><div class="panel-body"><p class="note">Inventura z 19. 11. 2026 je v repozitáři jako dokument:</p><ul class="concept-list mono"><li>docs/research/2026-11-19-d-capabilities-ada.md</li><li>docs/research/2026-11-19-d-capabilities-nox.md</li></ul><p class="note">Napojení na aplikaci je samostatná změna s vlastním schválením.</p></div></section></div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
-  <section class="view-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><div class="view-header"><div><h2 id="researchTitle" class="view-title" tabindex="-1">Výzkumný tým</h2><p class="view-subtitle">Části běží izolovaně jen pro čtení, pak jedna syntéza. Zjištění jsou neověřená, dokud je někdo nepotvrdí v paměti.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
-    <section class="panel"><div class="panel-body"><div id="rsList" role="status">Načítám…</div></div></section></section>
-  <section class="view-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><div class="view-header"><div><h2 id="memoryTitle" class="view-title" tabindex="-1">Sdílená paměť</h2><p class="view-subtitle">Příznak → příčina → řešení. Za fakt platí jen ověřené záznamy, ostatní jsou tipy ke kontrole.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
-    <div class="kb-grid"><section class="panel"><div class="panel-title"><h2>Záznamy</h2></div><div class="panel-body"><div class="kb-tools"><label class="search"><span class="sr-only">Hledat v paměti</span><input id="kbQuery" type="search" placeholder="Hledat příznak, chybu, příčinu…"></label><select id="kbStatus" aria-label="Stav"><option value="">Všechny stavy</option><option value="verified">Ověřené</option><option value="unverified">Neověřené</option><option value="rejected">Zamítnuté</option><option value="stale">Zastaralé</option></select></div><div id="kbList" role="status">Načítám…</div></div></section>
-    <section class="panel"><div class="panel-title"><h2>Nový záznam</h2></div><div class="panel-body kb-form"><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000"></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200"></label><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><button class="btn detail" id="kbAdd" type="button">Uložit jako neověřené</button><p class="note">Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p></div></section></div></section>
-  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><div class="view-header"><div><h2 id="settingsTitle" class="view-title" tabindex="-1">Provozní režim</h2><p class="view-subtitle">Jak samostatně Ada a Nox pracují. Přepnout smí jen člověk tady na webu. Základní bezpečnost a 🛑 nouzové zastavení platí vždy.</p></div><button class="btn" data-view="overview">Zpět do místnosti</button></div>
-    <div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></section>
+  <section class="view-page pg-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><h2 id="researchTitle" class="view-title sr-only" tabindex="-1">Výzkum</h2>
+    <div class="metrics-row" id="rsMetrics"></div>
+    <div class="pg pg-research">
+      <section class="panel pg-list"><div class="panel-title"><i data-ic="target"></i><h2>Výzkumné úkoly</h2><button class="btn-new" type="button" id="rsNew"><i data-ic="plus"></i>Nový výzkum</button></div><div class="chips" id="rsChips" role="group" aria-label="Filtr výzkumů"></div><div class="panel-body pg-scroll" id="rsList" role="status">Načítám…</div></section>
+      <section class="panel pg-main" id="rsDetail"><div class="empty">Vyber výzkum ze seznamu.</div></section>
+      <section class="panel pg-side"><div class="panel-title"><i data-ic="layers"></i><h2>Části výzkumu <span class="h-count" id="rsPartsCount"></span></h2></div><ul class="dash-list pg-scroll" id="rsParts"></ul></section>
+      <section class="panel pg-side2"><div class="panel-title"><i data-ic="link"></i><h2>Citace a odkazy</h2></div><div class="panel-body pg-scroll" id="rsLinks"></div></section>
+      <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita agentů</h2></div><ol class="activity" data-activity="agents"></ol></aside>
+    </div></section>
+  <section class="view-page pg-page" data-view-panel="memory" hidden aria-labelledby="memoryTitle"><h2 id="memoryTitle" class="view-title sr-only" tabindex="-1">Paměť</h2>
+    <div class="metrics-row" id="kbMetrics"></div>
+    <div class="pg pg-memory">
+      <section class="panel pg-list"><div class="panel-title"><i data-ic="folder"></i><h2>Projektová paměť</h2><button class="btn-new" type="button" id="kbNew"><i data-ic="plus"></i>Nová položka</button></div><div class="panel-body pg-scroll" id="kbProjects"></div></section>
+      <section class="panel pg-search"><div class="panel-title"><i data-ic="search"></i><h2>Vyhledat v paměti</h2></div><div class="panel-body"><label class="kb-search"><span class="sr-only">Hledat v paměti</span><i data-ic="search"></i><input id="kbQuery" type="search" placeholder="Hledej příznak, chybu, příčinu nebo řešení…"></label><div class="chips kb-chips" id="kbStatus" role="group" aria-label="Stav záznamu"></div></div></section>
+      <section class="panel pg-results"><div class="panel-title"><i data-ic="doc"></i><h2>Záznamy <span class="h-count" id="kbCount"></span></h2><span class="h-sub" id="kbScope"></span></div><div class="panel-body pg-scroll" id="kbList" role="status">Načítám…</div></section>
+      <section class="panel pg-side" id="kbDetailPanel"><div class="panel-title"><i data-ic="flag"></i><h2 id="kbDetailTitle">Detail záznamu</h2></div><div class="panel-body pg-scroll" id="kbDetail"></div></section>
+      <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita v paměti</h2></div><ol class="activity" id="kbActivity"></ol></aside>
+    </div>
+    <dialog id="kbDialog" class="pg-dialog" aria-labelledby="kbDialogTitle"><form method="dialog" class="kb-form"><h2 id="kbDialogTitle">Nový poznatek</h2><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000" required></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200" list="kbProjectList"></label><datalist id="kbProjectList"></datalist><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><p class="note">Uloží se jako neověřené. Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p><div class="btns"><button class="btn" value="cancel" formnovalidate>Zrušit</button><button class="btn detail" id="kbAdd" type="button">Uložit</button></div></form></dialog></section>
+  <section class="view-page pg-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><h2 id="settingsTitle" class="view-title sr-only" tabindex="-1">Nastavení</h2>
+    <div class="metrics-row" id="setMetrics"></div>
+    <div class="pg pg-settings">
+      <nav class="panel pg-list set-nav" aria-label="Části nastavení"><div class="panel-title"><i data-ic="gear"></i><h2>Nastavení</h2></div><a href="#setAgents"><i data-ic="users"></i>Agenti</a><a href="#setMode"><i data-ic="sliders"></i>Provozní režim</a><a href="#setStop"><i data-ic="stop"></i>Nouzové zastavení</a><a href="#setSecurity"><i data-ic="shield"></i>Bezpečnost</a><a href="#setLogin"><i data-ic="lock"></i>Přihlášení</a></nav>
+      <section class="panel pg-main" id="setAgents"><div class="panel-title"><i data-ic="users"></i><h2>Konfigurace agentů</h2></div><div class="panel-body" id="setAgentList"></div></section>
+      <section class="panel pg-side" id="setMode"><div class="panel-title"><i data-ic="sliders"></i><h2>Provozní režim</h2></div><div class="panel-body"><div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></div></section>
+      <section class="panel pg-stop" id="setStop"><div class="panel-title"><i data-ic="stop"></i><h2>Nouzové zastavení</h2></div><div class="panel-body" id="setStopBody"></div></section>
+      <section class="panel pg-sec" id="setSecurity"><div class="panel-title"><i data-ic="shield"></i><h2>Bezpečnost</h2><span class="tag ok">platí vždy</span></div><ul class="check-list"><li>Web poslouchá jen na tomto počítači (loopback), zvenku není dostupný.</li><li>Přihlášení jednorázovým tokenem, potom cookie nedostupná skriptům.</li><li>Každá akce z webu se zapisuje do historie i s důvodem.</li><li>Review kontroluje tajné údaje a autor nikdy neschvaluje vlastní práci.</li><li>Nejvýš 3 kola oprav, pak rozhoduješ ty.</li></ul></section>
+      <section class="panel pg-login" id="setLogin"><div class="panel-title"><i data-ic="lock"></i><h2>Přihlášení do webu</h2></div><div class="panel-body"><p>Web běží pořád jako služba <code>agent-lease-web</code> na <code>http://localhost:8765</code>.</p><p>Přihlášení platí <strong>7 dní</strong>. Po odhlášení stačí ikona <strong>Agent Lease</strong> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></section>
+      <aside class="panel pg-act"><div class="panel-title"><i data-ic="clock"></i><h2>Poslední řídicí aktivita</h2></div><ol class="activity" id="setActivity"></ol></aside>
+    </div></section>
 </div>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
@@ -2117,7 +2342,8 @@ function renderRoom(r) {
   renderReviews(r.reviews);
   if (Array.isArray(r.reviews)) latestReviews = r.reviews;
   if (Array.isArray(r.reviews_all)) { latestReviewsAll = r.reviews_all; renderProjects(r.reviews_all); }
-  if (r.mode && r.mode.mode) document.getElementById("modeText").textContent = "Režim: " + ({basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"}[r.mode.mode] || r.mode.mode);
+  if (r.mode && r.mode.mode) renderMode(r.mode);
+  if (Array.isArray(r.claims)) latestClaims = r.claims;
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
   renderingRoom = false;
@@ -2145,6 +2371,7 @@ function renderRoom(r) {
   const list = [...names].sort((a, b) => (NAMES[a] ? 0 : 1) - (NAMES[b] ? 0 : 1) || a.localeCompare(b));
   if (list.join() !== knownAgents.join()) { knownAgents = list; fillRecipients(); }
   refreshDashboard();
+  renderPages();
   historyReady = true;
 }
 
@@ -2270,15 +2497,6 @@ const QG_STATUS = {
 };
 const QG_CHECKS = [["tests","Testy"],["lint","Lint"],["typecheck","Type check"],["build","Build"],["coverage","Coverage"],["security","Security"],["crap","CRAP score"]];
 const QG_SUMMARY = ["PASS","REVIEW","FAIL","NA","SETUP_REQUIRED"];
-const demoChecks = (status,detail) => Object.fromEntries(QG_CHECKS.map(([key])=>[key,{status,detail}]));
-const QG_DEMO = [
-  {repository:"demo/agent-lease",branch:"demo/ui",commit_sha:"a".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T12:00:00Z",overall_status:"PASS",checks:demoChecks("PASS","Ukázka: kontrola prošla. Žádný nástroj se nespustil."),logs:[],reviewer:"Ada (ukázka)",review_status:"Schváleno — ukázka",history:[{timestamp:"2026-11-05T12:00:00Z",status:"REVIEW",note:"Demonstrační starší záznam."}]},
-  {repository:"demo/frontend-s-velmi-dlouhym-nazvem-repozitare-pro-overeni-responzivni-tabulky",branch:"demo/coverage",commit_sha:"b".repeat(40),agent:"Ada (ukázka)",timestamp:"2026-11-06T11:00:00Z",overall_status:"REVIEW",checks:{...demoChecks("PASS","Ukázkový výsledek."),coverage:{status:"REVIEW",value:"72 % (demo)",detail:"Ukázka: coverage vyžaduje kontrolu; nejde o skutečnou metriku."}},logs:[],reviewer:"Nox (ukázka)",review_status:"Čeká na nezávislé review — ukázka"},
-  {repository:"demo/build-failure",branch:"demo/build",commit_sha:"c".repeat(40),agent:"Nox (ukázka)",timestamp:"2026-11-06T10:00:00Z",overall_status:"FAIL",checks:{...demoChecks("PASS","Ukázkový výsledek."),build:{status:"FAIL",detail:"Ukázka: build selhal."},security:{status:"FAIL",detail:"Ukázka bezpečnostního nálezu; neobsahuje skutečná tajemství."}},logs:[],reviewer:null,review_status:null},
-  {repository:"demo/no-applicable-metrics",branch:null,commit_sha:null,agent:null,timestamp:null,overall_status:"NA",checks:demoChecks("NA","Ukázka: tato kontrola není použitelná."),logs:[]},
-  {repository:"demo/setup-required",branch:"demo/setup",commit_sha:null,agent:null,timestamp:null,overall_status:"SETUP_REQUIRED",checks:demoChecks("NOT_RUN","Ukázka: nejprve je třeba nastavit kontroly."),logs:[]},
-  {repository:"demo/not-run",branch:"demo/pending",commit_sha:null,agent:null,timestamp:null,overall_status:"NOT_RUN",checks:demoChecks("NOT_RUN","Ukázka: kontrola ještě neproběhla."),logs:[]},
-];
 let qgDemo = false;
 let qgRecords = null;
 let qgRequests = [];
@@ -2303,111 +2521,404 @@ function qgTable(records,{compact=false}={}) {
     + (records.length ? records.map((r,i)=>`<tr><th scope="row"><button type="button" class="qg-repo" data-qg-project="${i}">${esc(r.repository)}</button>${compact ? "" : `<span class="qg-branch">${esc(r.branch || "Větev není uvedená")}</span>`}</th>${compact ? "" : `<td class="path">${esc(r.commit_sha ? r.commit_sha.slice(0,10) : "Neuveden")}</td><td>${esc(r.agent || "Neuveden")}</td><td>${esc(qgDate(r.timestamp))}</td>`}${QG_CHECKS.map(([key])=>`<td>${qgBadge(r.checks?.[key]?.status || "NOT_RUN")}</td>`).join("")}<td>${qgBadge(r.overall_status)}</td></tr>`).join("") : `<tr><td colspan="${headers.length}" class="qg-empty">Dosud bez výsledků. Pro tyto repozitáře není zaznamenaný běh kontrol.</td></tr>`)
     + `</tbody></table></div>`;
 }
+// ── Stránky Kvalita, Výzkum, Paměť, Nastavení (předlohy 01/03/04/06, jen skutečná data) ──
+const IC = {
+  search:'<circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/>',
+  layers:'<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',
+  flask:'<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/>',
+  check:'<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  bookmark:'<path d="M6 3h12v18l-6-4-6 4z"/>',
+  bars:'<path d="M5 20V12M10 20V8M15 20v-6M20 20V4"/>',
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  doc:'<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h5"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  pulse:'<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+  shield:'<path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  star:'<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  alert:'<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/>',
+  db:'<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  network:'<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M12 11.5 6.5 17M12 11.5l5.5 5.5"/>',
+  flag:'<path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+  users:'<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2 .8 3 2.7 3 6"/>',
+  lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  stop:'<circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9z"/>',
+  sliders:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  cube:'<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  review:'<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6H12a4 4 0 0 1 4 4v-.5"/>',
+  bridge:'<path d="M3 17h18M5 17V9M19 17V9M5 9c4 4 10 4 14 0"/>',
+};
+function icon(n) { return `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ""}</svg>`; }
+function paintIcons(root = document) {
+  root.querySelectorAll("i[data-ic]:not([data-painted])").forEach(i => { i.innerHTML = icon(i.dataset.ic); i.dataset.painted = "1"; i.setAttribute("aria-hidden", "true"); });
+}
+paintIcons();
+function metricsRow(id, items) {
+  setHTMLIfChanged(document.getElementById(id), items.map(([label, value, ic, tone, title]) =>
+    `<div class="metric" data-tone-card="${tone}"${title ? ` title="${esc(title)}"` : ""}><span class="metric-icon" aria-hidden="true">${icon(ic)}</span><div><div class="metric-label">${esc(label)}</div><div class="metric-value${String(value).length > 7 ? " small" : ""}">${esc(value)}</div></div></div>`).join(""));
+}
+function when(t) {
+  if (t === null || t === undefined || t === "") return "";
+  const d = typeof t === "number" ? new Date(t * 1000) : new Date(t);
+  if (isNaN(d)) return "";
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), today = day(new Date());
+  const hm = d.toLocaleTimeString("cs-CZ", {hour: "2-digit", minute: "2-digit"});
+  return day(d) === today ? "Dnes " + hm : day(d) === today - 86400000 ? "Včera " + hm : d.toLocaleDateString("cs-CZ", {day: "numeric", month: "numeric"}) + " " + hm;
+}
+function agentKey(a) { return a === "claude-code" || a === "claude-code-bridge" ? "ada" : a === "codex" || a === "codex-bridge" ? "nox" : ""; }
+function whoBadge(a) { const k = agentKey(a); return `<span class="who-badge ${k || "other"}">${esc(k === "ada" ? "Ada" : k === "nox" ? "Nox" : nameOf(a))}</span>`; }
+function actItem(agent, t, text) {
+  const k = agentKey(agent), plain = String(text || "").replace(/[*`]/g, "");
+  const face = k ? `<img class="act-portrait" src="/assets/${k}.webp" alt="">` : `<span class="act-portrait act-initial" aria-hidden="true">${esc(initial(agent))}</span>`;
+  return `<li class="act" data-agent="${k || "human"}">${face}<div class="act-body"><div class="act-head"><b>${esc(k === "ada" ? "Ada" : k === "nox" ? "Nox" : nameOf(agent))}</b><time>${esc(when(t))}</time></div><p>${esc(plain.slice(0, 140))}${plain.length > 140 ? "…" : ""}</p></div></li>`;
+}
+function chipsHTML(items, current, attr) {
+  return items.map(([id, label]) => `<button type="button" class="chip${id === current ? " on" : ""}" ${attr}="${esc(id)}" aria-pressed="${id === current}">${esc(label)}</button>`).join("");
+}
+const STEP_SR = {done: "hotovo", now: "probíhá", fail: "selhalo", warn: "vyžaduje kontrolu", "": "čeká"};
+function stepperHTML(steps) {
+  return `<ol class="stepper">${steps.map(([label, s]) => `<li class="${s}"><span class="node" aria-hidden="true">${s === "done" ? "✓" : s === "fail" ? "✕" : s === "warn" ? "!" : ""}</span>${esc(label)}<span class="sr-only">: ${STEP_SR[s] || s}</span></li>`).join("")}</ol>`;
+}
+function inlineMd(s) { return esc(s).replace(/[*][*](.+?)[*][*]/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>"); }
+function mdLite(text) {
+  const out = []; let list = false;
+  for (const raw of String(text || "").split(String.fromCharCode(10))) {
+    const line = raw.trimEnd(), li = /^[ ]*(?:[-*•]|[0-9]+[.)])[ ]+(.*)/.exec(line);
+    if (li) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${inlineMd(li[1])}</li>`); continue; }
+    if (list) { out.push("</ul>"); list = false; }
+    if (!line.trim()) continue;
+    const h = /^#{1,6}[ ]+(.*)/.exec(line);
+    out.push(h ? `<h4>${inlineMd(h[1])}</h4>` : `<p>${inlineMd(line)}</p>`);
+  }
+  if (list) out.push("</ul>");
+  return `<div class="md">${out.join("")}</div>`;
+}
+function renderPageActivity() {
+  const items = historyMessages().filter(m => agentKey(m.agent) && !isSystem(m)).slice(-8).reverse();
+  const html = items.length ? items.map(m => actItem(m.agent, Date.now() / 1000 - (m.seconds_ago || 0), m.text)).join("") : "<li class='empty'>Čekám na zprávy Ady a Noxe.</li>";
+  document.querySelectorAll('[data-activity="agents"]').forEach(el => setHTMLIfChanged(el, html));
+}
+function renderPages() {
+  if (currentView === "quality") renderQualityGate();
+  else if (currentView === "research") renderResearchPage();
+  else if (currentView === "memory") renderMemoryPage();
+  else if (currentView === "settings") renderSettings();
+  if (["quality", "research"].includes(currentView)) renderPageActivity();
+}
+
+// ── Kvalita ──
+let qgFilter = "all";
+const QG_OPEN = s => ["REVIEW", "SETUP_REQUIRED"].includes(s);
+function qgLatest() {
+  const seen = new Set();
+  return (qgRecords || []).filter(r => !seen.has(r.repository) && seen.add(r.repository));
+}
 function renderQualityGate() {
-  const records = qgDemo ? QG_DEMO : (qgRecords || []);
-  document.querySelectorAll("[data-qg-mode]").forEach(el=>{el.textContent=qgDemo ? "DEMO · pouze ukázková data" : qgRecords === null ? "Výsledky nejsou dostupné" : "Zaznamenané běhy kontrol";});
-  document.querySelectorAll("[data-qg-demo]").forEach(b=>{b.textContent=qgDemo ? "Vypnout demo" : "Zobrazit demo";b.setAttribute("aria-pressed",String(qgDemo));});
-  document.getElementById("qgCompactSummary").innerHTML=qgSummary(records);
-  document.getElementById("qgPageSummary").innerHTML=qgSummary(records);
-  document.querySelectorAll("[data-qg-state]").forEach(el=>{el.title=QG_STATUS[el.dataset.qgState].meaning;});
-  document.getElementById("qgRepoCount").textContent=qgDemo || qgRecords !== null ? records.length : "—";
-  document.getElementById("qgLastCheck").textContent=records.length ? (qgDemo ? "Ukázka: " : "") + qgDate(records[0].timestamp) : "Není známá";
-  document.getElementById("qgCompactTable").innerHTML=qgTable(records,{compact:true});
-  document.getElementById("qgProjectTable").innerHTML=qgTable(records);
-  document.querySelectorAll("[data-qg-project]").forEach(b=>b.onclick=()=>{const record=records[Number(b.dataset.qgProject)];qgSelected=qgDemo ? record.repository : record.run_id;showView("quality");renderQualityProject();document.getElementById("qgProjectTitle").focus({preventScroll:true});});
-  const pending = qgDemo ? [] : qgRequests.filter(request=>request.state !== "completed").slice(0,10);
-  const requestLabels = {queued:"Čeká ve frontě",running:"Kontroly běží",refused:"Je potřeba nastavení",interrupted:"Běh byl přerušen"};
-  document.getElementById("qgRequests").innerHTML = pending.length ? `<div class="card"><h3>Požadavky na kontrolu</h3><ul>${pending.map(request=>`<li>${esc(request.repository)} · ${esc(requestLabels[request.state] || "Stav není známý")} ${request.detail ? "· " + esc(request.detail) : ""}</li>`).join("")}</ul></div>` : "";
+  const latest = qgLatest(), all = latestReviewsAll || [];
+  document.querySelectorAll("[data-qg-mode]").forEach(el => { el.textContent = qgRecords === null ? "Výsledky nejsou dostupné" : "Zaznamenané běhy kontrol"; });
+  document.getElementById("qgCompactSummary").innerHTML = qgSummary(latest);
+  document.querySelectorAll("[data-qg-state]").forEach(el => { el.title = QG_STATUS[el.dataset.qgState].meaning; });
+  document.getElementById("qgCompactTable").innerHTML = qgTable(latest, {compact: true});
+  document.querySelectorAll("#qgCompactTable [data-qg-project]").forEach(b => b.onclick = () => { qgSelected = latest[Number(b.dataset.qgProject)].run_id; showView("quality"); });
+  const n = s => latest.filter(r => r.overall_status === s).length, known = qgRecords !== null;
+  const approved = all.filter(r => r.verdict === "approved").length;
+  metricsRow("qgMetrics", [
+    ["Repozitáře", known ? latest.length : "—", "layers", "cyan"],
+    ["Kontroly PASS", known ? n("PASS") : "—", "check", "green", "Poslední běh v repozitáři prošel všemi povinnými kontrolami"],
+    ["Kontroly FAIL", known ? n("FAIL") : "—", "alert", "orange"],
+    ["Ke kontrole", known ? latest.filter(r => QG_OPEN(r.overall_status)).length : "—", "flask", "purple"],
+    ["Schválená review", all.length ? `${approved} / ${all.length}` : "—", "review", "purple", "Review se schvalujícím verdiktem ze všech zaznamenaných"],
+    ["Čeká na tebe", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan", "Eskalovaná review po 3 kolech oprav"],
+  ]);
+  if (currentView !== "quality") return;
+  const rows = latest.filter(r => qgFilter === "all" || (qgFilter === "open" ? QG_OPEN(r.overall_status) : r.overall_status === qgFilter));
+  setHTMLIfChanged(document.getElementById("qgChips"), chipsHTML([["all", `Vše (${latest.length})`], ["PASS", `PASS (${n("PASS")})`], ["FAIL", `FAIL (${n("FAIL")})`], ["open", `Ke kontrole (${latest.filter(r => QG_OPEN(r.overall_status)).length})`]], qgFilter, "data-qg-filter"));
+  document.querySelectorAll("[data-qg-filter]").forEach(b => b.onclick = () => { qgFilter = b.dataset.qgFilter; renderQualityGate(); });
+  document.getElementById("qgRepoCount").textContent = known ? `(${latest.length})` : "";
+  if (qgSelected === null || !latest.some(r => r.run_id === qgSelected)) qgSelected = rows[0] ? rows[0].run_id : null;
+  setHTMLIfChanged(document.getElementById("qgProjectTable"), rows.length ? rows.map(r => {
+    const name = String(r.repository || "").split("/").filter(Boolean).pop() || r.repository;
+    return `<button type="button" class="pg-item${r.run_id === qgSelected ? " on" : ""}" data-qg-run="${r.run_id}" title="${esc(r.repository)}"><span class="pg-ic">${icon("shield")}</span><span class="pg-item-body"><span class="pg-item-title">${esc(name)}</span><span class="pg-item-sub">${esc(r.branch || "větev neuvedena")} · ${esc(when(r.timestamp))}</span><span class="pg-item-foot">${qgBadge(r.overall_status)}${r.agent ? whoBadge(r.agent) : ""}</span></span></button>`;
+  }).join("") : `<div class="empty">${known ? "Žádný zaznamenaný běh kontrol pro tento filtr." : "Výsledky kontrol nejsou dostupné."}</div>`);
+  document.querySelectorAll("[data-qg-run]").forEach(b => b.onclick = () => { qgSelected = Number(b.dataset.qgRun); renderQualityGate(); });
+  const pending = qgRequests.filter(q => q.state !== "completed").slice(0, 5);
+  const requestLabels = {queued: "čeká ve frontě", running: "kontroly běží", refused: "je potřeba nastavení", interrupted: "běh byl přerušen"};
+  setHTMLIfChanged(document.getElementById("qgRequests"), pending.length ? `<div class="qg-req"><b>Požadavky na kontrolu</b><ul>${pending.map(q => `<li>${esc(String(q.repository).split("/").pop())} · ${esc(requestLabels[q.state] || q.state)}${q.detail ? " · " + esc(q.detail) : ""}</li>`).join("")}</ul></div>` : "");
   renderQualityProject();
+  // stav review
+  const RS = [["approved", "Schválená", "ok", "✓"], ["awaiting_review", "Čeká na review", "work", "○"], ["changes_requested", "Požadované změny", "warn", "!"], ["escalated", "Čeká na tebe", "bad", "!"], ["closed", "Uzavřená", "", "–"]];
+  setHTMLIfChanged(document.getElementById("qgReviewStats"), latestReviewsAll === null ? "<li class='empty'>Načítám…</li>" : RS.map(([s, label, tone, sym]) => `<li><span class="st-dot ${tone}" aria-hidden="true">${sym}</span>${label}<b>${all.filter(r => r.state === s).length}</b></li>`).join(""));
+  const open = all.filter(r => r.state !== "closed").sort((a, b) => (b.state === "escalated") - (a.state === "escalated") || b.id - a.id);
+  document.getElementById("qgOpenCount").textContent = latestReviewsAll === null ? "" : `(${open.length})`;
+  setHTMLIfChanged(document.getElementById("qgOpenReviews"), open.length ? open.map(v => {
+    const st = REVIEW[v.state] || [v.state, ""];
+    return `<div class="rv-row"><span class="st-dot ${st[1] === "gone" ? "" : st[1]}" aria-hidden="true">${v.state === "approved" ? "✓" : v.state === "escalated" || v.state === "changes_requested" ? "!" : "○"}</span><div class="rv-main"><b title="${esc(v.topic)}">#${v.id} ${esc(v.topic)}</b><span>${esc(String(v.repo || "").split("/").pop())} · ${esc(nameOf(v.author))}${v.reviewer ? " → " + esc(nameOf(v.reviewer)) : ""} · ${esc(st[0])}</span></div>${v.state === "escalated" ? `<button class="btn" data-rv-grant="${v.id}">Povolit kolo</button>` : ""}<button class="btn" data-rv-close="${v.id}" data-rv-state="${esc(v.state)}">Uzavřít</button></div>`;
+  }).join("") : `<div class="empty">${latestReviewsAll === null ? "Načítám…" : "Žádné otevřené review."}</div>`);
+  document.querySelectorAll("[data-rv-close]").forEach(b => b.onclick = () => {
+    const reason = prompt(`Proč uzavřít review #${b.dataset.rvClose}? (zapíše se do historie)`, b.dataset.rvState === "approved" ? "zamergováno" : "nahrazeno novějším review");
+    if (reason && reason.trim()) { b.disabled = true; post("/api/review-close", {id: Number(b.dataset.rvClose), reason}).then(ok => { if (!ok) b.disabled = false; }); }
+  });
+  document.querySelectorAll("[data-rv-grant]").forEach(b => b.onclick = () => {
+    const reason = prompt("Proč povolit další kolo oprav? (zapíše se do historie)");
+    if (reason && reason.trim()) { b.disabled = true; post("/api/review-grant", {id: Number(b.dataset.rvGrant), reason}).then(ok => { if (!ok) b.disabled = false; }); }
+  });
 }
 function renderQualityProject() {
-  const r=qgSelected === null ? null : qgDemo ? QG_DEMO.find(record=>record.repository===qgSelected) : (qgRecords || []).find(record=>record.run_id===qgSelected);
-  const el=document.getElementById("qgProjectDetail");
-  document.getElementById("qgProjectTitle").textContent=r ? r.repository : "Detail repozitáře";
-  if(!r){el.innerHTML=`<div class="empty">${qgDemo ? "Vyber ukázkový repozitář z tabulky." : "Vyber zaznamenaný běh z tabulky repozitářů."}</div>`;return;}
-  const checks=QG_CHECKS;
-  el.innerHTML=`${qgDemo ? '<p class="qg-demo-note">DEMO — tyto výsledky nepatří vašim projektům.</p>' : ''}<dl class="detail-grid"><dt>Větev</dt><dd>${esc(r.branch || "Neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "Neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent || "Neuveden")}</dd><dt>Kontrola</dt><dd>${esc(qgDate(r.timestamp))}</dd><dt>Stav</dt><dd>${qgBadge(r.overall_status)}</dd></dl><div class="qg-check-grid">`
-    + checks.map(([key,label])=>{const c=r.checks?.[key];return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`;}).join("")
-    + `</div><div class="detail-section"><h3>Změny testů a pravidel</h3><p>${r.policy_review_required ? r.policy_review_status === "approved" ? "Kritické změny schválil člověk pro tento běh." : "Kritické změny čekají na lidské schválení." : "Další schválení kritických změn není požadováno."}</p>${!qgDemo && r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c=>!c.required || c.status === "PASS") ? '<button class="btn" id="qgApprovePolicy">Schválit kritické změny</button>' : ""}</div><div class="detail-section"><h3>Nezávislé review</h3><p>${esc(r.review_status === 'approved' ? 'Schváleno pro tento commit.' : r.review_status === 'pending' ? 'Čeká na nezávislé review.' : r.review_status || "Stav review není dostupný.")}${r.reviewer ? `<br>Recenzent: ${esc(r.reviewer)}` : ""}</p></div><div class="detail-section"><h3>Protokoly</h3><p>${qgDemo ? 'Protokoly nejsou připojené. Ukázka neobsahuje odkazy na skutečné soubory.' : 'Úplné protokoly nejsou připojené; dostupná jsou pouze procesní metadata a otisky výstupu.'}</p>${qgDemo ? '' : qgLogs(r)}</div><div class="detail-section"><h3>Historie kontrol</h3>${r.history?.length ? `<ul>${r.history.map(h=>`<li>${esc(qgDate(h.timestamp))} · ${qgBadge(h.status)} · ${esc(h.note)}</li>`).join("")}</ul>` : "<p>Historie kontrol není dostupná.</p>"}</div>`;
+  const r = qgSelected === null ? null : (qgRecords || []).find(x => x.run_id === qgSelected);
+  const el = document.getElementById("qgProjectDetail");
+  document.getElementById("qgProjectTitle").textContent = r ? String(r.repository).split("/").filter(Boolean).pop() : "Detail kontroly";
+  document.getElementById("qgLastCheck").textContent = r ? when(r.timestamp) : "";
+  if (!r) { setHTMLIfChanged(el, `<div class="empty">${qgRecords === null ? "Výsledky nejsou dostupné." : "Vyber kontrolu ze seznamu."}</div>`); return; }
+  const tone = s => s === "PASS" ? "done" : s === "FAIL" ? "fail" : s === "REVIEW" ? "warn" : "";
+  const history = (qgRecords || []).filter(x => x.repository === r.repository && x.run_id !== r.run_id).slice(0, 6);
+  const canApprove = r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c => !c.required || c.status === "PASS");
+  setHTMLIfChanged(el, `<div class="pg-progress">Celkový stav ${qgBadge(r.overall_status)}<span class="h-sub">${esc(r.repository)}</span></div>`
+    + stepperHTML(QG_CHECKS.map(([key, label]) => [label, tone(r.checks?.[key]?.status)]))
+    + `<dl class="kv qg-kv"><dt>Větev</dt><dd>${esc(r.branch || "neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent ? nameOf(r.agent) : "neuveden")}</dd><dt>Review</dt><dd>${esc(r.review_status === "approved" ? "schváleno pro tento commit" : r.review_status === "pending" ? "čeká na nezávislé review" : r.review_status || "není dostupné")}${r.reviewer ? " · " + esc(nameOf(r.reviewer)) : ""}</dd><dt>Změny testů a pravidel</dt><dd>${r.policy_review_required ? r.policy_review_status === "approved" ? "kritické změny schválil člověk" : "kritické změny čekají na tvé schválení" : "schválení není potřeba"}</dd></dl>`
+    + `<div class="qg-check-grid">${QG_CHECKS.map(([key, label]) => { const c = r.checks?.[key]; return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`; }).join("")}</div>`
+    + (canApprove ? '<div class="pg-actions"><button class="btn" id="qgApprovePolicy">Schválit kritické změny</button></div>' : "")
+    + (qgLogs(r) ? `<div class="detail-section"><h3>Protokoly</h3>${qgLogs(r)}</div>` : "")
+    + (history.length ? `<div class="detail-section"><h3>Předchozí běhy</h3><ul>${history.map(h => `<li>${esc(when(h.timestamp))} · ${qgBadge(h.overall_status)} · ${esc((h.commit_sha || "").slice(0, 10))}</li>`).join("")}</ul></div>` : ""));
   const approve = document.getElementById("qgApprovePolicy");
-  if (approve) approve.onclick=()=>{
-    const reason=prompt("Proč schvaluješ změny testů nebo pravidel pro tento commit?");
+  if (approve) approve.onclick = () => {
+    const reason = prompt("Proč schvaluješ změny testů nebo pravidel pro tento commit?");
     if (!reason || reason.trim().length < 10 || !confirm("Schválit kritické změny pro commit " + r.commit_sha + "?")) return;
-    approve.disabled=true;
-    post("/api/quality-policy-approve",{run_id:r.run_id,commit_sha:r.commit_sha,reason}).then(ok=>{if(!ok)approve.disabled=false;});
+    approve.disabled = true;
+    post("/api/quality-policy-approve", {run_id: r.run_id, commit_sha: r.commit_sha, reason}).then(ok => { if (!ok) approve.disabled = false; });
   };
-  motion(el,[{opacity:.4},{opacity:1}],180);
 }
-const KB_LABEL = {verified:"ověřeno",unverified:"neověřeno — jen tip",rejected:"zamítnuto",stale:"zastaralé"};
-let kbTimer = null;
+
+// ── Výzkum ──
+const RS_LABEL = {running: "Probíhající výzkum", synthesizing: "Syntéza", done: "Hotovo", partial: "Částečně", failed: "Selhalo", cancelled: "Zrušeno"};
+const RS_FIN = ["succeeded", "failed", "dead_letter", "cancelled", "needs_review"];
+let rsSel = null, rsFilter = "all", rsTab = "summary";
+function loadResearch() {
+  fetch("/api/research").then(r => r.ok ? r.json() : Promise.reject(r)).then(d => { dashResearch = d.research || []; renderResearchPage(); })
+    .catch(() => { document.getElementById("rsList").textContent = "Výzkum se nepodařilo načíst."; });
+}
+const rsParts = r => (r.parts || []).filter(p => p.role === "part");
+function rsProgress(r) {
+  if (r.state === "done") return 100;
+  const parts = rsParts(r), fin = parts.filter(p => RS_FIN.includes(p.state)).length;
+  return Math.round(100 * (fin + (r.state === "partial" ? 1 : 0)) / (parts.length + 1));
+}
+function rsSteps(r) {
+  const st = r.state, stopped = ["failed", "cancelled"].includes(st);
+  return [["Zadání", "done"], ["Části", st === "running" ? "now" : stopped && !r.synth_id ? "fail" : "done"],
+    ["Syntéza", st === "synthesizing" ? "now" : ["done", "partial"].includes(st) ? "done" : stopped && r.synth_id ? "fail" : ""],
+    ["Hotovo", st === "done" ? "done" : st === "partial" ? "warn" : stopped ? "fail" : ""]];
+}
+const URL_RE = /https?:[/][/][^ <>()"'`]+/g, FILE_RE = /(?:^|[ (`])((?:[A-Za-z0-9_.-]+[/])*[A-Za-z0-9_.-]+[.](?:md|py|ts|tsx|js|cjs|json|toml|rs|yml|yaml))(?![A-Za-z0-9_])/g;
+const flat = t => String(t || "").split(String.fromCharCode(10)).join(" ").split(String.fromCharCode(9)).join(" ");
+const trimUrl = u => { while (u && ".,;:!?)]".includes(u.slice(-1))) u = u.slice(0, -1); return u; };
+function rsRefs(r) {
+  const text = flat([r.question, r.summary].join(" "));
+  const urls = [...new Set((text.match(URL_RE) || []).map(trimUrl))];
+  const files = [...new Set([...text.matchAll(FILE_RE)].map(m => m[1]))].filter(f => !urls.some(u => u.includes(f)));
+  return {urls, files};
+}
+function renderResearchPage() {
+  const runs = dashResearch;
+  const kb = dashKnowledge;
+  const active = (runs || []).filter(r => ["running", "synthesizing"].includes(r.state));
+  const fin = (runs || []).filter(r => ["done", "partial", "failed", "cancelled"].includes(r.state));
+  const allRefs = new Set(); (runs || []).forEach(r => { const x = rsRefs(r); x.urls.forEach(u => allRefs.add(u)); });
+  const spend = (runs || []).reduce((s, r) => s + (r.spend_tokens || 0), 0);
+  metricsRow("rsMetrics", [
+    ["Aktivní výzkumy", runs ? active.length : "—", "search", "cyan"],
+    ["Probíhající části", runs ? runs.reduce((s, r) => s + rsParts(r).filter(p => !RS_FIN.includes(p.state)).length, 0) : "—", "flask", "orange"],
+    ["Dokončené", runs ? runs.filter(r => ["done", "partial"].includes(r.state)).length : "—", "check", "green"],
+    ["Citované zdroje", runs ? allRefs.size : "—", "link", "purple", "Odkazy uvedené v zadáních a souhrnech"],
+    ["Spotřeba tokenů", runs ? spend.toLocaleString("cs-CZ") : "—", "bars", "purple", "Součet spotřeby posledních výzkumů"],
+    ["Úspěšnost", runs && fin.length ? Math.round(100 * runs.filter(r => r.state === "done").length / fin.length) + " %" : "—", "star", "cyan", "Hotové bez výpadku ze všech ukončených"],
+  ]);
+  if (currentView !== "research") return;
+  if (runs === null) return;
+  const F = {all: () => true, active: r => ["running", "synthesizing"].includes(r.state), done: r => ["done", "partial"].includes(r.state), failed: r => ["failed", "cancelled"].includes(r.state)};
+  const list = runs.filter(F[rsFilter]);
+  setHTMLIfChanged(document.getElementById("rsChips"), chipsHTML([["all", `Vše (${runs.length})`], ["active", `Probíhající (${runs.filter(F.active).length})`], ["done", `Dokončené (${runs.filter(F.done).length})`], ["failed", `Neúspěšné (${runs.filter(F.failed).length})`]], rsFilter, "data-rs-filter"));
+  document.querySelectorAll("[data-rs-filter]").forEach(b => b.onclick = () => { rsFilter = b.dataset.rsFilter; renderResearchPage(); });
+  if (rsSel === null || !runs.some(r => r.id === rsSel)) rsSel = (active[0] || runs[0] || {}).id ?? null;
+  setHTMLIfChanged(document.getElementById("rsList"), list.length ? list.map(r => {
+    const p = rsProgress(r), who = [...new Set(rsParts(r).map(x => x.recipient).filter(Boolean))];
+    return `<button type="button" class="pg-item${r.id === rsSel ? " on" : ""}" data-rs="${r.id}"><span class="pg-ic">${icon(["running", "synthesizing"].includes(r.state) ? "search" : r.state === "done" ? "check" : "cube")}</span><span class="pg-item-body"><span class="pg-item-title">${esc(r.question)}</span><span class="pg-item-sub">#${r.id} · ${esc(RS_LABEL[r.state] || r.state)} · ${esc(when(r.created_at))}</span><span class="pg-item-foot">${(who.length ? who : [r.requester]).map(whoBadge).join("")}<span class="bar"><i style="width:${p}%"></i></span><b>${p} %</b></span></span></button>`;
+  }).join("") : `<div class="empty">${runs.length ? "Pro tento filtr nic není." : "Zatím žádný výzkum. Zadej ho tlačítkem Nový výzkum."}</div>`);
+  document.querySelectorAll("[data-rs]").forEach(b => b.onclick = () => { rsSel = Number(b.dataset.rs); renderResearchPage(); });
+  const r = runs.find(x => x.id === rsSel), det = document.getElementById("rsDetail");
+  if (!r) { setHTMLIfChanged(det, "<div class='empty'>Vyber výzkum ze seznamu.</div>"); setHTMLIfChanged(document.getElementById("rsParts"), ""); setHTMLIfChanged(document.getElementById("rsLinks"), ""); return; }
+  const p = rsProgress(r), parts = rsParts(r), done = parts.filter(x => x.state === "succeeded").length, refs = rsRefs(r);
+  const tone = r.state === "done" ? "ok" : ["failed", "cancelled"].includes(r.state) ? "bad" : r.state === "partial" ? "muted" : "";
+  const concl = r.state === "done" ? ["", "Výzkum je hotový", "Zjištění jsou neověřená, dokud je nepotvrdí jiný agent nebo člověk v paměti."]
+    : r.state === "partial" ? ["warn", "Souhrn je neúplný", "Část podtémat nedoběhla včas" + (r.reason ? ": " + r.reason : ".")]
+    : ["failed", "cancelled"].includes(r.state) ? ["warn", RS_LABEL[r.state], r.reason || "Důvod není zaznamenaný."]
+    : ["", "Výzkum běží", `Hotovo ${done} z ${parts.length} částí${r.state === "synthesizing" ? ", běží syntéza" : ""}. Termín ${when(r.deadline_at)}.`];
+  const tabs = [["summary", "Hlavní zjištění"], ["question", "Zadání"], ["details", "Detaily"]];
+  const body = rsTab === "summary" ? (r.summary ? mdLite(r.summary) : `<p class="note">${["running", "synthesizing"].includes(r.state) ? "Souhrn vznikne po syntéze." : "Souhrn není k dispozici."}</p>`)
+    : rsTab === "question" ? `<p style="white-space:pre-wrap">${esc(r.question)}</p>`
+    : `<dl class="kv"><dt>Zadal</dt><dd>${esc(nameOf(r.requester))}</dd><dt>Druh</dt><dd>${esc(r.kind)}</dd>${r.model ? `<dt>Model</dt><dd>${esc(r.model)}</dd>` : ""}${r.repo ? `<dt>Repozitář</dt><dd class="path">${esc(r.repo)}${r.repo_commit ? " @ " + esc(r.repo_commit.slice(0, 10)) : ""}</dd>` : ""}<dt>Tokeny</dt><dd>${esc((r.spend_tokens || 0).toLocaleString("cs-CZ"))} z ${esc((r.budget_tokens || 0).toLocaleString("cs-CZ"))}</dd><dt>Zadáno</dt><dd>${esc(when(r.created_at))}</dd><dt>Termín</dt><dd>${esc(when(r.deadline_at))}</dd>${r.finished_at ? `<dt>Dokončeno</dt><dd>${esc(when(r.finished_at))}</dd>` : ""}${r.reason ? `<dt>Poznámka</dt><dd>${esc(r.reason)}</dd>` : ""}</dl>`;
+  setHTMLIfChanged(det, `<div class="pg-head">${icon("search")}<h2 title="${esc(r.question)}">${esc(r.question)}</h2><span class="pill ${tone}">${esc(RS_LABEL[r.state] || r.state)}</span></div>`
+    + `<p class="pg-desc">#${r.id} · ${esc(r.kind)} · zadal ${esc(nameOf(r.requester))}</p>`
+    + `<div class="pg-progress">Celkový postup<span class="bar" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100" aria-label="Postup výzkumu"><i style="width:${p}%"></i></span><b>${p} %</b></div>`
+    + stepperHTML(rsSteps(r))
+    + `<div class="tabs" role="tablist">${tabs.map(([id, l]) => `<button type="button" role="tab" data-rs-tab="${id}" aria-selected="${id === rsTab}">${l}</button>`).join("")}</div>`
+    + `<div class="tab-body" role="tabpanel">${body}</div>`
+    + `<div class="conclusion ${concl[0]}">${icon("flag")}<div><b>${esc(concl[1])}</b>${esc(concl[2])}</div></div>`
+    + (["running", "synthesizing"].includes(r.state) ? '<div class="pg-actions"><button class="btn" data-rs-cancel>✕ Zrušit výzkum</button></div>' : ""));
+  det.querySelectorAll("[data-rs-tab]").forEach(b => b.onclick = () => { rsTab = b.dataset.rsTab; renderResearchPage(); });
+  const cancel = det.querySelector("[data-rs-cancel]");
+  if (cancel) cancel.onclick = () => { if (!confirm("Zrušit výzkum včetně běžících částí a syntézy?")) return; cancel.disabled = true; post("/api/research-cancel", {id: r.id}).then(() => loadResearch()); };
+  document.getElementById("rsPartsCount").textContent = `(${parts.length})`;
+  const PART = s => s === "succeeded" ? ["ok", "✓"] : ["failed", "dead_letter", "cancelled"].includes(s) ? ["bad", "✕"] : s === "needs_review" ? ["warn", "!"] : ["started", "leased"].includes(s) ? ["work", "▸"] : ["", "○"];
+  setHTMLIfChanged(document.getElementById("rsParts"), parts.length ? parts.map(x => { const [t, sym] = PART(x.state); return `<li class="src-row"><span class="st-dot ${t}" aria-hidden="true">${sym}</span><span class="task-text" title="${esc(x.topic)}">${esc(x.topic)}</span>${x.recipient ? whoBadge(x.recipient) : ""}<span class="sr-only">${esc(x.state || "neznámý stav")}</span></li>`; }).join("") : "<li class='empty'>Výzkum nemá samostatné části.</li>");
+  setHTMLIfChanged(document.getElementById("rsLinks"), refs.urls.length || refs.files.length
+    ? refs.urls.map(u => `<a class="link-row" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${icon("link")}<span>${esc(u.replace(/^https?:[/][/]/, ""))}</span>↗</a>`).join("") + refs.files.slice(0, 12).map(f => `<div class="link-row">${icon("doc")}<span title="${esc(f)}">${esc(f)}</span></div>`).join("")
+    : "<div class='empty'>Souhrn neuvádí žádné odkazy ani soubory.</div>");
+  void kb;
+}
+document.getElementById("rsNew").onclick = () => {
+  const q = prompt("Na co se má výzkum zaměřit? Úkol dostane Ada a spustí ho nástrojem research.");
+  if (!q || !q.trim()) return;
+  post("/api/send", {kind: "task", to: "claude-code", text: "Spusť prosím výzkum nástrojem research a pak mi shrň výsledek: " + q.trim()})
+    .then(ok => { if (ok) alert("Úkol jsem poslal Adě. Výzkum se tady objeví, jakmile ho spustí."); });
+};
+
+// ── Paměť ──
+const KB_LABEL = {verified: "ověřeno", unverified: "neověřeno — jen tip", rejected: "zamítnuto", stale: "zastaralé"};
+let kbTimer = null, kbStatusSel = "", kbProjectSel = null, kbSel = null, kbEntries = [];
 function loadKnowledge() {
-  const q = document.getElementById("kbQuery").value.trim(), st = document.getElementById("kbStatus").value;
-  const params = new URLSearchParams({...(q ? {q} : {}), ...(st ? {status:st} : {})});
+  const q = document.getElementById("kbQuery").value.trim();
+  const params = new URLSearchParams({...(q ? {q} : {}), ...(kbStatusSel ? {status: kbStatusSel} : {}), ...(kbProjectSel !== null ? {project: kbProjectSel} : {})});
   fetch("/api/knowledge?" + params).then(r => r.ok ? r.json() : Promise.reject(r))
-    .then(d => renderKnowledge(d.entries))
+    .then(d => { kbEntries = d.entries || []; renderKnowledgeList(); })
     .catch(() => { document.getElementById("kbList").textContent = "Paměť se nepodařilo načíst."; });
+  fetch("/api/knowledge").then(r => r.ok ? r.json() : null).then(d => { if (d) { dashKnowledge = d.entries || []; renderMemoryPage(); } }).catch(() => {});
 }
-function renderKnowledge(entries) {
-  const el = document.getElementById("kbList");
-  if (!entries.length) { el.innerHTML = '<p class="note">Žádné záznamy.</p>'; return; }
-  el.innerHTML = entries.map(e => `<article class="kb-entry" data-id="${e.id}"><div class="kb-actions"><strong>#${e.id}</strong><span class="kb-state ${esc(e.status)}">${esc(KB_LABEL[e.status] || e.status)}</span><span class="note">${esc(e.project || "obecné")} · autor ${esc(e.author)}${e.verified_by ? " · posoudil " + esc(e.verified_by) : ""} · ${new Date(e.updated_at * 1000).toLocaleString("cs-CZ")}</span></div>
-    <dl><dt>Příznak</dt><dd>${esc(e.symptom)}</dd>${e.cause ? `<dt>Příčina</dt><dd>${esc(e.cause)}</dd>` : ""}${e.solution ? `<dt>Řešení</dt><dd>${esc(e.solution)}</dd>` : ""}${e.evidence ? `<dt>Důkaz</dt><dd>${esc(e.evidence)}</dd>` : ""}${e.verdict_evidence ? `<dt>Důkaz posudku</dt><dd>${esc(e.verdict_evidence)}${e.verdict_note ? " — " + esc(e.verdict_note) : ""}</dd>` : ""}</dl>
-    <div class="kb-actions"><button class="btn" data-kb="verified">✓ Ověřit</button><button class="btn" data-kb="rejected">✕ Nefunguje</button><button class="btn" data-kb="stale">◷ Zastaralé</button></div></article>`).join("");
-  el.querySelectorAll("[data-kb]").forEach(b => b.onclick = () => {
-    const id = Number(b.closest(".kb-entry").dataset.id);
+function renderMemoryPage() {
+  const all = dashKnowledge, n = s => (all || []).filter(e => e.status === s).length;
+  const projects = new Map(); (all || []).forEach(e => projects.set(e.project || "", (projects.get(e.project || "") || 0) + 1));
+  metricsRow("kbMetrics", [
+    ["Uložené poznatky", all ? (all.length >= 100 ? "100+" : all.length) : "—", "db", "cyan"],
+    ["Ověřené", all ? n("verified") : "—", "check", "green", "Za fakt platí jen ověřené záznamy"],
+    ["Neověřené tipy", all ? n("unverified") : "—", "flask", "orange"],
+    ["Zamítnuté", all ? n("rejected") + n("stale") : "—", "alert", "purple"],
+    ["Projekty", all ? [...projects.keys()].filter(Boolean).length : "—", "folder", "purple"],
+    ["Nové za 7 dní", all ? all.filter(e => Date.now() / 1000 - e.created_at < 7 * 86400).length : "—", "bars", "cyan"],
+  ]);
+  if (currentView !== "memory") return;
+  const projItems = [[null, "Vše", all ? all.length : 0], ...[...projects.entries()].sort((a, b) => b[1] - a[1]).map(([p, c]) => [p, p || "Obecné", c])];
+  setHTMLIfChanged(document.getElementById("kbProjects"), all === null ? "Načítám…" : projItems.map(([p, label, c]) =>
+    `<button type="button" class="pg-item${p === kbProjectSel ? " on" : ""}" data-kb-proj="${p === null ? "__all__" : esc(p)}"><span class="pg-ic">${icon("folder")}</span><span class="pg-item-body"><span class="pg-item-title">${esc(label)}</span><span class="pg-item-sub">${p === null ? "Celá sdílená paměť" : `${(all || []).filter(e => (e.project || "") === p && e.status === "verified").length} ověřených`}</span></span><span class="count-pill">${c} ${c === 1 ? "záznam" : c >= 2 && c <= 4 ? "záznamy" : "záznamů"}</span></button>`).join("")
+    + (all && !all.length ? "<p class='note'>Paměť je zatím prázdná. Agenti do ní ukládají ověřená řešení chyb; můžeš přidat i vlastní.</p>" : ""));
+  document.querySelectorAll("[data-kb-proj]").forEach(b => b.onclick = () => { kbProjectSel = b.dataset.kbProj === "__all__" ? null : b.dataset.kbProj; kbSel = null; loadKnowledge(); });
+  setHTMLIfChanged(document.getElementById("kbStatus"), chipsHTML([["", "Vše"], ["verified", "Ověřené"], ["unverified", "Neověřené"], ["rejected", "Zamítnuté"], ["stale", "Zastaralé"]], kbStatusSel, "data-kb-status"));
+  document.querySelectorAll("[data-kb-status]").forEach(b => b.onclick = () => { kbStatusSel = b.dataset.kbStatus; kbSel = null; loadKnowledge(); });
+  document.getElementById("kbProjectList").innerHTML = [...projects.keys()].filter(Boolean).map(p => `<option value="${esc(p)}">`).join("");
+  const act = [...(all || [])].sort((a, b) => b.updated_at - a.updated_at).slice(0, 8);
+  setHTMLIfChanged(document.getElementById("kbActivity"), act.length ? act.map(e => e.verified_by && e.updated_at > e.created_at
+    ? actItem(e.verified_by, e.updated_at, `${KB_LABEL[e.status] || e.status}: ${e.symptom}`)
+    : actItem(e.author, e.created_at, `Uložil(a) poznatek: ${e.symptom}`)).join("") : "<li class='empty'>V paměti zatím nic není.</li>");
+  renderKnowledgeList();
+}
+function renderKnowledgeList() {
+  const el = document.getElementById("kbList"), q = document.getElementById("kbQuery").value.trim();
+  document.getElementById("kbCount").textContent = `(${kbEntries.length})`;
+  document.getElementById("kbScope").textContent = [kbProjectSel !== null ? (kbProjectSel || "Obecné") : "", q ? `„${q}“` : ""].filter(Boolean).join(" · ");
+  if (kbSel !== null && !kbEntries.some(e => e.id === kbSel)) kbSel = null;
+  if (kbSel === null && kbEntries.length) kbSel = kbEntries[0].id;
+  setHTMLIfChanged(el, kbEntries.length ? kbEntries.map(e => `<button type="button" class="kb-row${e.id === kbSel ? " on" : ""}" data-kb-id="${e.id}"><span class="st-dot ${e.status === "verified" ? "ok" : e.status === "rejected" ? "bad" : e.status === "stale" ? "" : "warn"}" aria-hidden="true">${e.status === "verified" ? "✓" : e.status === "rejected" ? "✕" : e.status === "stale" ? "–" : "?"}</span><span class="task-text" title="${esc(e.symptom)}">${esc(e.symptom)}</span>${e.project ? `<span class="kb-proj">${esc(e.project)}</span>` : ""}<time>${esc(when(e.updated_at))}</time><span class="sr-only">${esc(KB_LABEL[e.status] || e.status)}</span></button>`).join("")
+    : `<p class="note">${q || kbStatusSel || kbProjectSel !== null ? "Nic neodpovídá hledání." : "Žádné záznamy."}</p>`);
+  el.querySelectorAll("[data-kb-id]").forEach(b => b.onclick = () => { kbSel = Number(b.dataset.kbId); renderKnowledgeList(); });
+  const e = kbEntries.find(x => x.id === kbSel), det = document.getElementById("kbDetail");
+  document.getElementById("kbDetailTitle").textContent = e ? `Záznam #${e.id}` : "Detail záznamu";
+  if (!e) { setHTMLIfChanged(det, "<div class='empty'>Vyber záznam ze seznamu.</div>"); return; }
+  setHTMLIfChanged(det, `<div class="kb-detail"><div class="tags"><span class="kb-state ${esc(e.status)}">${esc(KB_LABEL[e.status] || e.status)}</span>${e.project ? `<span class="kb-proj">${esc(e.project)}</span>` : ""}</div>
+    <dl><dt>Příznak</dt><dd>${esc(e.symptom)}</dd>${e.cause ? `<dt>Příčina</dt><dd>${esc(e.cause)}</dd>` : ""}${e.solution ? `<dt>Řešení</dt><dd>${esc(e.solution)}</dd>` : ""}${e.evidence ? `<dt>Důkaz</dt><dd>${esc(e.evidence)}</dd>` : ""}${e.verdict_evidence ? `<dt>Důkaz posudku</dt><dd>${esc(e.verdict_evidence)}${e.verdict_note ? " — " + esc(e.verdict_note) : ""}</dd>` : ""}<dt>Autor</dt><dd>${esc(nameOf(e.author))} · ${esc(when(e.created_at))}${e.verified_by ? ` · posoudil ${esc(nameOf(e.verified_by))}` : ""}</dd></dl>
+    <div class="pg-actions" style="padding:0"><button class="btn" data-kb="verified">✓ Ověřit</button><button class="btn" data-kb="rejected">✕ Nefunguje</button><button class="btn" data-kb="stale">◷ Zastaralé</button></div></div>`);
+  det.querySelectorAll("[data-kb]").forEach(b => b.onclick = () => {
     const evidence = prompt("Důkaz (commit, test, odkaz) — povinné:");
     if (!evidence || !evidence.trim()) return;
     b.disabled = true;
-    post("/api/knowledge-verdict", {id, verdict: b.dataset.kb, evidence}).then(ok => { b.disabled = false; if (ok) loadKnowledge(); });
+    post("/api/knowledge-verdict", {id: e.id, verdict: b.dataset.kb, evidence}).then(ok => { b.disabled = false; if (ok) loadKnowledge(); });
   });
 }
 document.getElementById("kbQuery").addEventListener("input", () => { clearTimeout(kbTimer); kbTimer = setTimeout(loadKnowledge, 250); });
-document.getElementById("kbStatus").addEventListener("change", loadKnowledge);
+document.getElementById("kbNew").onclick = () => document.getElementById("kbDialog").showModal();
 document.getElementById("kbAdd").onclick = () => {
   const val = id => document.getElementById(id).value;
-  if (!val("kbSymptom").trim()) { alert("Vyplň příznak."); return; }
+  if (!val("kbSymptom").trim()) { document.getElementById("kbSymptom").focus(); return; }
   const btn = document.getElementById("kbAdd"); btn.disabled = true;
   post("/api/knowledge-add", {symptom: val("kbSymptom"), cause: val("kbCause"), solution: val("kbSolution"), project: val("kbProject"), evidence: val("kbEvidence")})
-    .then(ok => { btn.disabled = false; if (ok) { ["kbSymptom","kbCause","kbSolution","kbEvidence"].forEach(i => document.getElementById(i).value = ""); loadKnowledge(); } });
+    .then(ok => { btn.disabled = false; if (ok) { ["kbSymptom", "kbCause", "kbSolution", "kbEvidence"].forEach(i => document.getElementById(i).value = ""); document.getElementById("kbDialog").close(); loadKnowledge(); } });
 };
+
+// ── Nastavení ──
 const MODES = [
-  {id:"basic", name:"🟢 Základní", items:["Bridge sám nepřebírá žádné úkoly","Pracuje jen session, kterou spustíš","Sdílená paměť vypnutá pro agenty","Minimální spotřeba tokenů"]},
-  {id:"intelligent", name:"🔵 Inteligentní", items:["Bridge přebírá read-only úkoly","Review mezi agenty (max 3 kola)","Sdílená paměť zapnutá","Dnešní chování"]},
-  {id:"autonomous", name:"🟣 Autonomní", items:["Opravy v izolovaném worktree","Povinné review, rozpočtové stropy","Eskalace na tebe po 3 pokusech"]},
+  {id: "basic", name: "Základní", items: ["Bridge sám nepřebírá žádné úkoly", "Pracuje jen session, kterou spustíš", "Sdílená paměť vypnutá pro agenty", "Minimální spotřeba tokenů"]},
+  {id: "intelligent", name: "Inteligentní", items: ["Bridge přebírá read-only úkoly", "Review mezi agenty (max 3 kola)", "Sdílená paměť zapnutá"]},
+  {id: "autonomous", name: "Autonomní", items: ["Opravy v izolovaném worktree", "Povinné review, rozpočtové stropy", "Eskalace na tebe po 3 pokusech"]},
 ];
+const MODE_NAME = {basic: "Základní", intelligent: "Inteligentní", autonomous: "Autonomní"};
+let lastMode = null, latestClaims = [];
 function renderMode(m) {
   if (!m) return;
+  lastMode = m;
+  document.getElementById("modeText").textContent = "Režim: " + (MODE_NAME[m.mode] || m.mode);
   const grid = document.getElementById("modeGrid");
-  grid.innerHTML = MODES.map(x => { const lock = m.locked && m.locked[x.id]; const on = m.mode === x.id;
-    return `<button type="button" class="mode-card" role="radio" data-mode="${x.id}" aria-checked="${on}" aria-disabled="${!!lock}"><h3>${x.name}${on ? " · aktivní" : ""}</h3><ul>${x.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="note">🔒 ${esc(lock)}</p>` : ""}</button>`; }).join("");
-  document.getElementById("modeInfo").textContent = m.by ? `Naposledy přepnul ${m.by} · ${new Date(m.at * 1000).toLocaleString("cs-CZ")}${m.reason ? " · " + m.reason : ""}` : "Výchozí režim (zatím nikdo nepřepínal).";
+  setHTMLIfChanged(grid, MODES.map(x => { const lock = m.locked && m.locked[x.id]; const on = m.mode === x.id;
+    return `<button type="button" class="mode-card" role="radio" data-mode="${x.id}" aria-checked="${on}" aria-disabled="${!!lock}"><h3><span class="mode-dot ${x.id}" aria-hidden="true"></span>${x.name}${on ? " · aktivní" : ""}</h3><ul>${x.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="note">🔒 ${esc(lock)}</p>` : ""}</button>`; }).join(""));
+  document.getElementById("modeInfo").textContent = m.by ? `Naposledy přepnul ${nameOf(m.by)} · ${when(m.at)}${m.reason ? " · " + m.reason : ""}` : "Výchozí režim (zatím nikdo nepřepínal).";
   grid.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
     if (b.getAttribute("aria-disabled") === "true" || b.getAttribute("aria-checked") === "true") return;
     const reason = prompt("Proč přepínáš režim? (zapíše se do historie)");
     if (reason === null) return;
-    fetch("/api/mode", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({mode:b.dataset.mode, reason})})
-      .then(r => r.ok ? r.json().then(renderMode) : r.text().then(t => alert(t)))
+    fetch("/api/mode", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({mode: b.dataset.mode, reason})})
+      .then(r => r.ok ? r.json().then(x => { renderMode(x); renderSettings(); }) : r.text().then(t => alert(t)))
       .catch(() => alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."));
   });
 }
-function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => renderMode(s.mode)).catch(() => {}); }
-const RS_LABEL = {running:"běží",synthesizing:"syntéza",done:"hotovo",partial:"částečně",failed:"selhalo",cancelled:"zrušeno"};
-function loadResearch() {
-  fetch("/api/research").then(r => r.ok ? r.json() : Promise.reject(r)).then(d => renderResearch(d.research))
-    .catch(() => { document.getElementById("rsList").textContent = "Výzkum se nepodařilo načíst."; });
+function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => { renderMode(s.mode); renderSettings(); }).catch(() => {}); }
+function renderSettings() {
+  const st = {ada: agentStatus("ada"), nox: agentStatus("nox")};
+  const peer = a => latestPeers.find(p => p.agent === a);
+  const bridgeOn = a => { const p = peer(a); return !!(p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S); };
+  const all = latestReviewsAll || [];
+  metricsRow("setMetrics", [
+    ["Provozní režim", lastMode ? MODE_NAME[lastMode.mode] || lastMode.mode : "—", "sliders", "cyan"],
+    ["Provoz", lastPaused === undefined ? "—" : lastPaused ? "Zastaveno" : "Povolen", "stop", lastPaused ? "orange" : "green"],
+    ["Agenti online", `${["ada", "nox"].filter(k => !["offline", "unknown"].includes(st[k].state)).length} / 2`, "users", "purple"],
+    ["Mosty online", `${["claude-code-bridge", "codex-bridge"].filter(bridgeOn).length} / 2`, "bridge", "purple", "Mosty přebírají úkoly na pozadí"],
+    ["Zamčené cesty", latestClaims.length, "lock", "orange"],
+    ["Review k rozhodnutí", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan"],
+  ]);
+  if (currentView !== "settings") return;
+  const INFO = {ada: ["Ada", "Anthropic (Claude)", "Analýza · Výzkum · Návrhy", "claude-code-bridge"], nox: ["Nox", "OpenAI (GPT)", "Implementace · Testy · Ověření", "codex-bridge"]};
+  const TONE = {working: "work", idle: "ok", limited: "bad", error: "warn", offline: "", unknown: "warn"};
+  setHTMLIfChanged(document.getElementById("setAgentList"), ["ada", "nox"].map(k => { const [name, vendor, role, bridge] = INFO[k], s = st[k];
+    return `<div class="set-agent" data-agent="${k}"><img src="/assets/${k}.webp" alt=""><div class="set-agent-body"><b>${name}</b> <span class="note">${vendor}</span><p>${role}</p>${s.detail ? `<p title="${esc(s.detail)}">${esc(s.detail.slice(0, 120))}</p>` : ""}<div class="tags">${tag(s.label, TONE[s.state])}${tag("most " + (bridgeOn(bridge) ? "online" : "offline"), bridgeOn(bridge) ? "ok" : "")}</div></div></div>`; }).join(""));
+  if (lastMode) renderMode(lastMode);
+  const p = lastPaused;
+  setHTMLIfChanged(document.getElementById("setStopBody"), p === undefined ? "<div class='empty'>Stav není známý.</div>"
+    : `<div class="stop-box"><p>${p ? `⏸ <b>Agenti jsou zastavení.</b> Zastavil ${esc(nameOf(p.by))}${p.at ? " " + esc(when(p.at)) : ""}${p.reason ? " · " + esc(p.reason) : ""}.` : "● <b>Provoz povolen.</b> Zastavení okamžitě zastaví všechnu práci na pozadí, rozpracované úkoly se nezahodí."}</p><button class="btn ${p ? "" : "danger"}" id="setStopBtn">${p ? "▶ Pustit agenty znovu" : "Zastavit všechny agenty"}</button></div>`);
+  const sb = document.getElementById("setStopBtn");
+  if (sb) sb.onclick = () => { if (p) { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); } else { const r = prompt("Opravdu zastavit všechny agenty? Napiš důvod (zaznamená se):", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); } };
+  const ev = [];
+  if (lastMode && lastMode.by) ev.push([lastMode.by, lastMode.at, `Přepnul(a) režim na ${MODE_NAME[lastMode.mode] || lastMode.mode}${lastMode.reason ? ": " + lastMode.reason : ""}`]);
+  if (p && p.by) ev.push([p.by, p.at, `Zastavil(a) agenty${p.reason ? ": " + p.reason : ""}`]);
+  historyMessages().filter(m => m.agent === me || m.kind === "control").slice(-12).forEach(m => ev.push([m.agent, Date.now() / 1000 - (m.seconds_ago || 0), `${m.kind === "task" ? "Úkol pro " + nameOf(m.recipient) : m.kind === "control" ? "Řízení" : "Zpráva pro " + nameOf(m.recipient)}: ${m.text}`]));
+  ev.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+  setHTMLIfChanged(document.getElementById("setActivity"), ev.length ? ev.slice(0, 8).map(([a, t, x]) => actItem(a, t, x)).join("") : "<li class='empty'>Zatím žádná řídicí akce.</li>");
 }
-function renderResearch(runs) {
-  const el = document.getElementById("rsList");
-  if (!runs.length) { el.innerHTML = '<p class="note">Zatím žádný výzkum. Zadává ho agent nástrojem <code>research</code>; bez <code>research.toml</code> s mezí spotřeby se nespustí.</p>'; return; }
-  el.innerHTML = runs.map(r => `<article class="kb-entry" data-id="${r.id}"><div class="kb-actions"><strong>#${r.id}</strong><span class="kb-state ${r.state === "done" ? "verified" : r.state === "running" || r.state === "synthesizing" ? "unverified" : "stale"}">${esc(RS_LABEL[r.state] || r.state)}</span><span class="note">${esc(r.kind)} · zadal ${esc(r.requester)} · ${esc(String(r.spend_tokens))}/${esc(String(r.budget_tokens))} tokenů${r.reason ? " · " + esc(r.reason) : ""}</span></div>
-    <dl><dt>Otázka</dt><dd>${esc(r.question)}</dd><dt>Části</dt><dd>${r.parts.filter(p => p.role === "part").map(p => `${esc(p.topic)} (${esc(p.state || "?")})`).join(" · ")}</dd>${r.summary ? `<dt>Souhrn (neověřený)</dt><dd style="white-space:pre-wrap">${esc(r.summary)}</dd>` : ""}</dl>
-    ${r.state === "running" || r.state === "synthesizing" ? '<div class="kb-actions"><button class="btn" data-rs-cancel>✕ Zrušit</button></div>' : ""}</article>`).join("");
-  el.querySelectorAll("[data-rs-cancel]").forEach(b => b.onclick = () => {
-    if (!confirm("Zrušit výzkum včetně běžících částí a syntézy?")) return;
-    b.disabled = true;
-    post("/api/research-cancel", {id: Number(b.closest(".kb-entry").dataset.id)}).then(() => loadResearch());
-  });
-}
+document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
+  ev.preventDefault();
+  document.querySelectorAll(".set-nav a").forEach(x => x.classList.toggle("on", x === a));
+  const target = document.querySelector(a.getAttribute("href"));
+  target.scrollIntoView({behavior: reducedMotion.matches ? "auto" : "smooth", block: "nearest"});
+  motion(target, [{boxShadow: "0 0 0 2px #923BFF"}, {boxShadow: "none"}], 900);
+});
+document.querySelector(".set-nav a").classList.add("on");
 function showView(view,{focus=true}={}) {
   if(view==="settings")loadMode();
   if(view==="research")loadResearch();
@@ -2422,15 +2933,53 @@ function showView(view,{focus=true}={}) {
   if(view==="room"){if(focus)document.getElementById("text").focus({preventScroll:true});feed.scrollTop=feed.scrollHeight;}
   else if(focus)document.querySelector(`[data-view-panel="${panelView}"] .view-title`)?.focus({preventScroll:true});
   motion(document.querySelector(`[data-view-panel="${panelView}"]`),[{opacity:.5},{opacity:1}],180);
+  renderPages();
 }
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
-document.querySelectorAll("[data-qg-demo]").forEach(b=>b.onclick=()=>{qgDemo=!qgDemo;qgSelected=null;renderQualityGate();});
 renderQualityGate();
 
 document.getElementById("navAgents").onclick=()=>{showView("overview",{focus:false});openPanel("side");};
 for(const [id,target,panel] of [["navProjects","projectPanel","side"],["navHistory","historyPanel","inspector"]])document.getElementById(id).onclick=e=>{e.preventDefault();showView("overview",{focus:false});openPanel(panel);document.getElementById(target).scrollIntoView({block:"start"});};
 </script>
 """
+
+
+def _is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text(errors="ignore").lower()
+    except OSError:
+        return False
+
+
+def open_url(url: str) -> bool:
+    """Ve WSL otevře prohlížeč ve Windows (`webbrowser` by spustil linuxový ve WSLg, 26. 11.)."""
+    if _is_wsl():
+        cmd = shutil.which("cmd.exe") or "/mnt/c/Windows/System32/cmd.exe"
+        if Path(cmd).exists():
+            try:
+                # URL jde jako argument procesu, ne přes shell; token je urlsafe (bez znaků, které cmd vykládá).
+                subprocess.run([cmd, "/c", "start", "", url], cwd="/mnt/c" if Path("/mnt/c").is_dir() else None,
+                               check=True, timeout=20, capture_output=True)
+                return True
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return webbrowser.open(url)
+
+
+def login(port: int = 8765) -> int:
+    """`agent-lease web-login`: otevře už běžící web (služba agent-lease-web) přihlášený, token nevypisuje."""
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+    except OSError:
+        print(f"Web na http://localhost:{port}/ neběží. Spusť: systemctl --user start agent-lease-web",
+              file=sys.stderr)
+        return 1
+    token = load_or_create_token(Settings.from_env())
+    if not open_url(f"http://localhost:{port}/#token={token}"):
+        print("Prohlížeč se nepodařilo otevřít.", file=sys.stderr)
+        return 1
+    print(f"Otevřeno: http://localhost:{port}/ (přihlášení platí {SESSION_MAX_AGE_SECONDS // 86400} dní)")
+    return 0
 
 
 def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False) -> int:
@@ -2444,7 +2993,7 @@ def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False
     print(f"Live room at {url}")
     if open_browser:
         login_url = f"{url}#token={token}"
-        if not webbrowser.open(login_url):
+        if not open_url(login_url):
             print(
                 "Could not open a browser. WARNING: the following URL carries full "
                 f"human authority for this room: {login_url}",

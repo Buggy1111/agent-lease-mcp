@@ -188,6 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     p_web.add_argument("--open", action="store_true", dest="open_browser",
                        help="open the browser logged in (the token never goes to stdout)")
 
+    p_web_login = sub.add_parser("web-login", help="open the running web room logged in (token never printed)")
+    p_web_login.add_argument("--port", type=int, default=8765)
+
     p_limit = sub.add_parser("limit", help="report an exhausted limit (tasks move to a fallback agent)")
     p_limit.add_argument("--until", default="+1h", help="+2h, +30m, ISO time or epoch")
     p_limit.add_argument("--reason", default="")
@@ -524,6 +527,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return web_main(["--host", args.host, "--port", str(args.port)]
                         + (["--open"] if args.open_browser else []))
+
+    elif args.cmd == "web-login":
+        from .webui import login as web_login
+
+        return web_login(args.port)
 
     elif args.cmd == "limit":
         who = args.agent or me

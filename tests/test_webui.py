@@ -29,6 +29,12 @@ from agent_lease_mcp.webui import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _not_wsl(monkeypatch):
+    """Testy nesmí ve WSL otevírat skutečný prohlížeč ve Windows (open_url → cmd.exe)."""
+    monkeypatch.setattr(webui, "_is_wsl", lambda: False)
+
+
 def call_handler(store: Store, settings: Settings, token: str, method: str, path: str, *,
                  headers: dict | None = None, body: dict | None = None, handler_type=None):
     """Prožene request skutečným handlerem bez socketu (Codex sandbox ho zakazuje)."""
@@ -641,3 +647,54 @@ def test_js_esc_escapes_quotes_for_attributes():
     """Bezpečnostní kontrola 21. 11.: esc() se používá i v atributech (title="…"), musí escapovat uvozovky."""
     assert '.replace(/"/g, "&quot;")' in PAGE_HTML and ".replace(/'/g, \"&#39;\")" in PAGE_HTML
     assert 'd.textContent = s ?? ""; return d.innerHTML' not in PAGE_HTML
+
+
+def test_web_login_opens_running_web_logged_in_without_printing_token(tmp_path: Path, monkeypatch, capsys):
+    """Michal 26. 11.: web běží jako služba; `agent-lease web-login` ho otevře přihlášený, token nevypisuje."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "web")
+    opened = []
+    monkeypatch.setattr(webui.socket, "create_connection", lambda *a, **k: socket.socket())
+    monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
+    assert webui.login(8765) == 0
+    token = (tmp_path / "webui.token").read_text().strip()
+    assert opened == [f"http://localhost:8765/#token={token}"]
+    out = capsys.readouterr()
+    assert token not in out.out + out.err
+
+
+def test_web_login_says_when_service_is_down(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setenv("AGENT_NAME", "web")
+
+    def refused(*_a, **_k):
+        raise ConnectionRefusedError
+
+    opened = []
+    monkeypatch.setattr(webui.socket, "create_connection", refused)
+    monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
+    assert webui.login(8765) == 1
+    assert opened == [] and "agent-lease-web" in capsys.readouterr().err
+
+
+def test_open_url_uses_windows_browser_in_wsl(tmp_path: Path, monkeypatch):
+    """Ve WSL `webbrowser` otevřel linuxový prohlížeč a přihlášení skončilo 403 (26. 11.)."""
+    cmd = tmp_path / "cmd.exe"
+    cmd.write_text("")
+    calls = []
+    monkeypatch.setattr(webui, "_is_wsl", lambda: True)
+    monkeypatch.setattr(webui.shutil, "which", lambda name: str(cmd))
+    monkeypatch.setattr(webui.subprocess, "run", lambda args, **kw: calls.append(args))
+    monkeypatch.setattr(webui.webbrowser, "open", lambda url: pytest.fail("linuxový prohlížeč"))
+    assert webui.open_url("http://localhost:8765/#token=abc") is True
+    assert calls == [[str(cmd), "/c", "start", "", "http://localhost:8765/#token=abc"]]
+
+
+def test_session_lasts_a_week_and_pages_have_human_controls():
+    """Web jako trvalá služba: přihlášení jednou týdně; člověk zavře review z webu v každém stavu."""
+    assert SESSION_MAX_AGE_SECONDS == 7 * 86400
+    for needle in ('data-view-panel="quality"', 'data-view-panel="research"', 'data-view-panel="memory"',
+                   'data-view-panel="settings"', "data-rv-close", "/api/review-close", 'id="rsNew"',
+                   'id="kbDialog"', 'id="setStopBody"', 'id="modeGrid"'):
+        assert needle in PAGE_HTML, needle
+    assert "QG_DEMO" not in PAGE_HTML  # jen skutečná data
