@@ -306,6 +306,10 @@ def main(argv: list[str] | None = None) -> int:
         from .init_cmd import run_init
 
         return run_init(args.agent, write=args.write, rewake=args.rewake)
+    if args.cmd == "web-login":   # jen otevře prohlížeč, nejedná za agenta (ikona na ploše bez AGENT_NAME)
+        from .webui import login as web_login
+
+        return web_login(args.port)
     if args.cmd == "doctor":
         from .doctor import run_doctor
 
@@ -527,11 +531,6 @@ def main(argv: list[str] | None = None) -> int:
 
         return web_main(["--host", args.host, "--port", str(args.port)]
                         + (["--open"] if args.open_browser else []))
-
-    elif args.cmd == "web-login":
-        from .webui import login as web_login
-
-        return web_login(args.port)
 
     elif args.cmd == "limit":
         who = args.agent or me

@@ -272,3 +272,10 @@ def test_web_login_subcommand_routes_to_webui_login(db: Path, monkeypatch):
     monkeypatch.setattr("agent_lease_mcp.webui.login", lambda port: called.setdefault("port", port) and 0)
     assert main(["web-login", "--port", "9876"]) == 0
     assert called == {"port": 9876}
+
+
+def test_web_login_works_without_agent_name(db: Path, monkeypatch):
+    """Ikona na ploše spouští `agent-lease web-login` bez AGENT_NAME (26. 11.)."""
+    monkeypatch.delenv("AGENT_NAME", raising=False)
+    monkeypatch.setattr("agent_lease_mcp.webui.login", lambda port: 0)
+    assert main(["web-login"]) == 0
