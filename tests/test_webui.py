@@ -44,6 +44,7 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
     handler.path = path
     handler.headers = dict(headers or {})
     handler.headers.setdefault("Host", "localhost:8765")
+    handler.headers.setdefault("X-Agent-Lease-Key", "key")   # klíč z localStorage, jako skutečný prohlížeč
     if method == "POST":
         handler.headers.setdefault("Origin", "http://localhost:8765")
     if raw:
@@ -62,6 +63,7 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
 def authenticated_handler(store: Store, settings: Settings, token: str, session_id: str = "session"):
     handler_type = make_handler(store, settings, token, 8765)
     handler_type.sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    handler_type.session_keys[session_id] = "key"
     return handler_type
 
 
@@ -80,6 +82,9 @@ def test_unconfirmed_pause_returns_an_error(tmp_path: Path, monkeypatch):
     assert status == 503 and b"could not be confirmed" in body
 
 
+SESSION_KEYS: dict[int, str] = {}
+
+
 def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     connection = HTTPConnection("127.0.0.1", port, timeout=2)
     connection.request(
@@ -93,6 +98,7 @@ def exchange_session(port: int, token: str) -> tuple[int, str | None]:
     )
     response = connection.getresponse()
     cookie = response.getheader("Set-Cookie")
+    SESSION_KEYS[port] = response.getheader("X-Agent-Lease-Key") or ""
     response.read()
     status = response.status
     connection.close()
@@ -127,6 +133,7 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     payload = None
     if token:
         headers["Cookie"] = f"{webui.session_cookie_name(port)}={token}"
+        headers["X-Agent-Lease-Key"] = SESSION_KEYS.get(port, "")
     if method == "POST":
         headers["Origin"] = f"http://127.0.0.1:{port}"   # jako prohlížeč na stejném původu
     if body is not None:
@@ -376,9 +383,8 @@ def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeyp
     assert webui.run(port=9876, open_browser=True) == 0
     captured = capsys.readouterr()
     code = (tmp_path / "webui.login").read_text().split()[0]
-    assert "fallback-secret" not in captured.out + captured.err   # hlavní token se nikdy nevypíše
-    assert captured.err.count(code) == 1 and "single-use" in captured.err
-    assert "WARNING" in captured.err
+    out = captured.out + captured.err                      # audit 26. 11.: nic tajného na výstup
+    assert "fallback-secret" not in out and code not in out and "web-login" in captured.err
 
 
 def test_handlers_enforce_token_origin_and_human_sender_without_socket(tmp_path: Path):
@@ -527,7 +533,8 @@ def test_live_room_event_carries_pause_state(live_chat):
     port, _, session_id, store = live_chat
     store.pause("michal", "test")
     connection = HTTPConnection("127.0.0.1", port, timeout=3)
-    connection.request("GET", "/api/events?since=0", headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
+    connection.request("GET", f"/api/events?since=0&k={SESSION_KEYS[port]}",
+                       headers={"Cookie": f"{webui.session_cookie_name(port)}={session_id}"})
     response = connection.getresponse()
     assert response.status == 200
     event = None
@@ -641,6 +648,7 @@ def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_pa
     store = Store(settings=settings)
     preview = make_handler(store, settings, "secret", 8766)
     preview.sessions["s"] = time.monotonic() + SESSION_MAX_AGE_SECONDS
+    preview.session_keys["s"] = "key"
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
                              headers={"Cookie": f"{SESSION_COOKIE}=s", "Host": "localhost:8766"}, handler_type=preview)
     assert status == 403                                   # cookie webu 8765 na náhledu neplatí
@@ -782,3 +790,77 @@ def test_index_csp_uses_per_response_nonce_instead_of_unsafe_inline_script(tmp_p
     nonce = csp.split("'nonce-")[1].split("'")[0]
     assert "script-src 'unsafe-inline'" not in csp and "object-src 'none'" in csp
     assert f'<script nonce="{nonce}">'.encode() in handler.wfile.getvalue()
+
+
+def test_cookie_alone_is_not_enough_session_key_is_origin_bound(live_chat):
+    """Audit #2098 P2: cookie jde i na jiný port localhostu; bez klíče z localStorage nic nepřečte ani nezmění."""
+    port, _, session_id, _ = live_chat
+    cookie = {"Cookie": f"{webui.session_cookie_name(port)}={session_id}"}
+    for headers in (cookie, {**cookie, "X-Agent-Lease-Key": "wrong"}):
+        connection = HTTPConnection("127.0.0.1", port, timeout=2)
+        connection.request("GET", "/api/snapshot?since=0", headers=headers)
+        assert connection.getresponse().status == 403
+        connection.close()
+    assert request(port, "GET", "/api/snapshot?since=0", token=session_id)[0] == 200
+
+
+def test_event_stream_ends_when_session_expires(tmp_path: Path, monkeypatch):
+    """Audit #2098 P2: otevřený stream nesmí po vypršení přihlášení dál posílat data."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler_type = authenticated_handler(store, settings, "secret")
+    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    status, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
+                               headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
+    assert raw.count(b"event: room") == 1            # jedna dávka, pak konec místo nekonečné smyčky
+    assert handler_type.sse_slots.acquire(blocking=False)   # slot se vrátil
+
+
+def test_slow_request_hits_absolute_read_deadline():
+    """Audit #2098 P2: kapání po bajtu neobejde limit; čtení po termínu skončí."""
+    reader = webui._DeadlineReader(BytesIO(b"GET / HTTP/1.1"))
+    reader.deadline = time.monotonic() - 1
+    with pytest.raises(TimeoutError):
+        reader.readline()
+
+
+def test_connection_cap_refuses_extra_connections():
+    closed = []
+
+    class Base:
+        def __init__(self, *a, **k):
+            pass
+
+        def process_request(self, request, addr):
+            pass
+
+        def shutdown_request(self, request):
+            closed.append(request)
+
+    capped = type("Capped", (webui._ConnectionCap, Base), {"max_connections": 2})()
+    for i in range(3):
+        capped.process_request(i, None)
+    assert closed == [2]
+
+
+def test_web_login_sends_code_only_to_verified_port(tmp_path: Path, monkeypatch):
+    """Audit #2098 P2: neověřitelný vlastník portu nebo cizí program ve Windows = kód se neposílá."""
+    monkeypatch.setenv("AGENT_LEASE_DB", str(tmp_path / "room.db"))
+    monkeypatch.setattr(webui, "open_url", lambda url: pytest.fail("kód nesmí odejít"))
+    monkeypatch.setattr(webui.socket, "create_connection", lambda *a, **k: socket.socket())
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: None)
+    assert webui.login(8765) == 1
+    monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: True)
+    monkeypatch.setattr(webui, "_is_wsl", lambda: True)
+    monkeypatch.setattr(webui, "windows_port_forwards_to_wsl", lambda port: False)
+    assert webui.login(8765) == 2
+
+
+def test_windows_listener_check_accepts_only_wsl_forwarding(monkeypatch):
+    out = {"v": "wslrelay\n"}
+    monkeypatch.setattr(webui.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": out["v"]})())
+    assert webui.windows_port_forwards_to_wsl(8765) is True
+    out["v"] = ""
+    assert webui.windows_port_forwards_to_wsl(8765) is True
+    out["v"] = "evil\n"
+    assert webui.windows_port_forwards_to_wsl(8765) is False
