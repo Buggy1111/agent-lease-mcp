@@ -2103,6 +2103,7 @@ function updateStatus(mode) {
   connectionMode = mode;
   renderSystemMetric();
   renderHeroes();
+  setTimeout(renderPages);   // Nastavení hned ukáže neznámý stav mostů
   statusDot.className = "dot" + (mode === "live" ? " live" : mode === "retry" ? " retry" : "");
   statusText.textContent = mode === "live" ? "živě" : mode === "retry" ? "spojení přerušeno, zkouším znovu…" : "připojuji…";
 }
@@ -2883,13 +2884,16 @@ function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).th
 function renderSettings() {
   const st = {ada: agentStatus("ada"), nox: agentStatus("nox")};
   const peer = a => latestPeers.find(p => p.agent === a);
-  const bridgeOn = a => { const p = peer(a); return !!(p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S); };
+  // Stejná ochrana jako agentStatus: po výpadku spojení / >60 s bez dat most nesmí zůstat „online" (review #54).
+  const stale = connectionMode !== "live" || !lastRoomAt || Date.now() - lastRoomAt > STALE_MS;
+  const bridgeOn = a => { const p = peer(a); return !stale && !!(p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S); };
+  const bridgeText = a => stale ? "most: stav neznámý" : "most " + (bridgeOn(a) ? "online" : "offline");
   const all = latestReviewsAll || [];
   metricsRow("setMetrics", [
     ["Provozní režim", lastMode ? MODE_NAME[lastMode.mode] || lastMode.mode : "—", "sliders", "cyan"],
     ["Provoz", lastPaused === undefined ? "—" : lastPaused ? "Zastaveno" : "Povolen", "stop", lastPaused ? "orange" : "green"],
-    ["Agenti online", `${["ada", "nox"].filter(k => !["offline", "unknown"].includes(st[k].state)).length} / 2`, "users", "purple"],
-    ["Mosty online", `${["claude-code-bridge", "codex-bridge"].filter(bridgeOn).length} / 2`, "bridge", "purple", "Mosty přebírají úkoly na pozadí"],
+    ["Agenti online", stale ? "—" : `${["ada", "nox"].filter(k => !["offline", "unknown"].includes(st[k].state)).length} / 2`, "users", "purple"],
+    ["Mosty online", stale ? "—" : `${["claude-code-bridge", "codex-bridge"].filter(bridgeOn).length} / 2`, "bridge", "purple", "Mosty přebírají úkoly na pozadí"],
     ["Zamčené cesty", latestClaims.length, "lock", "orange"],
     ["Review k rozhodnutí", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan"],
   ]);
@@ -2897,7 +2901,7 @@ function renderSettings() {
   const INFO = {ada: ["Ada", "Anthropic (Claude)", "Analýza · Výzkum · Návrhy", "claude-code-bridge"], nox: ["Nox", "OpenAI (GPT)", "Implementace · Testy · Ověření", "codex-bridge"]};
   const TONE = {working: "work", idle: "ok", limited: "bad", error: "warn", offline: "", unknown: "warn"};
   setHTMLIfChanged(document.getElementById("setAgentList"), ["ada", "nox"].map(k => { const [name, vendor, role, bridge] = INFO[k], s = st[k];
-    return `<div class="set-agent" data-agent="${k}"><img src="/assets/${k}.webp" alt=""><div class="set-agent-body"><b>${name}</b> <span class="note">${vendor}</span><p>${role}</p>${s.detail ? `<p title="${esc(s.detail)}">${esc(s.detail.slice(0, 120))}</p>` : ""}<div class="tags">${tag(s.label, TONE[s.state])}${tag("most " + (bridgeOn(bridge) ? "online" : "offline"), bridgeOn(bridge) ? "ok" : "")}</div></div></div>`; }).join(""));
+    return `<div class="set-agent" data-agent="${k}"><img src="/assets/${k}.webp" alt=""><div class="set-agent-body"><b>${name}</b> <span class="note">${vendor}</span><p>${role}</p>${s.detail ? `<p title="${esc(s.detail)}">${esc(s.detail.slice(0, 120))}</p>` : ""}<div class="tags">${tag(s.label, TONE[s.state])}${tag(bridgeText(bridge), stale ? "warn" : bridgeOn(bridge) ? "ok" : "")}</div></div></div>`; }).join(""));
   if (lastMode) renderMode(lastMode);
   const p = lastPaused;
   setHTMLIfChanged(document.getElementById("setStopBody"), p === undefined ? "<div class='empty'>Stav není známý.</div>"
@@ -2911,6 +2915,9 @@ function renderSettings() {
   ev.sort((a, b) => (b[1] || 0) - (a[1] || 0));
   setHTMLIfChanged(document.getElementById("setActivity"), ev.length ? ev.slice(0, 8).map(([a, t, x]) => actItem(a, t, x)).join("") : "<li class='empty'>Zatím žádná řídicí akce.</li>");
 }
+// Stránky se obnovují i bez nové zprávy: stáří dat (Nastavení) a průběh výzkumu/paměti (review #54).
+setInterval(() => { if (!document.hidden) renderPages(); }, 5000);
+setInterval(() => { if (document.hidden) return; if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge(); }, 10000);
 document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
   ev.preventDefault();
   document.querySelectorAll(".set-nav a").forEach(x => x.classList.toggle("on", x === a));

@@ -717,3 +717,11 @@ def test_web_login_refuses_port_held_by_another_user(tmp_path: Path, monkeypatch
     monkeypatch.setattr(webui, "listener_owned_by_me", lambda port: False)
     monkeypatch.setattr(webui, "open_url", lambda url: pytest.fail("token nesmí odejít"))
     assert webui.login(8765) == 2
+
+
+def test_pages_refresh_without_new_messages_and_never_keep_stale_bridges_online():
+    """Review #54: Nastavení po výpadku nesmí ukazovat most online; Výzkum se obnovuje na otevřené stránce."""
+    assert 'const stale = connectionMode !== "live" || !lastRoomAt || Date.now() - lastRoomAt > STALE_MS;' in PAGE_HTML
+    assert "return !stale && !!(p && p.active" in PAGE_HTML
+    assert 'if (currentView === "research") loadResearch();' in PAGE_HTML
+    assert "setTimeout(renderPages);" in PAGE_HTML
