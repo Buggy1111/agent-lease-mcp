@@ -43,6 +43,9 @@ def call_handler(store: Store, settings: Settings, token: str, method: str, path
     raw = json.dumps(body).encode() if body is not None else b""
     handler.path = path
     handler.headers = dict(headers or {})
+    handler.headers.setdefault("Host", "localhost:8765")
+    if method == "POST":
+        handler.headers.setdefault("Origin", "http://localhost:8765")
     if raw:
         handler.headers.setdefault("Content-Length", str(len(raw)))
         handler.headers.setdefault("Content-Type", "application/json")
@@ -124,6 +127,8 @@ def request(port: int, method: str, path: str, *, token: str | None = None, body
     payload = None
     if token:
         headers["Cookie"] = f"{webui.session_cookie_name(port)}={token}"
+    if method == "POST":
+        headers["Origin"] = f"http://127.0.0.1:{port}"   # jako prohlížeč na stejném původu
     if body is not None:
         payload = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
@@ -343,9 +348,9 @@ def test_open_passes_fragment_to_browser_without_printing_it(tmp_path: Path, mon
 
     assert webui.run(port=9876, open_browser=True) == 0
     captured = capsys.readouterr()
-    assert opened == ["http://127.0.0.1:9876/#token=browser-secret"]
-    assert "browser-secret" not in captured.out
-    assert "browser-secret" not in captured.err
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    assert opened == [f"http://127.0.0.1:9876/#token={code}"]   # jednorázový kód, ne hlavní token
+    assert "browser-secret" not in captured.out + captured.err + opened[0]
 
 
 def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeypatch, capsys):
@@ -370,8 +375,9 @@ def test_open_failure_prints_one_explicit_secret_warning(tmp_path: Path, monkeyp
 
     assert webui.run(port=9876, open_browser=True) == 0
     captured = capsys.readouterr()
-    assert "fallback-secret" not in captured.out
-    assert captured.err.count("fallback-secret") == 1
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    assert "fallback-secret" not in captured.out + captured.err   # hlavní token se nikdy nevypíše
+    assert captured.err.count(code) == 1 and "single-use" in captured.err
     assert "WARNING" in captured.err
 
 
@@ -636,10 +642,10 @@ def test_session_cookie_is_per_port_so_two_webs_do_not_log_each_other_out(tmp_pa
     preview = make_handler(store, settings, "secret", 8766)
     preview.sessions["s"] = time.monotonic() + SESSION_MAX_AGE_SECONDS
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
-                             headers={"Cookie": f"{SESSION_COOKIE}=s"}, handler_type=preview)
+                             headers={"Cookie": f"{SESSION_COOKIE}=s", "Host": "localhost:8766"}, handler_type=preview)
     assert status == 403                                   # cookie webu 8765 na náhledu neplatí
     status, _ = call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
-                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s"}, handler_type=preview)
+                             headers={"Cookie": f"{SESSION_COOKIE}_8766=s", "Host": "localhost:8766"}, handler_type=preview)
     assert status == 200
 
 
@@ -659,7 +665,8 @@ def test_web_login_opens_running_web_logged_in_without_printing_token(tmp_path: 
     monkeypatch.setattr(webui, "open_url", lambda url: opened.append(url) or True)
     assert webui.login(8765) == 0
     token = (tmp_path / "webui.token").read_text().strip()
-    assert opened == [f"http://localhost:8765/#token={token}"]
+    code = (tmp_path / "webui.login").read_text().split()[0]
+    assert opened == [f"http://localhost:8765/#token={code}"] and code != token
     out = capsys.readouterr()
     assert token not in out.out + out.err
 
@@ -725,3 +732,53 @@ def test_pages_refresh_without_new_messages_and_never_keep_stale_bridges_online(
     assert "return !stale && !!(p && p.active" in PAGE_HTML
     assert 'if (currentView === "research") loadResearch();' in PAGE_HTML
     assert "setTimeout(renderPages);" in PAGE_HTML
+
+
+def test_login_code_is_single_use_and_expires(tmp_path: Path, monkeypatch):
+    """Bezpečnostní audit 26. 11.: do URL a historie prohlížeče jde jen jednorázový kód na 2 min."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    code = webui.issue_login_code(settings)
+    assert stat.S_IMODE((tmp_path / "webui.login").stat().st_mode) == 0o600
+    hdr = {"Origin": "http://localhost:8765", "Host": "localhost:8765", "X-Agent-Lease-Token": code}
+    assert call_handler(store, settings, "secret", "POST", "/session", headers=hdr)[0] == 204
+    assert call_handler(store, settings, "secret", "POST", "/session", headers=hdr)[0] == 403   # podruhé ne
+    code = webui.issue_login_code(settings)
+    monkeypatch.setattr(webui.time, "time", lambda: 10**12)
+    assert call_handler(store, settings, "secret", "POST", "/session",
+                        headers={**hdr, "X-Agent-Lease-Token": code})[0] == 403                 # prošlý
+
+
+def test_foreign_host_and_missing_origin_are_rejected(tmp_path: Path):
+    """DNS rebinding (cizí Host) a POST bez Origin neprojdou ani s platnou session."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    handler = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session"}
+    assert call_handler(store, settings, "secret", "GET", "/api/snapshot?since=0",
+                        headers={**cookie, "Host": "evil.example:8765"}, handler_type=handler)[0] == 403
+    assert call_handler(store, settings, "secret", "GET", "/",
+                        headers={"Host": "evil.example:8765"}, handler_type=handler)[0] == 403
+    assert call_handler(store, settings, "secret", "POST", "/api/pause", body={"reason": "x"},
+                        headers={**cookie, "Origin": ""}, handler_type=handler)[0] == 403
+    status, _ = call_handler(store, settings, "secret", "POST", "/api/pause", body={"reason": "x"},
+                             headers={**cookie, "Content-Length": "abc"}, handler_type=handler)
+    assert status == 400
+
+
+def test_index_csp_uses_per_response_nonce_instead_of_unsafe_inline_script(tmp_path: Path):
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    sent = {}
+    handler_type = make_handler(store, settings, "secret", 8765)
+    handler = object.__new__(handler_type)
+    handler.path, handler.headers = "/", {"Host": "localhost:8765"}
+    handler.wfile, handler.rfile = BytesIO(), BytesIO()
+    handler.send_response = lambda code: None
+    handler.send_header = lambda k, v: sent.__setitem__(k, v)
+    handler.end_headers = lambda: None
+    handler.do_GET()
+    csp = sent["Content-Security-Policy"]
+    nonce = csp.split("'nonce-")[1].split("'")[0]
+    assert "script-src 'unsafe-inline'" not in csp and "object-src 'none'" in csp
+    assert f'<script nonce="{nonce}">'.encode() in handler.wfile.getvalue()

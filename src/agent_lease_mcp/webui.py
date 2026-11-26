@@ -94,6 +94,38 @@ def load_or_create_token(settings: Settings) -> str:
     return token
 
 
+LOGIN_CODE_FILE = "webui.login"
+LOGIN_CODE_SECONDS = 120
+
+
+def issue_login_code(settings: Settings) -> str:
+    """Jednorázový kód na 2 min pro odkaz do prohlížeče: hlavní token se tak nedostane do URL ani historie."""
+    code = secrets.token_urlsafe(32)
+    path = settings.db_path.parent / LOGIN_CODE_FILE
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    tmp = path.with_name(f"{LOGIN_CODE_FILE}.{secrets.token_hex(8)}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(f"{code} {time.time() + LOGIN_CODE_SECONDS:.0f}")
+    os.replace(tmp, path)   # platí jen poslední vydaný kód
+    return code
+
+
+def consume_login_code(settings: Settings, code: str) -> bool:
+    path = settings.db_path.parent / LOGIN_CODE_FILE
+    try:
+        stored, expires = path.read_text().split()
+    except (OSError, ValueError):
+        return False
+    if not code or not secrets.compare_digest(code, stored) or time.time() > float(expires):
+        return False
+    try:
+        path.unlink()           # jednorázový: kdo kód smaže první, ten se přihlásí
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def _sse(event: str, event_id: int | None, payload: dict) -> bytes:
     lines = [f"event: {event}"]
     if event_id is not None:
@@ -187,8 +219,12 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return bool(value) and sessions.get(value, 0) > now
 
         def _origin_ok(self) -> bool:
-            origin = self.headers.get("Origin")
-            return origin is None or origin in allowed_origins
+            # Prohlížeč posílá Origin u každého POST z fetch; bez něj nebo cizí = odmítnout.
+            return self.headers.get("Origin") in allowed_origins
+
+        def _host_ok(self) -> bool:
+            # Obrana proti DNS rebindingu: cizí doména přesměrovaná na 127.0.0.1 má jiný Host.
+            return self.headers.get("Host") in allowed_hosts
 
         def _reject(self, code: int, message: str) -> None:
             body = message.encode("utf-8")
@@ -201,6 +237,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         # ── routování ───────────────────────────────────────────────────
         def do_GET(self) -> None:
+            if not self._host_ok():
+                return self._reject(403, "bad host")
             parts = urlsplit(self.path)
             qs = parse_qs(parts.query)
             if parts.path == "/":
@@ -239,6 +277,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self._reject(404, "not found")
 
         def do_POST(self) -> None:
+            if not self._host_ok():
+                return self._reject(403, "bad host")
             parts = urlsplit(self.path)
             if parts.path == "/session":
                 return self._handle_session()
@@ -297,14 +337,16 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
 
         # ── handlery ────────────────────────────────────────────────────
         def _handle_index(self) -> None:
-            body = PAGE_HTML.encode("utf-8")
+            nonce = secrets.token_urlsafe(16)
+            body = PAGE_HTML.replace("<script>", f'<script nonce="{nonce}">', 1).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self._security_headers()
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
-                "connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+                f"default-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; "
+                "connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; "
+                "frame-ancestors 'none'; form-action 'none'",
             )
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -318,7 +360,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 or self.headers.get("Host") not in allowed_hosts
             ):
                 return self._reject(403, "bad origin")
-            if not self._bearer_ok():
+            if not (self._bearer_ok() or consume_login_code(settings, self.headers.get("X-Agent-Lease-Token", ""))):
                 return self._reject(403, "bad token")
             session_id = secrets.token_urlsafe(32)
             with sessions_lock:
@@ -365,7 +407,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             self.wfile.write(body)
 
         def _read_json(self) -> dict | None:
-            length = int(self.headers.get("Content-Length", "0") or "0")
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                length = -1
             if length <= 0 or length > 8192:
                 self._reject(400, "empty or too long body")
                 return None
@@ -3006,8 +3051,9 @@ def login(port: int = 8765) -> int:
         print(f"Web na http://localhost:{port}/ neběží. Spusť: systemctl --user start agent-lease-web",
               file=sys.stderr)
         return 1
-    token = load_or_create_token(Settings.from_env())
-    if not open_url(f"http://localhost:{port}/#token={token}"):
+    settings = Settings.from_env()
+    load_or_create_token(settings)
+    if not open_url(f"http://localhost:{port}/#token={issue_login_code(settings)}"):
         print("Prohlížeč se nepodařilo otevřít.", file=sys.stderr)
         return 1
     print(f"Otevřeno: http://localhost:{port}/ (přihlášení platí {SESSION_MAX_AGE_SECONDS // 86400} dní)")
@@ -3024,11 +3070,11 @@ def run(host: str = "127.0.0.1", port: int = 8765, *, open_browser: bool = False
     url = f"http://{host}:{port}/"
     print(f"Live room at {url}")
     if open_browser:
-        login_url = f"{url}#token={token}"
+        login_url = f"{url}#token={issue_login_code(settings)}"
         if not open_url(login_url):
             print(
-                "Could not open a browser. WARNING: the following URL carries full "
-                f"human authority for this room: {login_url}",
+                "Could not open a browser. WARNING: the following single-use URL logs in with full "
+                f"human authority for the next {LOGIN_CODE_SECONDS} s: {login_url}",
                 file=sys.stderr,
             )
     else:
