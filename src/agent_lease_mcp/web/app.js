@@ -924,11 +924,6 @@ document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => {
   document.querySelectorAll("[data-filter]").forEach(el => { el.classList.toggle("on", el === b); el.setAttribute("aria-pressed", el === b); });
   applyFilters();
 });
-document.getElementById("navTasks").onclick = () => {
-  showView("overview",{focus:false});
-  document.querySelector('[data-filter="task"]').click();
-  document.getElementById("main").scrollIntoView({block:"start"});
-};
 document.getElementById("sendBtn").onclick = send;
 textEl.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 fillRecipients();
@@ -1607,5 +1602,3 @@ function showView(view,{focus=true}={}) {
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
 renderQualityGate();
 
-document.getElementById("navAgents").onclick=()=>{showView("overview",{focus:false});openPanel("side");};
-for(const [id,target,panel] of [["navProjects","projectPanel","side"],["navHistory","historyPanel","inspector"]])document.getElementById(id).onclick=e=>{e.preventDefault();showView("overview",{focus:false});openPanel(panel);document.getElementById(target).scrollIntoView({block:"start"});};
