@@ -923,3 +923,10 @@ def test_expired_login_replaces_the_loading_bar_with_help():
     body = PAGE_HTML[start:PAGE_HTML.index("feed.innerHTML", start)]
     assert 'getElementById("pause")' in body and "web-login" in body
     assert "web --open" not in body
+
+
+def test_attention_panel_and_live_indicator():
+    """Michal 27. 11.: zvonek otevře „Čeká na tebe“ s akcemi; hlavička ukazuje stáří živých dat."""
+    for needle in ('id="attnDialog"', "function attentionItems()", "renderTaskActions(m, div)", 'id="livePill"',
+                   "worker lease expired after start", '"/api/review-close"'):
+        assert needle in PAGE_HTML, needle
