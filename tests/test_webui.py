@@ -1079,3 +1079,11 @@ def test_settings_confirmations_and_keyboard_are_stable():
     assert "pauseCall(action, reason)" in PAGE_HTML and 'pauseCall(lastPaused ? "resume" : "pause"' not in PAGE_HTML
     assert "selectSettingsTab(t.dataset.st, false); t.focus();" in PAGE_HTML
     assert ".st-wrap { grid-template-columns:minmax(0,1fr); } .st-nav,.st-pane { min-width:0; }" in PAGE_HTML
+
+
+def test_page_is_assembled_from_web_files():
+    """Refaktoring 27. 11.: HTML, CSS a JS jsou v web/*.html|css|js; složená stránka nesmí mít zbytek šablony."""
+    web = Path(webui.__file__).with_name("web")
+    assert {"index.html", "app.css", "app.js"} <= {p.name for p in web.iterdir()}
+    assert "{{CSS}}" not in PAGE_HTML and "{{JS}}" not in PAGE_HTML
+    assert PAGE_HTML.count("<script>") == 1 and PAGE_HTML.count("<style>") == 1
