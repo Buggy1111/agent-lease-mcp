@@ -26,6 +26,8 @@ dependencies = [
     "joserfc>=1.7.6,<2",
     "pyjwt>=2.15,<3",
     "opentelemetry-api>=1.45.1,<2",
+    # Přihlášení Windows Hello (WebAuthn podpisy); už instalováno přes authlib/joserfc.
+    "cryptography>=46,<51",
 ]
 
 [project.urls]
