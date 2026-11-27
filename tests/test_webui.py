@@ -1070,4 +1070,4 @@ def test_settings_logout_and_about(tmp_path: Path):
     assert "session" not in h.sessions and "session" not in h.session_keys
     assert call_handler(store, settings, "secret", "GET", "/api/about", headers=cookie, handler_type=h)[0] == 403
     assert any(e["action"] == "web-logout" for e in store.history(limit=5))
-    assert "prompt(" not in PAGE_HTML[PAGE_HTML.index("function stModes()"):PAGE_HTML.index("let stKeys = null;")]
+    assert "prompt(" not in PAGE_HTML[PAGE_HTML.index("function stModes()"):PAGE_HTML.index("let stKeys = null")]
