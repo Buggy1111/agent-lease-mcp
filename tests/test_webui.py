@@ -1071,3 +1071,11 @@ def test_settings_logout_and_about(tmp_path: Path):
     assert call_handler(store, settings, "secret", "GET", "/api/about", headers=cookie, handler_type=h)[0] == 403
     assert any(e["action"] == "web-logout" for e in store.history(limit=5))
     assert "prompt(" not in PAGE_HTML[PAGE_HTML.index("function stModes()"):PAGE_HTML.index("let stKeys = null")]
+
+
+def test_settings_confirmations_and_keyboard_are_stable():
+    """Review #61: záměr zastavení se fixuje při otevření; šipky nechají fokus na záložce; mobil bez přetékání."""
+    assert 'stConfirm = {kind: "stop", action: lastPaused ? "resume" : "pause"}' in PAGE_HTML
+    assert "pauseCall(action, reason)" in PAGE_HTML and 'pauseCall(lastPaused ? "resume" : "pause"' not in PAGE_HTML
+    assert "selectSettingsTab(t.dataset.st, false); t.focus();" in PAGE_HTML
+    assert ".st-wrap { grid-template-columns:minmax(0,1fr); } .st-nav,.st-pane { min-width:0; }" in PAGE_HTML

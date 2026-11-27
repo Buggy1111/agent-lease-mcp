@@ -2031,7 +2031,7 @@ body.room-focus .now-bar { display:none; }
 .st-hero.bad { border:1.5px solid rgba(255,90,110,.65); background:linear-gradient(110deg,rgba(255,90,110,.16),rgba(10,16,40,.6)); }
 .st-hero .big { font-size:22px; font-weight:700; } .st-hero p { margin:6px 0 0; color:#D5DCF0; } .st-hero .st-btn { margin-left:auto; }
 .st-note { color:var(--text-dim); font-size:13.5px; margin:10px 2px 0; }
-@media(max-width:1100px) { .st-wrap { grid-template-columns:1fr; } .st-nav { position:static; } .st-tabs { flex-direction:row; overflow-x:auto; } .st-tabs button { flex:none; width:auto; } .st-tabs button small { display:none; } }
+@media(max-width:1100px) { .st-wrap { grid-template-columns:minmax(0,1fr); } .st-nav,.st-pane { min-width:0; } .st-nav { position:static; } .st-tabs { flex-direction:row; overflow-x:auto; } .st-tabs button { flex:none; width:auto; } .st-tabs button small { display:none; } }
 @media(max-width:599px) { .st-pane { padding:20px 16px; } .st-row { flex-direction:column; align-items:flex-start; } .st-row .st-r { max-width:100%; text-align:left; } .st-agent { grid-template-columns:auto minmax(0,1fr); } .st-agent > .st-btn { grid-column:1 / -1; } .st-hero { flex-direction:column; align-items:flex-start; } .st-hero .st-btn { margin-left:0; } }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
@@ -3548,6 +3548,8 @@ function stModes() {
 function stStop() {
   const p = lastPaused;
   if (p === undefined) return '<p class="st-note">Stav není známý.</p>';
+  // Potvrzení platí jen pro stav, ve kterém bylo otevřené (review #61): změna přes SSE ho zruší.
+  if (stConfirm && stConfirm.kind === "stop" && stConfirm.action !== (p ? "resume" : "pause")) stConfirm = null;
   const confirm = stConfirm && stConfirm.kind === "stop"
     ? `<div class="st-confirm ${p ? "" : "danger"}"><label for="stReason">${p ? "Proč pouštíš agenty znovu? (nepovinné)" : "Proč zastavuješ? (zapíše se do historie)"}</label><textarea id="stReason" maxlength="500">${esc(stConfirm.reason ?? (p ? "" : "nouzové zastavení"))}</textarea><div class="st-btns"><button class="st-btn" data-st-cancel>Zrušit</button><button class="st-btn ${p ? "go" : "danger"}" data-st-do-stop>${p ? "Pustit agenty" : "Opravdu zastavit"}</button></div></div>` : "";
   return `<div class="st-hero ${p ? "bad" : "ok"}"><div><div class="big">${p ? "⏸ Agenti jsou zastavení" : "● Provoz povolen"}</div><p>${p ? `Zastavil ${esc(nameOf(p.by))}${p.at ? " · " + esc(when(p.at)) : ""}${p.reason ? " · „" + esc(p.reason) + "“" : ""}` : "Agenti pracují samostatně podle zvoleného režimu."}</p></div>${confirm ? "" : `<button class="st-btn ${p ? "go" : "danger"}" data-st-stop>${p ? "Pustit agenty znovu" : "Zastavit všechny agenty"}</button>`}</div>${confirm}
@@ -3607,10 +3609,10 @@ function bindSettings() {
       .then(r => r.ok ? r.json().then(m => { stConfirm = null; document.activeElement.blur(); renderMode(m); }) : r.text().then(t => { doMode.disabled = false; alert(t); }))
       .catch(() => { doMode.disabled = false; alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."); }); };
   const stop = pane.querySelector("[data-st-stop]");
-  if (stop) stop.onclick = () => { stConfirm = {kind: "stop"}; renderSettings(); document.getElementById("stReason")?.focus(); };
+  if (stop) stop.onclick = () => { stConfirm = {kind: "stop", action: lastPaused ? "resume" : "pause"}; renderSettings(); document.getElementById("stReason")?.focus(); };
   const doStop = pane.querySelector("[data-st-do-stop]");
-  if (doStop) doStop.onclick = () => { doStop.disabled = true; const reason = document.getElementById("stReason").value;
-    stConfirm = null; document.activeElement.blur(); pauseCall(lastPaused ? "resume" : "pause", reason); setTimeout(renderSettings, 400); };
+  if (doStop) doStop.onclick = () => { doStop.disabled = true; const reason = document.getElementById("stReason").value, action = stConfirm.action;
+    stConfirm = null; document.activeElement.blur(); pauseCall(action, reason); setTimeout(renderSettings, 400); };
   pane.querySelectorAll("[data-pk-remove]").forEach(b => b.onclick = () => { if (confirm("Odebrat tento klíč Windows Hello?")) post("/api/passkey/remove", {id: b.dataset.pkRemove}).then(loadSettingsData); });
   const add = document.getElementById("pkAdd");
   if (add) add.onclick = addPasskey;
@@ -3618,11 +3620,16 @@ function bindSettings() {
   if (out) out.onclick = () => { if (!confirm("Odhlásit se z webu v tomto prohlížeči?")) return;
     fetch("/api/logout", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).finally(() => { localStorage.removeItem(KEY_STORE); location.reload(); }); };
 }
+function selectSettingsTab(tab, focusTitle) {
+  stTab = tab; stConfirm = null; localStorage.setItem("agentLeaseSettingsTab", stTab); renderSettings();
+  if (focusTitle) document.getElementById("stPaneTitle")?.focus({preventScroll: true});
+}
 document.querySelectorAll("[data-st]").forEach(b => {
-  b.onclick = () => { stTab = b.dataset.st; stConfirm = null; localStorage.setItem("agentLeaseSettingsTab", stTab); renderSettings(); document.getElementById("stPaneTitle")?.focus({preventScroll: true}); };
+  b.onclick = () => selectSettingsTab(b.dataset.st, true);
   b.onkeydown = e => { const tabs = [...document.querySelectorAll("[data-st]")], i = tabs.indexOf(b);
-    if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); tabs[(i + 1) % tabs.length].focus(); tabs[(i + 1) % tabs.length].click(); }
-    if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); tabs[(i + tabs.length - 1) % tabs.length].focus(); tabs[(i + tabs.length - 1) % tabs.length].click(); } };
+    const go = j => { e.preventDefault(); const t = tabs[(j + tabs.length) % tabs.length]; selectSettingsTab(t.dataset.st, false); t.focus(); };   // fokus zůstává na záložce (review #61)
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") go(i + 1);
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") go(i - 1); };
 });
 // Stránky se obnovují i bez nové zprávy: stáří dat (Nastavení) a průběh výzkumu/paměti (review #54).
 setInterval(() => { if (!document.hidden) renderPages(); }, 5000);
