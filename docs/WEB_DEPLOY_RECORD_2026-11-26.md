@@ -76,3 +76,12 @@ souborech (spolu s krokem 1 výše); politiky mění jen vlastník.
 | Broker | drop-in: `Delegate=cpu memory pids`, `DelegateSubgroup=broker`, `ExecStartPost` zapne kontroléry v rodičovské cgroup (jinak „controllers are unavailable“) |
 | Restart | okno bez leased/started; DB integrita ok, fronta shodná; 5 služeb active na `runtime-7745532` |
 | Ověření | skutečná kontrola `d612eb0`: tests/lint/build PASS v sandboxu, security REVIEW (čeká na review navázané na commit) — správně; starší commit než základ odmítnut (F2) |
+
+## Přihlášení Windows Hello / PIN — 27. 11. 2026 (`3a5b457`, review #59, security pass)
+
+Neonová přihlašovací stránka (WebAuthn, ověření uživatele PINem), klíče v `webui.passkeys.json` (0600),
+přihlášení jen z `http://localhost:8765`, omezení 10 neúspěchů / 5 min, audit `web-login-passkey(-failed)`.
+Nastavení → Přihlášení: přidat / odebrat klíč. Ikona na ploše a `agent-lease web-login` zůstávají jako záloha.
+Nasazeno jen restartem webu (`runtime-3a5b457`; proti `7745532` jen `webui.py` + nový `passkey.py`).
+Ověřeno: Chromium s virtuálním autentizátorem (přidání, přihlášení PINem, bez PINu odmítnuto), živý web
+bez chyb. Fyzický Windows Hello ověří Michal prvním přidáním klíče.
