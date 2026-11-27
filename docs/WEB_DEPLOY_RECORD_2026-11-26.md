@@ -59,3 +59,9 @@ bezpečně skončí jako SETUP REQUIRED:
 3. Pak restart všech služeb v okně bez běžících úkolů a ověření (integrita DB, fronta, `doctor`, jeden běh kontroly).
 
 Do té doby: Quality Gate běží ve staré verzi bez oprav F1–F9 (jako dosud od 20. 11.).
+
+**Zjištěno navíc:** všechny tři operátorské politiky (`quality-runner.toml`, `fix-runner.toml`, `research.toml`)
+mají v `repositories` starou cestu `/home/buggy1111/dev/projects/agent-lease-mcp`, která po přestěhování repa
+do `~/dev/mcp-servers/agent-lease-mcp` neexistuje. Kontrola kvality, automatické opravy i výzkum nad repem
+Agent Lease proto teď skončí odmítnutím (bezpečně, ale nefungují). Oprava = nahradit cestu ve všech třech
+souborech (spolu s krokem 1 výše); politiky mění jen vlastník.
