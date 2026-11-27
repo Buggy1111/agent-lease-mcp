@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import stat
+import threading
 import time
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -998,7 +999,16 @@ def test_event_stream_drains_a_full_backlog(tmp_path: Path, monkeypatch):
     for i in range(450):
         store.send("codex", "michal", f"TEST ONLY {i}", kind="chat")
     handler_type = authenticated_handler(store, settings, "secret")
-    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    # Jen spánek tohoto vlákna ukončí stream; vlákna jiných testů (reaper…) spí normálně, jinak by přihlášení zrušila předčasně.
+    real_sleep, me = time.sleep, threading.current_thread()
+
+    def sleep(seconds):
+        if threading.current_thread() is me:
+            handler_type.sessions["session"] = 0
+        else:
+            real_sleep(seconds)
+
+    monkeypatch.setattr(webui.time, "sleep", sleep)
     _, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
                           headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
     assert raw.count(b"event: message") == 450
@@ -1079,3 +1089,11 @@ def test_settings_confirmations_and_keyboard_are_stable():
     assert "pauseCall(action, reason)" in PAGE_HTML and 'pauseCall(lastPaused ? "resume" : "pause"' not in PAGE_HTML
     assert "selectSettingsTab(t.dataset.st, false); t.focus();" in PAGE_HTML
     assert ".st-wrap { grid-template-columns:minmax(0,1fr); } .st-nav,.st-pane { min-width:0; }" in PAGE_HTML
+
+
+def test_page_is_assembled_from_web_files():
+    """Refaktoring 27. 11.: HTML, CSS a JS jsou v web/*.html|css|js; složená stránka nesmí mít zbytek šablony."""
+    web = Path(webui.__file__).with_name("web")
+    assert {"index.html", "app.css", "app.js"} <= {p.name for p in web.iterdir()}
+    assert "{{CSS}}" not in PAGE_HTML and "{{JS}}" not in PAGE_HTML
+    assert PAGE_HTML.count("<script>") == 1 and PAGE_HTML.count("<style>") == 1
