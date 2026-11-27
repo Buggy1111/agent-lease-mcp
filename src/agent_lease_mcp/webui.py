@@ -2112,7 +2112,9 @@ function attentionItems() {
 }
 function renderAttention() {
   const list = document.getElementById("attnList"), items = attentionItems();
-  const key = JSON.stringify(items.map(i => [i.kind, i.r?.id ?? i.r?.run_id ?? i.m?.id ?? i.n, i.m?.state]));
+  // Klíč nese vše, co se v panelu zobrazuje nebo určuje tlačítka (review #57: last_error, fix, stav review/kvality).
+  const key = JSON.stringify(items.map(i => [i.kind, i.n, i.m && [i.m.id, i.m.state, i.m.last_error, i.m.fix, i.m.recipient],
+    i.r && [i.r.id, i.r.run_id, i.r.state, i.r.policy_review_status, i.r.topic]]));
   if (list._key === key) return;
   list._key = key;
   list.innerHTML = items.length ? "" : '<div class="attn-empty">✓ Nic nečeká. Agenti si poradí sami.</div>';

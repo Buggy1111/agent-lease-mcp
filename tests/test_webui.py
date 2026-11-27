@@ -930,3 +930,11 @@ def test_attention_panel_and_live_indicator():
     for needle in ('id="attnDialog"', "function attentionItems()", "renderTaskActions(m, div)", 'id="livePill"',
                    "worker lease expired after start", '"/api/review-close"'):
         assert needle in PAGE_HTML, needle
+
+
+def test_attention_panel_rerenders_when_error_or_fix_changes():
+    """Review #57: stejný úkol se změněným last_error/fix nesmí ukazovat staré vysvětlení a tlačítka."""
+    start = PAGE_HTML.index("function renderAttention()")
+    key = PAGE_HTML[start:PAGE_HTML.index("list._key = key", start)]
+    for field in ("i.m.last_error", "i.m.fix", "i.m.state", "i.r.state", "i.r.policy_review_status"):
+        assert field in key, field
