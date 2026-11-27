@@ -938,3 +938,119 @@ def test_attention_panel_rerenders_when_error_or_fix_changes():
     key = PAGE_HTML[start:PAGE_HTML.index("list._key = key", start)]
     for field in ("i.m.last_error", "i.m.fix", "i.m.state", "i.r.state", "i.r.policy_review_status"):
         assert field in key, field
+
+
+def test_ops_catalog_and_history_endpoints_need_session_and_filter(tmp_path: Path):
+    """Provoz a Katalog (27. 11.): jen s přihlášením; historie bez šumu, filtr textu bez LIKE zástupných znaků."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    store.record("codex", "provider-state", "", "noise")
+    store.record("michal", "pause", "", "100% jistě")
+    store.record("michal", "resume", "", "ok")
+    anon = make_handler(store, settings, "secret", 8765)
+    for path in ("/api/usage", "/api/history", "/api/catalog"):
+        assert call_handler(store, settings, "secret", "GET", path, handler_type=anon)[0] == 403
+    h = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session"}
+    events = json.loads(call_handler(store, settings, "secret", "GET", "/api/history", headers=cookie, handler_type=h)[1])["events"]
+    assert [e["action"] for e in events] == ["resume", "pause"]                       # provider-state je šum
+    found = json.loads(call_handler(store, settings, "secret", "GET", "/api/history?q=%25", headers=cookie, handler_type=h)[1])["events"]
+    assert [e["action"] for e in found] == ["pause"]                                   # „%“ hledá znak, ne cokoli
+    older = json.loads(call_handler(store, settings, "secret", "GET", f"/api/history?before={events[0]['id']}",
+                                    headers=cookie, handler_type=h)[1])["events"]
+    assert [e["action"] for e in older] == ["pause"]
+    usage = json.loads(call_handler(store, settings, "secret", "GET", "/api/usage", headers=cookie, handler_type=h)[1])
+    assert set(usage["agents"]) == {"claude-code", "codex"} and "caps" in usage and usage["recent"] == []
+    catalog = json.loads(call_handler(store, settings, "secret", "GET", "/api/catalog", headers=cookie, handler_type=h)[1])
+    assert {"ada", "nox"} == set(catalog["agents"]) and all(sec["rows"] for secs in catalog["agents"].values() for sec in secs)
+
+
+def test_worktrees_group_under_their_main_project(tmp_path: Path):
+    import subprocess
+    main = tmp_path / "agent-lease-mcp"
+    main.mkdir()
+    git = lambda *a, cwd=main: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
+    git("init", "-q")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x")
+    git("worktree", "add", "-q", str(tmp_path / "work" / "agent-lease-xyz"))
+    webui._PROJECT_CACHE.clear()
+    assert webui.project_of(str(tmp_path / "work" / "agent-lease-xyz")) == "agent-lease-mcp"
+    assert webui.project_of(str(main)) == "agent-lease-mcp"
+    assert webui.project_of("/home/u/dev/work/nox-gone-20261111/docs") == "agent-lease-mcp"   # smazaná pracovní kopie
+    assert webui.project_of("/home/u/dev/projects/politika") == "politika"
+
+
+def test_room_stream_reacts_to_db_change_not_a_timer(tmp_path: Path):
+    """Skutečně živě: každý zápis do DB změní verzi, kterou SSE smyčka hlídá."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    before = webui.db_version(settings.db_path)
+    store.send("codex", "michal", "TEST ONLY", kind="chat")
+    assert webui.db_version(settings.db_path) != before
+    assert webui.LIVE_POLL_SECONDS <= 0.25
+    assert "Živě · před" not in PAGE_HTML and "onDataVersion(r.version)" in PAGE_HTML
+
+
+def test_event_stream_drains_a_full_backlog(tmp_path: Path, monkeypatch):
+    """Review #60: 450 čekajících zpráv se doručí všechny, ne jen první dávka 200."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    for i in range(450):
+        store.send("codex", "michal", f"TEST ONLY {i}", kind="chat")
+    handler_type = authenticated_handler(store, settings, "secret")
+    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    _, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
+                          headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
+    assert raw.count(b"event: message") == 450
+
+
+def test_usage_matches_the_enforced_cap_and_keeps_unknown_separate(tmp_path: Path):
+    """Review #60: spotřeba na webu = součet jako vynucený strop (vč. mezipaměti); neznámá ≠ nula."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    with store._connect() as con:
+        con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source, input_tokens, output_tokens, "
+                    "cache_read_tokens, cache_creation_tokens) VALUES(1,'claude-code',1,?, 'claude-json',100,100,500,300)",
+                    (time.time(),))
+        con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source) VALUES(2,'claude-code',1,?,'claude-json')",
+                    (time.time(),))
+    day = webui.usage_report(store, settings)["agents"]["claude-code"]["day"]
+    assert day["tokens"] == 1000 and day["tokens_unknown"] == 1
+    recent = webui.usage_report(store, settings)["recent"]
+    assert {r["message_id"]: (r["tokens"], bool(r["tokens_known"])) for r in recent} == {1: (1000, True), 2: (0, False)}
+
+
+def test_live_refresh_keeps_last_change_history_pages_and_catalog_status_column():
+    """Review #60: dobíhající obnova, sloučení historie podle ID, stav katalogu jen ze sloupce Stav."""
+    assert "refreshPending = true;" in PAGE_HTML and 'addEventListener("visibilitychange"' in PAGE_HTML
+    assert "function mergeHistory(current, fresh)" in PAGE_HTML and 'loadOps("live")' in PAGE_HTML
+    assert "const statusCol = sec => sec.columns.findIndex(c => /^stav/i.test(c));" in PAGE_HTML
+    assert "CAT_STATUS(r.join" not in PAGE_HTML
+
+
+def test_last_data_change_is_never_dropped_behaviour():
+    """Review #60 (chování): změna v 1,5s okně se obnoví dobíhající obnovou, ne až nikdy."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node není k dispozici")
+    start = PAGE_HTML.index("let lastDataVersion = null")
+    end = PAGE_HTML.index('document.addEventListener("visibilitychange"', start)
+    code = PAGE_HTML[start:end]
+    harness = f"""
+let now = 0, timers = [], loads = 0;
+const Date = {{ now: () => now }};
+const setTimeout = (fn, ms) => {{ timers.push([now + ms, fn]); return timers.length; }};
+const document = {{ hidden: false }};
+let currentView = "ops";
+const loadOps = () => {{ loads++; }}, loadResearch = () => {{}}, loadKnowledge = () => {{}}, loadDashData = () => {{}};
+{code}
+const tick = t => {{ now = t; timers.sort((a, b) => a[0] - b[0]); while (timers.length && timers[0][0] <= now) timers.shift()[1](); }};
+onDataVersion(1); tick(10000);                       // první verze = výchozí stav, bez obnovy
+onDataVersion(2); tick(10000);                       // změna → obnova
+onDataVersion(3); tick(10250);                       // změna 250 ms po ní nesmí zapadnout
+tick(11600);
+console.log(loads);
+"""
+    out = subprocess.run(["node", "-e", harness], capture_output=True, text=True, timeout=20, check=False)
+    assert out.stdout.strip() == "2", out.stdout + out.stderr

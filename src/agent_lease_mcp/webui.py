@@ -40,11 +40,38 @@ from .store import Store
 
 # Statické soubory UI (portréty Ady a Noxe, ikona). Pevný seznam: žádné cesty z požadavku.
 _ASSET_DIR = Path(__file__).with_name("assets")
+# Šum v historii: stav poskytovatele se zapisuje každou minutu (desítky tisíc řádků).
+HISTORY_NOISE = ("provider-state",)
+_PROJECT_CACHE: dict[str, str] = {}
+
+
+def project_of(repo: str) -> str:
+    """Název projektu pro repo/worktree: pracovní kopie patří pod svůj hlavní repozitář."""
+    if repo in _PROJECT_CACHE:
+        return _PROJECT_CACHE[repo]
+    path, name = Path(repo), Path(repo).name or repo
+    try:
+        common = subprocess.run(["git", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=3, check=True).stdout.strip()
+        name = Path(common).parent.name if common.endswith("/.git") else name
+    except (OSError, subprocess.SubprocessError):
+        # Smazané/přesunuté pracovní kopie Agent Lease (dev/work/agent-lease-*, nox-*) patří pod hlavní repo.
+        parts = path.parts
+        if "work" in parts and parts.index("work") + 1 < len(parts):
+            first = parts[parts.index("work") + 1]
+            name = "agent-lease-mcp" if first.startswith(("agent-lease", "nox-")) else first
+        elif ".claude" in parts:
+            name = parts[parts.index(".claude") - 1]
+    _PROJECT_CACHE[repo] = name
+    return name
+
+
 ASSETS = {"/assets/ada.webp": ("ada.webp", "image/webp"), "/assets/nox.webp": ("nox.webp", "image/webp"),
           "/favicon.svg": ("favicon.svg", "image/svg+xml"), "/assets/wave.svg": ("wave.svg", "image/svg+xml"), "/favicon.ico": ("favicon.svg", "image/svg+xml")}
 
 POLL_SECONDS = 0.7
-ROOM_SECONDS = 2.0
+LIVE_POLL_SECONDS = 0.25   # jak rychle poznáme zápis do DB (stat souboru, bez dotazu)
+ROOM_SECONDS = 5.0         # i bez změny: obnoví „před N s“, stáří dat a limity
 SESSION_COOKIE = "agent_lease_session"
 
 
@@ -225,6 +252,26 @@ class _ConnectionCap:
             self._slots.release()
 
 
+def db_version(path: Path) -> int:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 0
+    return st.st_mtime_ns ^ st.st_size
+
+
+def usage_report(store: Store, settings: Settings) -> dict:
+    """Spotřeba tokenů pro web: 24 h a 7 dní po agentech, stropy z nastavení, poslední běhy."""
+    now = time.time()
+    agents = {}
+    for agent in ("claude-code", "codex"):
+        agents[agent] = {"day": store.usage_summary(since=now - 86400, recipient=agent),
+                         "week": store.usage_summary(since=now - 7 * 86400, recipient=agent)}
+    return {"agents": agents, "recent": store.usage_recent(limit=30),
+            "caps": {"daily_tokens": settings.daily_budget_tokens, "daily_usd": settings.daily_budget_usd,
+                     "task_tokens": settings.task_budget_tokens, "task_usd": settings.task_budget_usd}}
+
+
 def _sse(event: str, event_id: int | None, payload: dict) -> bytes:
     lines = [f"event: {event}"]
     if event_id is not None:
@@ -376,6 +423,22 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
+            if parts.path in ("/api/usage", "/api/history", "/api/catalog"):
+                if not self._session_ok():
+                    return self._reject(403, "bad token")
+                if parts.path == "/api/catalog":
+                    return self._handle_asset("catalog.json", "application/json")
+                if parts.path == "/api/usage":
+                    return self._json_response(usage_report(store, settings))
+                try:
+                    limit = max(1, min(int(qs.get("limit", ["200"])[0]), 500))
+                    before = int(qs.get("before", ["0"])[0])
+                except ValueError:
+                    return self._reject(400, "limit/before must be integers")
+                return self._json_response({"events": store.audit_log(
+                    limit=limit, before_id=before, action=qs.get("action", [""])[0][:64],
+                    agent=qs.get("agent", [""])[0][:64], q=qs.get("q", [""])[0][:200],
+                    exclude=() if qs.get("all", [""])[0] == "1" else HISTORY_NOISE)})
             if parts.path == "/api/passkey":
                 if not self._session_ok():
                     return self._reject(403, "bad token")
@@ -572,9 +635,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 "mode": store.mode(),
                 "reviews": store.reviews(limit=30),
                 "reviews_all": store.reviews(limit=200, include_closed=True),   # Přehled: postup i u uzavřených
+                "projects": {},
                 "quality_runs": store.quality_runs(limit=30),
                 "quality_requests": store.quality_requests(limit=30),
             }
+            payload["projects"] = {r["repo"]: project_of(r["repo"]) for r in payload["reviews_all"] if r.get("repo")}
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -823,8 +888,17 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 next_heartbeat_at = 0.0
                 stream_session = self._session_id()
                 reaper.release(getattr(self, "connection", None))   # stream je dlouhý záměrně; hlídá ho platnost přihlášení
+                last_version, backlog = None, False
                 while self._session_alive(stream_session):   # po vypršení přihlášení stream skončí
-                    messages = store.inbox(since_id=since, limit=200)
+                    # Skutečně živě (Michal 27. 11.): každý zápis do DB mění soubor (journal DELETE),
+                    # takže změnu poznáme hned a pošleme ji; bez změny jen levná kontrola času souboru.
+                    version = db_version(settings.db_path)
+                    changed = version != last_version
+                    last_version = version
+                    # Plná dávka = možná další čekají; fallback čte inbox i bez změny verze (mtime^size není bezkolizní).
+                    drain = changed or backlog or time.monotonic() >= next_room_at
+                    messages = store.inbox(since_id=since, limit=200) if drain else []
+                    backlog = len(messages) >= 200
                     for message in messages:
                         self.wfile.write(_sse("message", message["id"], message))
                         since = max(since, message["id"])
@@ -832,8 +906,9 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         self.wfile.flush()
 
                     now = time.monotonic()
-                    if now >= next_room_at:
+                    if changed or now >= next_room_at:
                         room = {
+                            "version": version,
                             "peers": store.peers(),
                             "claims": [c.as_dict() for c in store.claims()],
                             "board": store.board(),
@@ -847,6 +922,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             "quality_requests": store.quality_requests(limit=30),
                             "messages": store.latest_messages(limit=200),
                         }
+                        room["projects"] = {r["repo"]: project_of(r["repo"]) for r in room["reviews_all"] if r.get("repo")}
                         self.wfile.write(_sse("room", None, room))
                         self.wfile.flush()
                         next_room_at = now + ROOM_SECONDS
@@ -856,7 +932,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         self.wfile.flush()
                         next_heartbeat_at = now + SSE_HEARTBEAT_SECONDS
 
-                    time.sleep(POLL_SECONDS)
+                    if not backlog:
+                        time.sleep(LIVE_POLL_SECONDS)
             except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
                 return  # klient zavřel kartu nebo se prohlížeč odpojil
             finally:
@@ -1832,6 +1909,41 @@ i[data-ic] svg { width:22px; height:22px; }
 .pk-list { display:flex; flex-direction:column; gap:6px; margin:8px 0 10px; }
 .pk-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; border:1px solid var(--border-soft); background:rgba(16,27,56,.6); font-size:13.5px; }
 .pk-row span { flex:1; min-width:0; } .pk-row .btn { min-height:30px; padding:2px 10px; font-size:12.5px; }
+/* ── Provoz a Katalog (27. 11.) ── */
+.pg-ops { grid-template-columns:minmax(0,1fr) minmax(0,1.7fr) minmax(0,1fr); grid-template-areas:"list main side"; grid-template-rows:minmax(420px,1fr); }
+.pg-catalog { grid-template-columns:minmax(0,.8fr) minmax(0,3fr); grid-template-areas:"list main"; grid-template-rows:minmax(420px,1fr); }
+.cat-search { margin-left:auto; } .cat-search input { min-height:36px; width:min(280px,40vw); padding:0 12px; border-radius:999px; border:1px solid rgba(146,59,255,.6); background:rgba(16,27,56,.7); color:var(--text); }
+.cat-src { padding:0 16px 12px; margin:0; }
+.cat-section h3 { margin:14px 0 8px; font-size:15px; color:var(--cyan); }
+.cat-table { width:100%; border-collapse:collapse; font-size:13.5px; } .cat-table th { text-align:left; color:var(--text-dim); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--border); }
+.cat-table td { padding:7px 8px; border-bottom:1px solid var(--border-soft); vertical-align:top; overflow-wrap:anywhere; } .cat-table td:first-child { font-weight:600; }
+.st-pill { display:inline-block; padding:1px 9px; border-radius:999px; font-size:12px; border:1px solid var(--border); white-space:nowrap; }
+.st-pill.verified { color:#8AF7C2; border-color:rgba(0,231,121,.6); background:rgba(0,231,121,.12); } .st-pill.enabled { color:#9FE8FF; border-color:rgba(4,207,255,.5); background:rgba(4,207,255,.1); }
+.st-pill.failed { color:var(--bad-text); border-color:rgba(255,90,110,.6); background:rgba(255,90,110,.12); } .st-pill.installed,.st-pill.path { color:var(--text-dim); }
+.use-agent { padding:12px 0; border-bottom:1px solid var(--border-soft); } .use-agent:last-child { border-bottom:0; }
+.use-agent .who { display:flex; align-items:center; gap:10px; } .use-agent img { width:38px; height:38px; border-radius:50%; object-fit:cover; object-position:top; }
+.use-agent dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:8px 0 0; font-size:13.5px; } .use-agent dt { color:var(--text-dim); } .use-agent dd { margin:0; text-align:right; font-variant-numeric:tabular-nums; }
+.hist-row { display:grid; grid-template-columns:86px 120px minmax(0,1fr); gap:10px; padding:8px 4px; border-bottom:1px solid var(--border-soft); font-size:13.5px; align-items:start; }
+.hist-row .who-badge { justify-self:start; } .hist-row time { color:var(--text-dim); font-variant-numeric:tabular-nums; } .hist-row b { overflow-wrap:anywhere; } .hist-row .det { color:var(--text-dim); overflow-wrap:anywhere; }
+.hist-row[data-tone="bad"] b { color:var(--bad-text); } .hist-row[data-tone="ok"] b { color:#8AF7C2; }
+@media(max-width:1280px) { .pg-ops { grid-template-columns:1fr 1fr; grid-template-areas:"main main" "list side"; } .pg-catalog { grid-template-columns:1fr; grid-template-areas:"list" "main"; } }
+@media(max-width:899px) { .pg-ops { grid-template-columns:1fr; grid-template-areas:"main" "list" "side"; } .hist-row { grid-template-columns:70px minmax(0,1fr); } .hist-row .who-badge { display:none; } .cat-search input { width:100%; } }
+/* ── Intuitivnost (27. 11.): odpověď nahoře, dlaždice vedou dál ── */
+.now-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; margin:0 0 14px; padding:12px 18px; border-radius:14px; border:1.5px solid rgba(0,231,121,.5); background:linear-gradient(100deg,rgba(0,231,121,.1),rgba(16,27,56,.75) 60%); font-size:15px; }
+.now-bar[data-tone="attn"] { border-color:rgba(255,176,32,.7); background:linear-gradient(100deg,rgba(255,176,32,.14),rgba(16,27,56,.75) 60%); }
+.now-bar[data-tone="down"] { border-color:rgba(255,90,110,.7); background:linear-gradient(100deg,rgba(255,90,110,.14),rgba(16,27,56,.75) 60%); }
+.now-bar .now-main { font-weight:650; font-size:16px; } .now-bar .now-agent { display:inline-flex; align-items:center; gap:8px; color:var(--text-dim); }
+.now-bar .now-agent img { width:26px; height:26px; border-radius:50%; object-fit:cover; object-position:top; }
+.now-bar .now-agent b { color:var(--text); } .now-bar .btn-new { margin-left:auto; }
+.metric[data-goto],.metrics-row .metric[data-goto] { cursor:pointer; transition:transform 120ms ease, box-shadow 120ms ease; }
+.metric[data-goto]:hover,.metric[data-goto]:focus-visible { transform:translateY(-2px); box-shadow:0 0 26px color-mix(in srgb,var(--t,#04CFFF) 55%,transparent); outline:none; }
+body.room-focus .now-bar { display:none; }
+@media(max-width:599px) {
+  #headTools { flex-wrap:wrap; gap:8px; justify-content:flex-start; max-width:100%; }
+  .live-pill { padding:5px 10px; font-size:12px; } .mode-badge { padding:6px 10px!important; font-size:12px!important; }
+  .primary-nav { overflow-x:auto; max-width:100%; scrollbar-width:none; } .primary-nav::-webkit-scrollbar { display:none; }
+  .now-bar { font-size:13.5px; } .now-bar .now-main { flex-basis:100%; } .now-bar .btn-new { margin-left:0; }
+}
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
@@ -1841,16 +1953,17 @@ i[data-ic] svg { width:22px; height:22px; }
     <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span id="modeText">Režim: …</span></span><span id="livePill" class="live-pill" role="status" aria-live="off"><span class="live-dot" aria-hidden="true"></span><span id="liveText">Připojuji…</span></span>
       <button class="icon-btn" id="bellBtn" type="button" aria-label="Co čeká na tebe" title="Úkoly ke kontrole a review čekající na tebe"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellCount" class="bell-count" hidden>0</span></button>
       <details class="help"><summary class="icon-btn" aria-label="Nápověda"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7M12 17v.5"/></svg></summary><div class="help-pop"><b>Barvy a stavy</b><p><span class="lg lg-ada"></span>Ada (Claude) · <span class="lg lg-nox"></span>Nox (Codex)</p><p>Karta agenta pulzuje jen tehdy, když agent opravdu pracuje. Čeká = online bez úkolu. Limit = vyčerpaný limit poskytovatele. Vyžaduje pozornost = úkol ke kontrole nebo zaseknutý most. Neznámý stav = web nemá čerstvá data.</p><p>Zvonek = úkoly ke kontrole a review, které čekají na tebe.</p></div></details><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
-    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" aria-current="page" data-view="overview"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7v9h-6v-6H9v6H3z"/></svg>Přehled</button><button data-view="room"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Místnost agentů</button><button data-view="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Kvalita</button><button data-view="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Výzkum</button><button data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Paměť</button><button data-view="catalog"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Katalog</button><button data-view="settings"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Nastavení</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button></nav>
+    <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" aria-current="page" data-view="overview"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7v9h-6v-6H9v6H3z"/></svg>Přehled</button><button data-view="room"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Místnost agentů</button><button data-view="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Kvalita</button><button data-view="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Výzkum</button><button data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Paměť</button><button data-view="catalog"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Katalog</button><button data-view="ops"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V12M10 20V8M15 20v-6M20 20V4"/></svg>Provoz</button><button data-view="settings"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Nastavení</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button></nav>
     <div id="pause"><div class="pausebar"><div class="big">Načítám stav systému…</div></div></div>
   </header>
   <div id="overviewView" data-view-panel="overview">
+  <div id="nowBar" class="now-bar" role="status" aria-live="polite"></div>
   <section id="overview" aria-labelledby="overviewTitle">
     <div class="section-heading"><h2 id="overviewTitle" class="view-title" tabindex="-1">Přehled místnosti</h2><span id="scope">Fronta a review: celá místnost · běžící: aktivní úkol dle přehledu každého agenta</span></div>
     <div id="metrics">
-      <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div><div class="metric-label">Aktivní projekty</div><div class="metric-value" id="metricAgents">—</div></div></div>
-      <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></span><div><div class="metric-label">Otevřené úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
-      <div class="metric" data-tone-card="orange"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/></svg></span><div><div class="metric-label">Probíhající analýzy</div><div class="metric-value" id="metricQueued">—</div></div></div>
+      <div class="metric" data-goto="quality" tabindex="0" role="link" aria-label="Aktivní projekty – otevřít Kvalitu" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><div><div class="metric-label">Aktivní projekty</div><div class="metric-value" id="metricAgents">—</div></div></div>
+      <div class="metric" data-goto="room-tasks" tabindex="0" role="link" aria-label="Otevřené úkoly – otevřít úkoly v místnosti" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></span><div><div class="metric-label">Otevřené úkoly</div><div class="metric-value" id="metricRunning">—</div></div></div>
+      <div class="metric" data-goto="research" tabindex="0" role="link" aria-label="Probíhající analýzy – otevřít Výzkum" data-tone-card="orange"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M7.5 15h9"/></svg></span><div><div class="metric-label">Probíhající analýzy</div><div class="metric-value" id="metricQueued">—</div></div></div>
       <div class="metric" data-tone-card="green"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></svg></span><div><div class="metric-label" title="Pouze úkoly v nejvýše 200 posledních načtených zprávách">Dokončené výstupy</div><div class="metric-value" id="metricDone">—</div></div></div>
       <div class="metric" data-tone-card="purple"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></span><div><div class="metric-label">Nalezené insighty</div><div class="metric-value" id="metricReview">—</div></div></div>
       <div class="metric" data-tone-card="cyan"><span class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20V12M10 20V8M15 20v-6M20 20V4"/></svg></span><div><div class="metric-label">Celkový postup</div><div class="metric-value" id="metricReviews">—</div></div></div>
@@ -1914,9 +2027,19 @@ i[data-ic] svg { width:22px; height:22px; }
       <section class="panel pg-wide"><div class="panel-title"><i data-ic="review"></i><h2>Otevřená review <span class="h-count" id="qgOpenCount"></span></h2><span class="h-sub">Zavřít smí jen člověk nebo autor po schválení</span></div><div class="chips" id="rvChips" role="group" aria-label="Filtr review"></div><div class="panel-body pg-scroll" id="qgOpenReviews"></div></section>
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita agentů</h2></div><ol class="activity" data-activity="agents"></ol></aside>
     </div></section>
-  <section class="view-page" data-view-panel="catalog" hidden aria-labelledby="catalogTitle"><div class="view-header"><div><h2 id="catalogTitle" class="view-title" tabindex="-1">Katalog schopností</h2><p class="view-subtitle">Fáze D. Koncept: aplikace zatím nemá data ani API katalogu, proto zde nic není živé ani klikací.</p></div><button class="btn" data-view="overview">Zpět na přehled</button></div>
-    <div class="concept-grid"><section class="panel concept"><div class="panel-title"><h2>Co katalog bude umět</h2><span class="concept-badge">koncept</span></div><div class="panel-body"><ul class="concept-list"><li>Seznam schopností Ady a Noxe: nástroje, skilly, MCP servery.</li><li>U každé položky účel, vstupy a výstupy, závislosti, testy a dokumentace.</li><li>Kompatibilita s Adou a Noxem jen ověřená, nikdy automaticky „oba“.</li><li>Výběr krátkého seznamu nástrojů k úkolu, aby agent nemusel číst celý inventář.</li></ul></div></section>
-    <section class="panel concept"><div class="panel-title"><h2>Kde jsou data dnes</h2><span class="concept-badge">jen dokument</span></div><div class="panel-body"><p class="note">Inventura z 19. 11. 2026 je v repozitáři jako dokument:</p><ul class="concept-list mono"><li>docs/research/2026-11-19-d-capabilities-ada.md</li><li>docs/research/2026-11-19-d-capabilities-nox.md</li></ul><p class="note">Napojení na aplikaci je samostatná změna s vlastním schválením.</p></div></section></div></section>
+  <section class="view-page pg-page" data-view-panel="catalog" hidden aria-labelledby="catalogTitle"><h2 id="catalogTitle" class="view-title sr-only" tabindex="-1">Katalog</h2>
+    <div class="metrics-row" id="catMetrics"></div>
+    <div class="pg pg-catalog">
+      <section class="panel pg-list"><div class="panel-title"><i data-ic="users"></i><h2>Agent</h2></div><div class="panel-body pg-scroll" id="catAgents"></div><p class="note cat-src" id="catSource"></p></section>
+      <section class="panel pg-main"><div class="panel-title"><i data-ic="cube"></i><h2 id="catTitle">Schopnosti</h2><label class="cat-search"><span class="sr-only">Hledat ve schopnostech</span><input id="catQuery" type="search" placeholder="Hledat nástroj, MCP, skill…"></label></div><div class="chips" id="catChips" role="group" aria-label="Filtr stavu"></div><div class="panel-body pg-scroll" id="catBody"></div></section>
+    </div></section>
+  <section class="view-page pg-page" data-view-panel="ops" hidden aria-labelledby="opsTitle"><h2 id="opsTitle" class="view-title sr-only" tabindex="-1">Provoz</h2>
+    <div class="metrics-row" id="opsMetrics"></div>
+    <div class="pg pg-ops">
+      <section class="panel pg-list"><div class="panel-title"><i data-ic="bars"></i><h2>Spotřeba tokenů</h2><span class="h-sub" id="opsCaps"></span></div><div class="panel-body pg-scroll" id="opsUsage"></div></section>
+      <section class="panel pg-main"><div class="panel-title"><i data-ic="clock"></i><h2>Historie akcí <span class="h-count" id="histCount"></span></h2><label class="cat-search"><span class="sr-only">Hledat v historii</span><input id="histQuery" type="search" placeholder="Hledat cestu, review, detail…"></label></div><div class="chips" id="histChips" role="group" aria-label="Druh akce"></div><div class="panel-body pg-scroll" id="histList"></div><div class="pg-actions"><button class="btn" id="histMore" type="button">Načíst starší</button></div></section>
+      <section class="panel pg-side"><div class="panel-title"><i data-ic="flask"></i><h2>Poslední běhy na pozadí</h2></div><div class="panel-body pg-scroll" id="opsRuns"></div></section>
+    </div></section>
   <section class="view-page" data-view-panel="analytics" hidden><div class="panel placeholder-page"><h2 class="view-title" tabindex="-1">Analytics · připravuje se</h2><p>Výkon za 24 hodin ani skutečná úspěšnost nejsou v dostupném API definované. Metriky a grafy zatím nejsou připojené.</p><button class="btn" data-view="overview">Zpět do místnosti</button></div></section>
   <section class="view-page pg-page" data-view-panel="research" hidden aria-labelledby="researchTitle"><h2 id="researchTitle" class="view-title sr-only" tabindex="-1">Výzkum</h2>
     <div class="metrics-row" id="rsMetrics"></div>
@@ -1949,7 +2072,7 @@ i[data-ic] svg { width:22px; height:22px; }
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="clock"></i><h2>Poslední řídicí aktivita</h2></div><ol class="activity" id="setActivity"></ol></aside>
     </div></section>
 </div>
-<div id="loginScreen" class="login-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loginTitle"><div class="login-card"><svg class="login-mark" viewBox="0 0 64 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M16 4C9 4 4 9.4 4 16s5 12 12 12c9 0 15-24 32-24 7 0 12 5.4 12 12s-5 12-12 12C31 28 25 4 16 4z" fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round"/></svg><h1 id="loginTitle">Agent Lease</h1><p class="login-sub">Společný prostor pro tvoje agenty</p><button type="button" class="login-btn" id="loginHello"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Přihlásit přes Windows Hello</button><p class="login-status" id="loginStatus" role="status"></p><p class="login-alt">Bez Windows Hello: ikona <b>Agent Lease</b> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></div>
+<div id="loginScreen" class="login-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loginTitle"><div class="login-card"><svg class="login-mark" viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="loginfg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#loginfg)" stroke-width="5" stroke-linecap="round"/></svg><h1 id="loginTitle">Agent Lease</h1><p class="login-sub">Společný prostor pro tvoje agenty</p><button type="button" class="login-btn" id="loginHello"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Přihlásit přes Windows Hello</button><p class="login-status" id="loginStatus" role="status"></p><p class="login-alt">Bez Windows Hello: ikona <b>Agent Lease</b> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></div>
 <dialog id="attnDialog" class="pg-dialog attn-dialog" aria-labelledby="attnTitle"><div class="attn-head"><h2 id="attnTitle">Čeká na tebe</h2><button class="btn" id="attnClose" type="button" aria-label="Zavřít">✕</button></div><p class="note">Věci, které agenti sami nesmí nebo nemohou udělat. Vše, co tu potvrdíš, se zapíše do historie.</p><div id="attnList"></div></dialog>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
@@ -2085,7 +2208,22 @@ function applyFilters() {
   empty.textContent = messageCache.size ? "Tomuto filtru neodpovídají žádné zprávy." : "Místnost zatím nemá žádné zprávy.";
   empty.hidden = visible > 0;
 }
+// Pruh „Teď“: jedna věta, co se děje, a co potřebuje člověka (s tlačítkem rovnou na to).
+function renderNowBar() {
+  const el = document.getElementById("nowBar"); if (!el) return;
+  const items = attentionItems(), n = items.reduce((s, i) => s + (i.kind === "more" ? i.n : 1), 0);
+  const st = {ada: agentStatus("ada"), nox: agentStatus("nox")};
+  const down = connectionMode !== "live";
+  const main = down ? "Spojení s místností je přerušené — data se neobnovují." : lastPaused ? "Agenti jsou zastavení. Nic na pozadí nepracuje."
+    : n ? `Na tebe čeká ${n} ${n === 1 ? "věc" : n < 5 ? "věci" : "věcí"}.` : "Vše v pořádku — agenti pracují sami.";
+  el.dataset.tone = down || lastPaused ? "down" : n ? "attn" : "ok";
+  const agent = k => `<span class="now-agent"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b> ${esc(st[k].label)}${st[k].detail && st[k].state === "working" ? " · " + esc(st[k].detail.slice(0, 60)) : ""}</span>`;
+  setHTMLIfChanged(el, `<span class="now-main">${esc(main)}</span>${agent("ada")}${agent("nox")}${n ? '<button type="button" class="btn-new" id="nowAttn">Vyřešit</button>' : ""}`);
+  const b = document.getElementById("nowAttn");
+  if (b) b.onclick = () => { renderAttention(); document.getElementById("attnDialog").showModal(); };
+}
 function refreshDashboard() {
+  renderNowBar();
   const all = historyMessages();
   const tasks = all.filter(m => m.kind === "task");
   // Board pokrývá celou frontu; historie zpráv je omezena na 200 položek.
@@ -2218,11 +2356,12 @@ setInterval(() => {
   const age = lastRoomAt ? Math.max(0, Math.round((Date.now() - lastRoomAt) / 1000)) : null;
   const state = connectionMode !== "live" ? "down" : age === null || age > 15 ? "stale" : "live";
   pill.dataset.state = state;
-  txt.textContent = state === "down" ? "Spojení přerušeno" : age === null ? "Připojuji…" : state === "stale" ? `Data stará ${age} s` : age <= 1 ? "Živě · právě teď" : `Živě · před ${age} s`;
+  txt.textContent = state === "down" ? "Spojení přerušeno" : age === null ? "Připojuji…" : state === "stale" ? `Data stará ${age} s` : "Živě";
   if (lastRoomAt && lastRoomAt !== lastLiveTick) { lastLiveTick = lastRoomAt; pill.classList.remove("tick"); void pill.offsetWidth; pill.classList.add("tick"); }
   if (document.getElementById("attnDialog").open) renderAttention();
 }, 1000);
-document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => b.dataset.goto === "room-tasks" ? openRoomTasks() : showView(b.dataset.goto));
+document.querySelectorAll("[data-goto]").forEach(b => { b.onclick = () => b.dataset.goto === "room-tasks" ? openRoomTasks() : showView(b.dataset.goto);
+  if (b.getAttribute("role") === "link") b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); b.onclick(); } }; });
 document.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => {
   const qa = b.dataset.qa;
   if (qa === "research") return showView("research");
@@ -2359,17 +2498,20 @@ function renderTaskDetail() {
   [...el.querySelectorAll("details[data-section]"), ...timeline.querySelectorAll("details[data-section]")].forEach(d => { d.open = openSections.includes(d.dataset.section); });
 }
 let projFilter = "all", lastProjReviews = [];
+let latestProjects = {};
 function renderProjects(reviews) {
   lastProjReviews = reviews || [];
   const by = new Map();
-  lastProjReviews.forEach(r => { if (!r.repo) return; const s = by.get(r.repo) || {total: 0, done: 0, open: 0}; s.total++;
-    if (["approved", "closed"].includes(r.state)) s.done++; else s.open++; by.set(r.repo, s); });
+  // Pracovní kopie (worktree) se počítají do svého hlavního repozitáře — mapu posílá server.
+  lastProjReviews.forEach(r => { if (!r.repo) return; const key = latestProjects[r.repo] || r.repo.split("/").filter(Boolean).pop();
+    const s = by.get(key) || {total: 0, done: 0, open: 0, repos: new Set()}; s.total++; s.repos.add(r.repo);
+    if (["approved", "closed"].includes(r.state)) s.done++; else s.open++; by.set(key, s); });
   const rows = [...by.entries()].sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0]))
     .filter(([, s]) => projFilter === "all" || (projFilter === "open" ? s.open > 0 : s.open === 0));
   const folder = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
   setHTMLIfChanged(document.getElementById("projects"), rows.length ? rows.map(([repo, s], i) => {
     const pct = Math.round(100 * s.done / s.total);
-    return `<div class="proj ${i === 0 && s.open ? "proj-hot" : ""}" title="${esc(repo)}"><span class="proj-ic">${folder}</span><div class="proj-body"><div class="proj-head"><b>${esc(repo.split("/").filter(Boolean).pop() || repo)}</b><span>${pct} %</span></div><div class="proj-sub">${s.done}/${s.total} review schváleno${s.open ? ` · ${s.open} otevřených` : ""}</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
+    return `<div class="proj ${i === 0 && s.open ? "proj-hot" : ""}" title="${esc([...s.repos].join(String.fromCharCode(10)))}"><span class="proj-ic">${folder}</span><div class="proj-body"><div class="proj-head"><b>${esc(repo)}</b><span>${pct} %</span></div><div class="proj-sub">${s.done}/${s.total} review schváleno${s.open ? ` · ${s.open} otevřených` : ""}</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>`;
   }).join("") : `<div class="empty">Pro tento filtr nejsou žádné projekty.</div>`);
 }
 document.querySelectorAll("[data-proj]").forEach(b => b.onclick = () => {
@@ -2660,7 +2802,9 @@ function renderRoom(r) {
   latestBoard = Array.isArray(r.board) ? r.board : null;
   renderReviews(r.reviews);
   if (Array.isArray(r.reviews)) latestReviews = r.reviews;
+  if (r.projects) latestProjects = r.projects;
   if (Array.isArray(r.reviews_all)) { latestReviewsAll = r.reviews_all; renderProjects(r.reviews_all); }
+  onDataVersion(r.version);
   if (r.mode && r.mode.mode) renderMode(r.mode);
   if (Array.isArray(r.claims)) latestClaims = r.claims;
   renderingRoom = true;
@@ -2938,9 +3082,13 @@ function paintIcons(root = document) {
 }
 paintIcons();
 function metricsRow(id, items) {
-  setHTMLIfChanged(document.getElementById(id), items.map(([label, value, ic, tone, title]) =>
-    `<div class="metric" data-tone-card="${tone}"${title ? ` title="${esc(title)}"` : ""}><span class="metric-icon" aria-hidden="true">${icon(ic)}</span><div><div class="metric-label">${esc(label)}</div><div class="metric-value${String(value).length > 7 ? " small" : ""}">${esc(value)}</div></div></div>`).join(""));
+  setHTMLIfChanged(document.getElementById(id), items.map(([label, value, ic, tone, title, goto]) =>
+    `<div class="metric" data-tone-card="${tone}"${title ? ` title="${esc(title)}"` : ""}${goto ? ` data-mgoto="${goto}" tabindex="0" role="link"` : ""}><span class="metric-icon" aria-hidden="true">${icon(ic)}</span><div><div class="metric-label">${esc(label)}</div><div class="metric-value${String(value).length > 7 ? " small" : ""}">${esc(value)}</div></div></div>`).join(""));
 }
+// Klik na dlaždici se cílem (data-mgoto): „attn“ = panel Čeká na tebe, jinak stránka.
+document.addEventListener("click", e => { const m = e.target.closest("[data-mgoto]"); if (!m) return;
+  if (m.dataset.mgoto === "attn") { renderAttention(); document.getElementById("attnDialog").showModal(); } else showView(m.dataset.mgoto); });
+document.addEventListener("keydown", e => { const m = e.target.closest && e.target.closest("[data-mgoto]"); if (m && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); m.click(); } });
 function when(t) {
   if (t === null || t === undefined || t === "") return "";
   const d = typeof t === "number" ? new Date(t * 1000) : new Date(t);
@@ -3016,7 +3164,7 @@ function renderQualityGate() {
     ["Kontroly FAIL", known ? n("FAIL") : "—", "alert", "orange"],
     ["Ke kontrole", known ? latest.filter(r => QG_OPEN(r.overall_status)).length : "—", "flask", "purple"],
     ["Schválená review", all.length ? `${approved} / ${all.length}` : "—", "review", "purple", "Review se schvalujícím verdiktem ze všech zaznamenaných"],
-    ["Čeká na tebe", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan", "Eskalovaná review po 3 kolech oprav"],
+    ["Čeká na tebe", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan", "Eskalovaná review po 3 kolech oprav", "attn"],
   ]);
   if (currentView !== "quality") return;
   const rows = latest.filter(r => qgFilter === "all" || (qgFilter === "open" ? QG_OPEN(r.overall_status) : r.overall_status === qgFilter));
@@ -3286,7 +3434,7 @@ function renderSettings() {
     ["Agenti online", stale ? "—" : `${["ada", "nox"].filter(k => !["offline", "unknown"].includes(st[k].state)).length} / 2`, "users", "purple"],
     ["Mosty online", stale ? "—" : `${["claude-code-bridge", "codex-bridge"].filter(bridgeOn).length} / 2`, "bridge", "purple", "Mosty přebírají úkoly na pozadí"],
     ["Zamčené cesty", latestClaims.length, "lock", "orange"],
-    ["Review k rozhodnutí", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan"],
+    ["Review k rozhodnutí", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan", "Otevřít Čeká na tebe", "attn"],
   ]);
   if (currentView !== "settings") return;
   const INFO = {ada: ["Ada", "Anthropic (Claude)", "Analýza · Výzkum · Návrhy", "claude-code-bridge"], nox: ["Nox", "OpenAI (GPT)", "Implementace · Testy · Ověření", "codex-bridge"]};
@@ -3308,7 +3456,29 @@ function renderSettings() {
 }
 // Stránky se obnovují i bez nové zprávy: stáří dat (Nastavení) a průběh výzkumu/paměti (review #54).
 setInterval(() => { if (!document.hidden) renderPages(); }, 5000);
-setInterval(() => { if (document.hidden) return; if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge(); }, 10000);
+// Server pošle „room“ hned po každém zápisu do DB; při změně verze se obnoví i výzkum, paměť a provoz.
+let lastDataVersion = null, versionReloadAt = 0, refreshPending = false, refreshTimer = null;
+function refreshCurrentView() {
+  refreshPending = false; versionReloadAt = Date.now();
+  if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge();
+  else if (currentView === "ops") loadOps("live"); else if (currentView === "overview") loadDashData();
+}
+function scheduleRefresh() {
+  // Nejvýš jednou za 1,5 s, ale poslední změna se nikdy nezahodí (dobíhající obnova, review #60).
+  if (!refreshPending || document.hidden || refreshTimer) return;
+  refreshTimer = setTimeout(() => { refreshTimer = null; if (document.hidden) return; refreshCurrentView(); },
+    Math.max(0, 1500 - (Date.now() - versionReloadAt)));
+}
+function onDataVersion(v) {
+  if (v === undefined || v === lastDataVersion) return;
+  const first = lastDataVersion === null;
+  lastDataVersion = v;
+  if (first) return;
+  refreshPending = true;
+  scheduleRefresh();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleRefresh(); });
+setInterval(() => { if (document.hidden) return; if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge(); }, 30000);
 document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
   ev.preventDefault();
   document.querySelectorAll(".set-nav a").forEach(x => x.classList.toggle("on", x === a));
@@ -3317,7 +3487,104 @@ document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
   motion(target, [{boxShadow: "0 0 0 2px #923BFF"}, {boxShadow: "none"}], 900);
 });
 document.querySelector(".set-nav a").classList.add("on");
+// ── Provoz: spotřeba tokenů a historie akcí ──
+const fmtTok = n => n == null ? "—" : n >= 1e6 ? (n / 1e6).toLocaleString("cs-CZ", {maximumFractionDigits: 1}) + " mil." : n >= 1e3 ? Math.round(n / 1e3).toLocaleString("cs-CZ") + " tis." : String(n);
+const ACTION = {"claim": ["Zamkl(a) cestu", ""], "release": ["Uvolnil(a) cestu", ""], "claim-refused": ["Zámek odmítnut", "bad"], "accept": ["Převzal(a) zprávu", ""],
+  "expire": ["Nájem vypršel", ""], "blocked": ["Úkol zablokován", "bad"], "failover": ["Převzetí úkolů jiným agentem", ""], "limit": ["Nahlášený limit", "bad"],
+  "review-open": ["Otevřel(a) review", ""], "review-submit": ["Poslal(a) do review", ""], "review-verdict": ["Verdikt review", "ok"], "review-close": ["Uzavřel(a) review", "ok"], "review-grant-cycle": ["Povolil(a) další kolo", ""],
+  "quality-run": ["Kontrola kvality", ""], "quality-request": ["Požadavek na kontrolu", ""], "quality-request-unavailable": ["Kontrola nedostupná", "bad"],
+  "pause": ["Zastavil(a) agenty", "bad"], "resume": ["Pustil(a) agenty", "ok"], "mode": ["Přepnul(a) režim", ""], "provider-state": ["Stav poskytovatele", ""],
+  "web-login-passkey": ["Přihlášení Windows Hello", "ok"], "web-login-passkey-failed": ["Neúspěšné přihlášení", "bad"], "web-passkey-added": ["Přidán klíč Windows Hello", ""], "web-passkey-removed": ["Odebrán klíč Windows Hello", ""]};
+const HIST_GROUPS = [["main", "Důležité", a => !(a.startsWith("claim") || ["release", "accept", "expire", "provider-state"].includes(a))], ["all", "Vše", () => true], ["review", "Review", a => a.startsWith("review")], ["control", "Řízení a přihlášení", a => ["pause", "resume", "mode"].includes(a) || a.startsWith("web-")],
+  ["quality", "Kvalita", a => a.startsWith("quality")], ["tasks", "Úkoly", a => ["accept", "expire", "blocked", "failover", "limit"].includes(a)], ["leases", "Zámky cest", a => a.startsWith("claim") || a === "release"]];
+let histEvents = [], histGroup = "main", histTimer = null, opsData = null;
+let histEnd = false;
+function mergeHistory(current, fresh) {
+  const byId = new Map(current.map(e => [e.id, e]));
+  fresh.forEach(e => byId.set(e.id, e));
+  return [...byId.values()].sort((a, b) => b.id - a.id);
+}
+function loadOps(mode = "reset") {   // "reset" = nové hledání/otevření, "more" = starší, "live" = sloučit nové
+  const q = document.getElementById("histQuery").value.trim();
+  const more = mode === "more" || mode === true;
+  const before = more && histEvents.length ? histEvents[histEvents.length - 1].id : 0;
+  fetch("/api/history?" + new URLSearchParams({limit: "200", ...(q ? {q} : {}), ...(before ? {before: String(before)} : {})}))
+    .then(r => r.ok ? r.json() : Promise.reject(r)).then(d => {
+      if (more) { histEvents = mergeHistory(histEvents, d.events); histEnd = d.events.length < 200; }
+      else if (mode === "live" && histEvents.length) histEvents = mergeHistory(histEvents, d.events);
+      else { histEvents = d.events; histEnd = d.events.length < 200; }
+      renderHistory(histEnd);
+    })
+    .catch(() => { document.getElementById("histList").textContent = "Historii se nepodařilo načíst."; });
+  if (!more) fetch("/api/usage").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsData = d; renderUsage(); } }).catch(() => {});
+}
+function renderHistory(end) {
+  const g = HIST_GROUPS.find(x => x[0] === histGroup), rows = histEvents.filter(e => g[2](e.action));
+  setHTMLIfChanged(document.getElementById("histChips"), chipsHTML(HIST_GROUPS.map(([id, l, f]) => [id, `${l} (${histEvents.filter(e => f(e.action)).length})`]), histGroup, "data-hist"));
+  document.querySelectorAll("[data-hist]").forEach(b => b.onclick = () => { histGroup = b.dataset.hist; renderHistory(end); });
+  document.getElementById("histCount").textContent = `(${rows.length})`;
+  setHTMLIfChanged(document.getElementById("histList"), rows.length ? rows.map(e => { const [label, tone] = ACTION[e.action] || [e.action, ""];
+    return `<div class="hist-row" data-tone="${tone}"><time title="${esc(new Date(e.at * 1000).toLocaleString("cs-CZ"))}">${esc(when(e.at))}</time>${whoBadge(e.agent)}<div><b>${esc(label)}</b>${e.path || e.detail ? `<div class="det">${esc([e.path, e.detail].filter(Boolean).join(" · ").slice(0, 300))}</div>` : ""}</div></div>`; }).join("")
+    : "<div class='empty'>Žádné akce pro tento filtr.</div>");
+  document.getElementById("histMore").hidden = !!end;
+}
+function renderUsage() {
+  const d = opsData; if (!d) return;
+  const tok = x => x.tokens ?? null;   // stejný součet jako vynucovaný strop (backend _TOKENS)
+  const day = Object.values(d.agents).reduce((s, a) => s + tok(a.day), 0), week = Object.values(d.agents).reduce((s, a) => s + tok(a.week), 0);
+  const cost = Object.values(d.agents).reduce((s, a) => s + (a.week.cost_usd || 0), 0);
+  metricsRow("opsMetrics", [
+    ["Tokeny za 24 h", fmtTok(day), "bars", "cyan", "Vstup + výstup + mezipaměť, stejně jako denní strop"],
+    ["Tokeny za 7 dní", fmtTok(week), "layers", "purple"],
+    ["Běhy za 24 h", Object.values(d.agents).reduce((s, a) => s + (a.day.attempts || 0), 0), "flask", "orange"],
+    ["Cena za 7 dní", cost ? "$" + cost.toFixed(2) : "neuvedena", "star", "green", "Poskytovatel cenu u předplatného nehlásí"],
+    ["Denní strop", d.caps.daily_tokens ? fmtTok(d.caps.daily_tokens) : "bez stropu", "shield", "purple"],
+    ["Akce v historii", histEvents.length >= 200 ? "200+" : histEvents.length, "clock", "cyan"],
+  ]);
+  document.getElementById("opsCaps").textContent = d.caps.task_tokens ? `strop na úkol ${fmtTok(d.caps.task_tokens)}` : "";
+  setHTMLIfChanged(document.getElementById("opsUsage"), Object.entries(d.agents).map(([a, u]) => { const k = agentKey(a), cap = d.caps.daily_tokens, used = tok(u.day);
+    return `<div class="use-agent"><div class="who"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b></div>${cap && used != null ? `<div class="bar" title="${esc(fmtTok(used))} z ${esc(fmtTok(cap))}"><i style="width:${Math.min(100, Math.round(100 * used / cap))}%"></i></div>` : ""}<dl><dt>24 h celkem (jako strop)</dt><dd>${esc(fmtTok(used))}</dd><dt>z toho vstup / výstup</dt><dd>${esc(fmtTok(u.day.input_tokens))} / ${esc(fmtTok(u.day.output_tokens))}</dd><dt>z toho mezipaměť (čtení / zápis)</dt><dd>${esc(fmtTok(u.day.cache_read_tokens))} / ${esc(fmtTok(u.day.cache_creation_tokens))}</dd>${u.day.tokens_unknown ? `<dt>běhy s neznámou spotřebou</dt><dd>${u.day.tokens_unknown}</dd>` : ""}<dt>7 dní celkem</dt><dd>${esc(fmtTok(tok(u.week)))}</dd><dt>Běhy 24 h / 7 dní</dt><dd>${u.day.attempts || 0} / ${u.week.attempts || 0}</dd></dl></div>`; }).join("")
+    + '<p class="note">Počítají se jen běhy na pozadí přes mosty. Tvoje interaktivní relace s Adou a Noxem tu nejsou.</p>');
+  setHTMLIfChanged(document.getElementById("opsRuns"), d.recent.length ? d.recent.map(r => `<div class="hist-row"><time>${esc(when(r.at))}</time>${whoBadge(r.recipient)}<div><b>Úkol #${r.message_id}${r.attempt > 1 ? ` · pokus ${r.attempt}` : ""}</b><div class="det">${r.tokens_known ? esc(fmtTok(r.tokens)) + " tokenů" : "spotřeba neznámá"}${r.model || r.requested_model ? " · " + esc(r.model || r.requested_model) : ""}</div></div></div>`).join("")
+    : "<div class='empty'>Zatím žádný zaznamenaný běh.</div>");
+}
+document.getElementById("histQuery").addEventListener("input", () => { clearTimeout(histTimer); histTimer = setTimeout(() => loadOps(), 300); });
+document.getElementById("histMore").onclick = () => loadOps("more");
+// ── Katalog schopností z ověřené inventury ──
+let catalog = null, catAgent = "ada", catStatus = "all";
+const statusCol = sec => sec.columns.findIndex(c => /^stav/i.test(c));   // stav jen z explicitního sloupce (review #60)
+const rowStatus = (sec, r) => { const i = statusCol(sec); return i < 0 ? "" : CAT_STATUS(r[i] || ""); };
+const CAT_STATUS = s => { const t = String(s).toLowerCase(); return t.includes("verified") ? "verified" : t.includes("failed") ? "failed" : t.includes("enabled") ? "enabled" : t.includes("installed") ? "installed" : t.includes("path") ? "path" : ""; };
+const CAT_LABEL = {verified: "ověřeno", enabled: "zapnuto", installed: "nainstalováno", failed: "nefunguje", path: "jen v PATH"};
+function loadCatalog() {
+  if (catalog) return renderCatalog();
+  fetch("/api/catalog").then(r => r.ok ? r.json() : Promise.reject(r)).then(d => { catalog = d; renderCatalog(); })
+    .catch(() => { document.getElementById("catBody").textContent = "Katalog se nepodařilo načíst."; });
+}
+function renderCatalog() {
+  const all = catalog.agents, rows = a => all[a].flatMap(sec => sec.rows.map(r => ({sec, r, st: rowStatus(sec, r)})));
+  const count = (a, st) => rows(a).filter(x => x.st === st).length;
+  metricsRow("catMetrics", [["Položek u Ady", rows("ada").length, "users", "orange"], ["Položek u Noxe", rows("nox").length, "users", "green"],
+    ["Ověřeno", count("ada", "verified") + count("nox", "verified"), "check", "green"], ["Zapnuto", count("ada", "enabled") + count("nox", "enabled"), "layers", "cyan"],
+    ["Nefunguje", count("ada", "failed") + count("nox", "failed"), "alert", "orange"], ["Inventura", new Date(catalog.as_of).toLocaleDateString("cs-CZ"), "clock", "purple"]]);
+  setHTMLIfChanged(document.getElementById("catAgents"), ["ada", "nox"].map(a => `<button type="button" class="pg-item${a === catAgent ? " on" : ""}" data-cat-agent="${a}"><img class="act-portrait" src="/assets/${a}.webp" alt=""><span class="pg-item-body"><span class="pg-item-title">${a === "ada" ? "Ada · Claude Code" : "Nox · Codex"}</span><span class="pg-item-sub">${rows(a).length} položek · ${count(a, "verified")} ověřeno</span></span></button>`).join(""));
+  document.querySelectorAll("[data-cat-agent]").forEach(b => b.onclick = () => { catAgent = b.dataset.catAgent; renderCatalog(); });
+  document.getElementById("catSource").textContent = `Zdroj: ${catalog.generated_from[catAgent]} (inventura ${new Date(catalog.as_of).toLocaleDateString("cs-CZ")}). Mezi agenty neplatí „co má jeden, má i druhý“.`;
+  document.getElementById("catTitle").textContent = catAgent === "ada" ? "Schopnosti Ady" : "Schopnosti Noxe";
+  setHTMLIfChanged(document.getElementById("catChips"), chipsHTML([["all", "Vše"], ...["verified", "enabled", "installed", "failed", "path"].filter(st => count(catAgent, st)).map(st => [st, `${CAT_LABEL[st]} (${count(catAgent, st)})`])], catStatus, "data-cat-st"));
+  document.querySelectorAll("[data-cat-st]").forEach(b => b.onclick = () => { catStatus = b.dataset.catSt; renderCatalog(); });
+  const q = document.getElementById("catQuery").value.trim().toLowerCase();
+  setHTMLIfChanged(document.getElementById("catBody"), all[catAgent].map(sec => {
+    const list = sec.rows.filter(r => (catStatus === "all" || rowStatus(sec, r) === catStatus) && (!q || r.join(" ").toLowerCase().includes(q)));
+    if (!list.length) return "";
+    return `<section class="cat-section"><h3>${esc(sec.section)}</h3><table class="cat-table"><thead><tr>${sec.columns.map(c => `<th scope="col">${esc(c)}</th>`).join("")}</tr></thead><tbody>${list.map(r => `<tr>${r.map((c, i) => { const st = i === statusCol(sec) ? CAT_STATUS(c) : ""; return `<td>${st ? `<span class="st-pill ${st}">${esc(c)}</span>` : esc(c)}</td>`; }).join("")}</tr>`).join("")}</tbody></table></section>`;
+  }).join("") || "<div class='empty'>Nic neodpovídá filtru.</div>");
+}
+document.getElementById("catQuery").addEventListener("input", () => { if (catalog) renderCatalog(); });
+
 function showView(view,{focus=true}={}) {
+  if(view==="ops")loadOps();
+  if(view==="catalog")loadCatalog();
   if(view==="settings"){loadMode();loadPasskeys();}
   if(view==="research")loadResearch();
   if(view==="memory")loadKnowledge();

@@ -591,6 +591,31 @@ class Store(ClaimsMixin, MessagingMixin, AvailabilityMixin, DeliveriesMixin, Rev
             audit = con.execute("DELETE FROM audit WHERE at < ?", (cutoff,)).rowcount
         return {"messages": len(doomed), "audit": audit}
 
+    def audit_log(self, *, limit: int = 200, before_id: int = 0, action: str = "", agent: str = "",
+                  q: str = "", exclude: tuple[str, ...] = ()) -> list[dict]:
+        """Historie akcí pro web: filtr podle akce, aktéra a textu, stránkování od nejnovějších."""
+        where, args = ["1=1"], []
+        if before_id > 0:
+            where.append("id < ?")
+            args.append(int(before_id))
+        if action:
+            where.append("action = ?")
+            args.append(action)
+        if agent:
+            where.append("agent = ?")
+            args.append(agent)
+        if q:
+            where.append("(path LIKE ? ESCAPE '!' OR detail LIKE ? ESCAPE '!')")
+            like = "%" + q.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+            args += [like, like]
+        if exclude:
+            where.append(f"action NOT IN ({','.join('?' * len(exclude))})")
+            args += list(exclude)
+        with self._connect() as con:
+            rows = con.execute(f"SELECT id, at, agent, action, path, detail FROM audit WHERE {' AND '.join(where)} "
+                               "ORDER BY id DESC LIMIT ?", (*args, max(1, min(int(limit), 500)))).fetchall()
+        return [dict(r) for r in rows]
+
     def history(self, limit: int = 50, path: str | None = None) -> list[dict]:
         """Kdo na co sáhl a jak to dopadlo — odpověď na 'proč mě to zablokovalo'."""
         now = time.time()

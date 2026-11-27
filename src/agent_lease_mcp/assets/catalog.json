@@ -1,0 +1,410 @@
+{
+ "generated_from": {
+  "ada": "docs/research/2026-11-19-d-capabilities-ada.md",
+  "nox": "docs/research/2026-11-19-d-capabilities-nox.md"
+ },
+ "as_of": "2026-11-19",
+ "agents": {
+  "ada": [
+   {
+    "section": "Ada – skutečné schopnosti",
+    "columns": [
+     "Typ",
+     "Položka",
+     "Stav",
+     "Poznámka"
+    ],
+    "rows": [
+     [
+      "MCP",
+      "agent-lease",
+      "verified",
+      "room, claim, review, verdict, wait"
+     ],
+     [
+      "MCP",
+      "rea (Ghidra 12.1.4)",
+      "verified",
+      "RE akceptační test D3–D6"
+     ],
+     [
+      "MCP",
+      "shelly, ufal, ghidra, aidvertaiser, Claude Docs / Gmail / Calendar / Drive / Vercel (claude.ai)",
+      "enabled",
+      "v této relaci nevolány"
+     ],
+     [
+      "MCP",
+      "chrome-devtools, gmail (lokální), sage",
+      "failed",
+      "timeout připojení"
+     ],
+     [
+      "MCP",
+      "context7, glm, higgsfield, suno, puppeteer, macaly-cloud",
+      "installed",
+      "v této relaci jako nástroje nenačteny nebo jen autentizace"
+     ],
+     [
+      "Plugin",
+      "hyperframes 0.9.9",
+      "verified",
+      "render 10s MP4 v pilotu (2026-11-19-d13-pilots-ada.md)"
+     ],
+     [
+      "Plugin",
+      "ponytail 5.3.3, claude-mem 16.0.1",
+      "enabled",
+      "aktivní hooky a instrukce relace. claude-mem work_state_write dnes použit (verified)."
+     ],
+     [
+      "Plugin",
+      "codex 1.0.6, trailofbits (insecure-defaults, supply-chain-risk-auditor, open-sourcing, modern-python, git-cleanup), vercel, frontend-design, document-skills, code-review, security-guidance",
+      "enabled",
+      "dnes nevolány"
+     ],
+     [
+      "Plugin",
+      "socraticode 1.8.11, playwright, voicemode",
+      "failed",
+      "MCP server pluginu se dnes nepřipojil (skills pluginu se nabízejí, jeho nástroje ne)"
+     ],
+     [
+      "Plugin",
+      "13 dalších (legal, firebase, feature-dev, pr-review-toolkit …)",
+      "installed, vypnuté",
+      ""
+     ],
+     [
+      "Skill (uživatel)",
+      "agent-design, code-audit, czech-document-anonymization, finish-the-job, hermes-cron-automation, inbox-autopilot, mes-module, owasp-security, pb-check, pr-description, profily-deploy-checklist, senior-architect, shelly-home-automation, translate-cz, webgl-mobile-crash-fix",
+      "enabled",
+      "owasp-security použit dnes"
+     ],
+     [
+      "Hook",
+      "agent-lease PreToolUse guard",
+      "enabled",
+      "vynucuje edit-gate (cizí rozpracovaný soubor)"
+     ],
+     [
+      "Hook",
+      "agent-lease Stop a SessionEnd",
+      "enabled",
+      "uvolňují nájmy relace. Stop navíc připomíná nepotvrzené zprávy."
+     ],
+     [
+      "Hook",
+      "agent-lease SessionStart a UserPromptSubmit, ponytail SessionStart, claude-mem",
+      "enabled",
+      "doplňují kontext relace"
+     ],
+     [
+      "Vestavěné",
+      "Bash, Read/Edit/Write, Agent, Artifact, WebSearch/WebFetch, ToolSearch",
+      "enabled",
+      ""
+     ],
+     [
+      "CLI",
+      "node 24.11.1, ffmpeg 6.1.1",
+      "verified",
+      "render a vzorkování videa v pilotu (19. 11. ~20:10)"
+     ],
+     [
+      "CLI",
+      "gcc 13.3, git, uv",
+      "verified",
+      "překlad RE fixtury; commity a push; testy (uv run pytest)"
+     ],
+     [
+      "CLI",
+      "bwrap, gh",
+      "PATH",
+      "dnes v této relaci nespuštěny"
+     ]
+    ]
+   },
+   {
+    "section": "Balíčky VojtaCode a motion-rezie",
+    "columns": [
+     "Balíček (Downloads)",
+     "SHA-256 (16)",
+     "Obsah",
+     "Zjištění"
+    ],
+    "rows": [
+     [
+      "VojtaCode-Claude-safe-use-balicek.zip",
+      "cb19aabeaa2d95ca",
+      "skill safe-use, pravidlo rules/safe-use.md, install.sh a .ps1, příklad settings",
+      "Rozsah předem, výslovné „ano“ před nevratnou akcí, obsah obrazovky jsou data. install.sh přesouvá existující ~/.claude/skills/safe-use a rules/safe-use.md do .bak a ptá se interaktivně. Tvrdou vrstvu tvoří jen permissions.ask v settings (návrh pro claude-in-chrome a windows-mcp, které Ada nemá)."
+     ],
+     [
+      "VojtaCode-balicek-claude-code.zip",
+      "c25e59f39491f52d",
+      "checklist nastavení, preference, prompt na shrnutí",
+      "Návody pro začátečníky v Claude Desktop. Prompt na shrnutí (cíl, stav, rozhodnutí, další krok) se kryje s handoffem a checkpointem agent-lease."
+     ],
+     [
+      "VojtaCode-balicek-konec-ai-odpadu.zip (a stejný „(1)“)",
+      "458146e942dfec25",
+      "skill hezky-web a reference, anti-slop pravidla",
+      "Archiv je poškozený: START-CLAUDE.md má chybný CRC (obě kopie stejně). Skill vyžaduje 2–3 reference (Refero), design tokeny předem a kontrast ≥ 4,5:1. Překrývá se s pluginem frontend-design a skillem artifact-design."
+     ],
+     [
+      "Skill-Prezentace-VojtaCode.zip",
+      "c56b30e0d44c1d64",
+      "jeden SKILL.md a návod",
+      "Cesty v archivu se zpětnými lomítky (Windows). Překrývá se s document-skills:pptx, Slides artifact a hyperframes:slideshow."
+     ],
+     [
+      "skill-image-vojtacode.zip",
+      "b7990d1c008ac7b5",
+      "skill, skripty Node, přibalené node_modules (Playwright, 19 MB), .claude-flow",
+      "Riziko: (1) přibalená, neověřená binární/JS závislost místo instalace z registru; (2) .claude-flow/policy/state.json obsahuje účtenky z autorova stroje (nástroj ruflo). Je to únik cizího stavu, ne tajemství. (3) Ovládá přihlášený Google účet přes Playwright s trvalým profilem (~/.vojtacode-image/profil-prohlizece) a automatizuje web gemini.google.com. Zda to dovolují podmínky služby, neověřeno. (4) platforms: windows, macos, Linux neuveden."
+     ],
+     [
+      "motion-rezie.zip",
+      "e575fc2f8acdca1f",
+      "textový skill",
+      "viz 2026-11-19-d13-motion-ada.md"
+     ]
+    ]
+   },
+   {
+    "section": "UŽ MÁME / PŘIDAT / NEPŘIDÁVAT",
+    "columns": [
+     "Kandidát (priorita v TODO)",
+     "Verdikt",
+     "Důvod"
+    ],
+    "rows": [
+     [
+      "Bezpečnost a důkazy dokončení (P1, safe-use)",
+      "UŽ MÁME (technicky), PŘIDAT jen princip",
+      "Rozsah, „ano“ před nevratnou akcí a stránku jako data už mají systémové instrukce Ady a auto-mode. Technicky vynucuje lease/edit-gate, bwrap a Quality Gate. Hodnotu má jedna věc: pro browser/computer use zapsat rozsah předem. Do Ady jen jako věta, ne jako skill."
+     ],
+     [
+      "Předání kontextu (P1, prompt-shrnuti)",
+      "UŽ MÁME",
+      "checkpoint, room, receipts, claude-mem a work_state. Při převzetí agent ověřuje živý stav."
+     ],
+     [
+      "Designový balík (P2, hezky-web / Refero / Open Design)",
+      "INSPIROVAT SE, neinstalovat teď",
+      "Překrývá se s frontend-design a artifact-design. Archiv je poškozený. Refero vyžaduje externí službu."
+     ],
+     [
+      "Vizuální kontrola (P2)",
+      "UŽ MÁME zčásti",
+      "hyperframes snapshot a headless Chromium z cache Playwrightu (obojí verified v pilotu). rea capture_web_screenshot potřebuje běžící CDP. Plugin Playwright je dnes failed. Jen v izolovaném prostředí."
+     ],
+     [
+      "Image + Prompt Master (P3)",
+      "NEPŘIDÁVAT",
+      "automatizuje přihlášený Google účet (podmínky neověřeny), přibaluje node_modules a cizí stav, chybí Linux. PROMPT-MASTER (8vrstvá metodika) lze číst jako inspiraci."
+     ],
+     [
+      "Prezentace (P3)",
+      "NEPŘIDÁVAT",
+      "duplicita s existujícími nástroji"
+     ],
+     [
+      "Motion režie (D13)",
+      "INSPIROVAT SE",
+      "viz D13"
+     ]
+    ]
+   }
+  ],
+  "nox": [
+   {
+    "section": "Skills",
+    "columns": [
+     "Rodina / verze",
+     "Nabídnuté schopnosti",
+     "Stav a omezení"
+    ],
+    "rows": [
+     [
+      "systémové",
+      "imagegen, openai-docs, skill-creator, skill-installer",
+      "enabled; openai-docs přečten; generování ani instalace netestována"
+     ],
+     [
+      "claude-mem 15.10.0",
+      "cost report, babysit, backup, build/release, ccs-align, childhood, cloud-sync, design-is, do, handoff, how-it-works, knowledge-agent, learn-codebase, make-plan, mem-search, mode-creator, oh-my-issues, owner-goals, pathfinder, request-progress, screenpipe, smart-explore, standup, timeline-report, version-bump, weekly-digests, what-the, wowerpoint",
+      "installed/enabled; v tomto běhu bez paměťových dotazů a bez zápisů"
+     ],
+     [
+      "ponytail 5.3.3",
+      "ponytail, audit, debt, gain, help, review",
+      "installed/enabled; full je aktivní instrukce, review přečten; nejde o automatický test kódu"
+     ],
+     [
+      "codex-security 0.1.33",
+      "assess-patch-risk, attack-path-analysis, check-skills, cloud-findings, deep-security-scan, define-security-policy, finding-discovery, fix-finding, propose-security-hardening, publish-findings, resolve-dependency-alert, security-diff-scan, security-scan, threat-model, threat-model-visualize, track-findings, triage-finding, validation, verify-fix, vulnerability-writeup",
+      "installed/enabled; check-skills přečten pro omezenou kontrolu podkladů; plný bezpečnostní audit ZIPů neproveden"
+     ],
+     [
+      "ads-manager 0.1.40",
+      "account-admin, ad-creation, business-agent-setup, delivery-recovery, entity-management, help, insights, onboarding, review, setup, start-agent, starter-campaign, draft-business-agent",
+      "installed/enabled; žádné reklamní účty ani operace netestovány"
+     ],
+     [
+      "sites 1.1.7",
+      "sites, sites-remix",
+      "installed/enabled; bez tvorby webu a publikování"
+     ],
+     [
+      "work-pets 0.1.6",
+      "create-pet, pets, update-pet",
+      "installed/enabled; bez volání"
+     ],
+     [
+      "youtube-agent 0.1.0",
+      "yt-audit, chapters, comment, edit, package, plan, retention, script, seo, shorts, viral",
+      "installed/enabled; bez volání"
+     ],
+     [
+      "visualize 1.0.89",
+      "visualize",
+      "installed/enabled; bez vykreslení"
+     ],
+     [
+      "write-like-me 0.1.1",
+      "write-like-me",
+      "installed/enabled; bez načítání osobních vzorků"
+     ],
+     [
+      "plugin-management 0.1.0",
+      "plugin-management",
+      "installed/enabled; bez změn pluginů"
+     ]
+    ]
+   },
+   {
+    "section": "MCP a vestavěné nástroje",
+    "columns": [
+     "Typ / položka",
+     "Účel",
+     "Stav / důkaz",
+     "Omezení a fallback"
+    ],
+    "rows": [
+     [
+      "agent-lease MCP",
+      "místnost, zprávy, review, vlastnictví úkolů",
+      "enabled; verified: inbox, accept, review(show), room, send",
+      "ověřeny jen uvedené operace; CLI a MCP mohou používat různé identity, preferovat správnou relaci MCP"
+     ],
+     [
+      "claude-mem MCP (mcp_search)",
+      "paměť, struktura kódu, pracovní stav",
+      "enabled podle ALL_TOOLS",
+      "spojení a obsah neověřeny; fallback lokální čtení zdrojů"
+     ],
+     [
+      "codex-security MCP",
+      "bezpečnostní workbench",
+      "enabled podle ALL_TOOLS",
+      "backend neověřen; fallback omezená statická kontrola"
+     ],
+     [
+      "REA MCP",
+      "reverse engineering, inspekce artefaktů a browseru",
+      "enabled podle ALL_TOOLS",
+      "Ghidra, zařízení ani browser v této relaci neověřeny; Adin D3–D6 test se na Noxe nepřenáší"
+     ],
+     [
+      "Shelly MCP",
+      "domácí zařízení",
+      "enabled podle ALL_TOOLS",
+      "zařízení se nečetla ani neovládala; není potřeba pro D13"
+     ],
+     [
+      "Apps konektory",
+      "Atlassian, GitHub, Gmail, Google Calendar, Linear, Ads Manager, Document Control, Pets, Sites, Writing Style, Plugin Management, Safety Settings, Hotline",
+      "enabled ve smyslu nabízených nástrojů",
+      "účty, autentizace a oprávnění neověřeny; žádná data účtů se nečetla"
+     ],
+     [
+      "Macaly Cloud",
+      "tvorba a hosting webů",
+      "enabled podle ALL_TOOLS",
+      "nevoláno, žádný přenos ani deploy"
+     ],
+     [
+      "lokální shell/orchestrace",
+      "čtení souborů, git diff, lokální výpočty",
+      "verified: exec_command, write_stdin, functions.exec",
+      "filesystem tohoto běhu read-only; přítomnost apply_patch není povolení zapisovat"
+     ],
+     [
+      "obraz / web",
+      "view_image, imagegen, web",
+      "enabled podle hosta",
+      "nevoláno; imagegen a web mohou přenášet data, nejsou součástí této inventury"
+     ],
+     [
+      "spolupráce / vstup",
+      "collaboration, request_user_input_async, clock",
+      "enabled podle hosta",
+      "subagenti nespouštěni; jejich dostupnost sama neuděluje oprávnění delegovat"
+     ]
+    ]
+   },
+   {
+    "section": "CLI a runtime",
+    "columns": [
+     "Položka",
+     "Evidence",
+     "Závěr"
+    ],
+    "rows": [
+     [
+      "Node",
+      "node --version → v18.19.1",
+      "verified pouze verze; nesplňuje HyperFrames CLI 0.9.9 požadující >=22"
+     ],
+     [
+      "FFmpeg",
+      "ffmpeg -version → 6.1.1-3ubuntu5",
+      "verified pouze verze, kódování netestováno"
+     ],
+     [
+      "git",
+      "git --version → 2.43.0; diff/worktree/status čteny",
+      "verified uvedené čtecí operace"
+     ],
+     [
+      "uv",
+      "uv --version → 0.11.12",
+      "verified pouze verze"
+     ],
+     [
+      "bwrap",
+      "bwrap --version → 0.9.0",
+      "verified pouze verze, izolace v tomto úkolu netestována"
+     ],
+     [
+      "Python 3",
+      "úspěšný in-memory výpočet hashů/CRC a secret scan",
+      "verified konkrétní čtecí skripty, bez extrakce ZIPů a bez bytecode zápisů"
+     ],
+     [
+      "codex, npm, gh, chromium",
+      "command -v je našel",
+      "pouze PATH; spuštění a účty neověřeny"
+     ],
+     [
+      "hyperframes, hypermotion",
+      "command -v nenalezl",
+      "nedostupné jako přímé CLI v aktuálním PATH; npx se nespouštělo"
+     ]
+    ]
+   }
+  ]
+ }
+}

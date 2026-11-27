@@ -187,6 +187,16 @@ class UsageMixin:
             )
         return cur.rowcount > 0
 
+    def usage_recent(self, limit: int = 30) -> list[dict]:
+        """Poslední zaznamenané běhy pro web (jen čísla a model, žádný obsah úkolu)."""
+        with self._connect() as con:
+            rows = con.execute(
+                f"SELECT message_id, recipient, attempt, at, source, model, requested_model, input_tokens, "
+                f"output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, {_TOKENS} AS tokens, "
+                f"NOT {_NO_TOKENS} AS tokens_known FROM task_usage ORDER BY at DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),)).fetchall()
+        return [dict(r) for r in rows]
+
     def usage_summary(self, *, since: float = 0, recipient: str | None = None) -> dict:
         """Součty od `since` (unix čas), volitelně pro jednoho agenta; neznámé hodnoty se nesčítají."""
         where, args = "WHERE at >= ?", [float(since)]
@@ -195,7 +205,8 @@ class UsageMixin:
             args.append(recipient)
         with self._connect() as con:
             row = con.execute(
-                "SELECT COUNT(*) AS attempts, SUM(input_tokens) AS input_tokens, "
+                f"SELECT COUNT(*) AS attempts, COALESCE(SUM({_TOKENS}),0) AS tokens, SUM({_NO_TOKENS}) AS tokens_unknown, "
+                "SUM(input_tokens) AS input_tokens, "
                 "SUM(output_tokens) AS output_tokens, SUM(cache_read_tokens) AS cache_read_tokens, "
                 "SUM(cache_creation_tokens) AS cache_creation_tokens, SUM(cost_usd) AS cost_usd, "
                 "SUM(cost_usd IS NULL) AS cost_unknown "
