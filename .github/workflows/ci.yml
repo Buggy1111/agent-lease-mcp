@@ -31,10 +31,14 @@ jobs:
         # then fails with "bootstrap exit 2" (first CI run 27. 11.). Production WSL allows them.
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run every sandbox E2E in its own bounded scope
+        # As the runner user in its own systemd user manager, like production (WSL, user services).
+        # Root-started namespaces cannot read the runner-owned checkout (bootstrap exit 2) and
+        # system scopes do not delegate cgroups to another uid.
         run: |
-          # As the runner user, like production: a root-started user namespace cannot read the
-          # runner-owned checkout (uid not mapped), so the bootstrap failed with exit 2.
-          sudo systemd-run --scope --uid="$(id -u)" --gid="$(id -g)" --unit="agent-lease-quality-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+          sudo loginctl enable-linger "$(id -un)"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          for i in $(seq 1 30); do systemctl --user show-environment >/dev/null 2>&1 && break; sleep 1; done
+          systemd-run --user --scope --unit="agent-lease-quality-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             -p Delegate=yes -p MemoryMax=2G -p TasksMax=256 -p CPUQuota=100% \
             env PYTHONPATH="$GITHUB_WORKSPACE/src" \
             AGENT_LEASE_E2E_METRICS="$RUNNER_TEMP/quality-metrics" \
