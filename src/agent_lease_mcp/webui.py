@@ -252,6 +252,22 @@ class _ConnectionCap:
             self._slots.release()
 
 
+def about_report(store: Store, settings: Settings, port: int) -> dict:
+    """Nastavení → O systému: co běží a kde (bez tajemství)."""
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        pkg = version("agent-lease-mcp")
+    except PackageNotFoundError:
+        pkg = "neznámá"
+    with store._connect() as con:
+        journal = con.execute("PRAGMA journal_mode").fetchone()[0]
+        messages = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    runtime = Path(sys.prefix).resolve().parent.name
+    return {"version": pkg, "runtime": runtime if runtime.startswith("runtime-") else "vývojové prostředí",
+            "address": f"http://localhost:{port}", "db": str(settings.db_path), "journal": journal,
+            "messages": messages, "session_days": SESSION_MAX_AGE_SECONDS // 86400, "python": sys.version.split()[0]}
+
+
 def db_version(path: Path) -> int:
     try:
         st = os.stat(path)
@@ -439,6 +455,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                     limit=limit, before_id=before, action=qs.get("action", [""])[0][:64],
                     agent=qs.get("agent", [""])[0][:64], q=qs.get("q", [""])[0][:200],
                     exclude=() if qs.get("all", [""])[0] == "1" else HISTORY_NOISE)})
+            if parts.path == "/api/about":
+                if not self._session_ok():
+                    return self._reject(403, "bad token")
+                return self._json_response(about_report(store, settings, port))
             if parts.path == "/api/passkey":
                 if not self._session_ok():
                     return self._reject(403, "bad token")
@@ -519,6 +539,18 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._json_response(result)
             if parts.path in ("/api/knowledge-add", "/api/knowledge-verdict"):
                 return self._handle_knowledge_write(parts.path.endswith("add"))
+            if parts.path == "/api/logout":
+                session_id = self._session_id()
+                with sessions_lock:
+                    sessions.pop(session_id, None)
+                    session_keys.pop(session_id, None)
+                store.record(web_agent, "web-logout", "", "")
+                self.send_response(204)
+                self._security_headers()
+                self.send_header("Set-Cookie", f"{cookie_name}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if parts.path in ("/api/passkey/register-options", "/api/passkey/register", "/api/passkey/remove"):
                 return self._handle_passkey_manage(parts.path.rsplit("/", 1)[1])
             if parts.path == "/api/research-cancel":
@@ -1944,6 +1976,63 @@ body.room-focus .now-bar { display:none; }
   .primary-nav { overflow-x:auto; max-width:100%; scrollbar-width:none; } .primary-nav::-webkit-scrollbar { display:none; }
   .now-bar { font-size:13.5px; } .now-bar .now-main { flex-basis:100%; } .now-bar .btn-new { margin-left:0; }
 }
+/* ── Nastavení od základu (Michal 27. 11.: „pořádně a luxusně“) ── */
+.st-wrap { display:grid; grid-template-columns:320px minmax(0,1fr); gap:22px; padding-top:18px; max-width:1500px; margin:0 auto; width:100%; }
+.st-nav { position:sticky; top:12px; align-self:start; }
+.st-nav-head { padding:6px 6px 18px; } .st-nav-head .view-title { margin:0 0 6px; font-size:30px; } .st-nav-head p { margin:0; color:var(--text-dim); font-size:14px; }
+.st-tabs { display:flex; flex-direction:column; gap:6px; }
+.st-tabs button { display:flex; align-items:center; gap:14px; width:100%; padding:14px 16px; border-radius:14px; border:1px solid transparent; background:none; color:var(--text); text-align:left; cursor:pointer; font:inherit; transition:background 150ms ease,border-color 150ms ease; }
+.st-tabs button i[data-ic] { width:40px; height:40px; border-radius:12px; display:grid; place-items:center; background:rgba(146,59,255,.12); color:#C9A2FF; }
+.st-tabs button span { display:flex; flex-direction:column; gap:2px; min-width:0; } .st-tabs button b { font-size:15.5px; font-weight:650; } .st-tabs button small { color:var(--text-dim); font-size:12.5px; }
+.st-tabs button:hover { background:rgba(146,59,255,.08); border-color:rgba(146,59,255,.25); }
+.st-tabs button[aria-selected="true"] { background:linear-gradient(110deg,rgba(146,59,255,.28),rgba(16,27,56,.6)); border-color:rgba(146,59,255,.6); box-shadow:0 0 22px rgba(146,59,255,.22); }
+.st-tabs button[aria-selected="true"] i[data-ic] { background:var(--grad); color:#fff; box-shadow:0 0 14px rgba(146,59,255,.55); }
+.st-tabs button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+.st-pane { min-width:0; padding:30px 34px 34px; border-radius:22px; border:1px solid rgba(146,59,255,.35); background:linear-gradient(170deg,rgba(23,32,72,.85),rgba(8,13,34,.92)); box-shadow:0 0 40px rgba(146,59,255,.12); }
+.st-head { display:flex; align-items:center; gap:18px; margin-bottom:26px; } .st-head i[data-ic] { width:56px; height:56px; border-radius:16px; display:grid; place-items:center; background:var(--grad); color:#fff; box-shadow:0 0 22px rgba(146,59,255,.5); }
+.st-head i[data-ic] svg { width:28px; height:28px; } .st-head h3 { margin:0; font-size:26px; letter-spacing:-.3px; } .st-head p { margin:4px 0 0; color:var(--text-dim); font-size:15px; }
+.st-group { margin:0 0 22px; border-radius:16px; border:1px solid var(--border-soft); background:rgba(10,16,40,.55); overflow:hidden; }
+.st-group > h4 { margin:0; padding:14px 20px 10px; font-size:12.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); font-weight:650; }
+.st-row { display:flex; align-items:center; gap:18px; padding:16px 20px; border-top:1px solid var(--border-soft); }
+.st-group > h4 + .st-row { border-top:0; }
+.st-row .st-l { flex:1; min-width:0; } .st-row .st-l b { display:block; font-size:15px; font-weight:600; } .st-row .st-l span { display:block; margin-top:3px; color:var(--text-dim); font-size:13.5px; overflow-wrap:anywhere; }
+.st-row .st-r { flex:none; display:flex; align-items:center; gap:10px; text-align:right; font-size:14px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; max-width:55%; }
+.st-pill { display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:999px; font-size:13px; border:1px solid var(--border); white-space:nowrap; }
+.st-pill::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+.st-pill.ok { color:#7CF5B6; border-color:rgba(0,231,121,.5); background:rgba(0,231,121,.08); } .st-pill.work { color:#C9A2FF; border-color:rgba(146,59,255,.6); background:rgba(146,59,255,.12); }
+.st-pill.warn { color:#FFD27A; border-color:rgba(255,176,32,.55); background:rgba(255,176,32,.08); } .st-pill.bad { color:#FF9AA8; border-color:rgba(255,90,110,.6); background:rgba(255,90,110,.1); }
+.st-pill.muted { color:var(--text-dim); }
+.st-agent { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:20px; align-items:center; padding:20px; border-bottom:1px solid var(--border-soft); }
+.st-agent:last-child { border-bottom:0; }
+.st-agent img { width:84px; height:84px; border-radius:20px; object-fit:cover; object-position:top; border:2px solid var(--c); box-shadow:0 0 18px color-mix(in srgb,var(--c) 45%,transparent); }
+.st-agent[data-agent="ada"] { --c:var(--ada); } .st-agent[data-agent="nox"] { --c:var(--nox); }
+.st-agent h5 { margin:0; font-size:20px; } .st-agent h5 small { font-size:13px; color:var(--text-dim); font-weight:500; margin-left:8px; }
+.st-agent p { margin:4px 0 0; color:var(--text-dim); font-size:13.5px; overflow-wrap:anywhere; }
+.st-facts { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.st-modes { display:flex; flex-direction:column; gap:14px; }
+.st-mode { position:relative; padding:20px 22px; border-radius:18px; border:1.5px solid var(--border); background:rgba(10,16,40,.55); cursor:pointer; text-align:left; color:var(--text); font:inherit; width:100%; transition:border-color 150ms ease, box-shadow 150ms ease; }
+.st-mode:hover { border-color:rgba(146,59,255,.55); } .st-mode:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+.st-mode[aria-checked="true"] { border-color:var(--purple); background:linear-gradient(110deg,rgba(146,59,255,.22),rgba(10,16,40,.6)); box-shadow:0 0 26px rgba(146,59,255,.3); cursor:default; }
+.st-mode .st-mode-h { display:flex; align-items:center; gap:12px; } .st-mode .st-mode-h b { font-size:18px; } .st-mode .st-mode-h .st-pill { margin-left:auto; }
+.st-mode p { margin:6px 0 0; color:#D5DCF0; font-size:14px; } .st-mode ul { margin:10px 0 0; padding-left:20px; color:var(--text-dim); font-size:13.5px; } .st-mode li { margin:3px 0; }
+.st-confirm { margin-top:14px; padding:16px; border-radius:14px; border:1px solid rgba(146,59,255,.45); background:rgba(6,11,28,.7); cursor:default; }
+.st-confirm.danger { border-color:rgba(255,90,110,.55); }
+.st-confirm label { display:block; font-size:13.5px; color:var(--text-dim); margin-bottom:6px; }
+.st-confirm textarea { width:100%; box-sizing:border-box; min-height:64px; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:rgba(16,27,56,.8); color:var(--text); font:inherit; resize:vertical; }
+.st-confirm textarea:focus { outline:2px solid var(--cyan); }
+.st-confirm .st-btns { display:flex; justify-content:flex-end; gap:10px; margin-top:12px; }
+.st-btn { min-height:42px; padding:8px 18px; border-radius:12px; border:1px solid var(--border); background:rgba(16,27,56,.8); color:var(--text); font:inherit; font-weight:600; cursor:pointer; }
+.st-btn.primary { border:0; background:var(--grad); color:#fff; box-shadow:0 0 16px rgba(146,59,255,.45); }
+.st-btn.danger { border:0; background:linear-gradient(135deg,#FF4D6A,#D62D50); color:#fff; box-shadow:0 0 18px rgba(255,77,106,.45); }
+.st-btn.go { border:0; background:linear-gradient(135deg,#00C96A,#00A355); color:#04150C; box-shadow:0 0 18px rgba(0,231,121,.4); }
+.st-btn:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; } .st-btn:disabled { opacity:.6; cursor:wait; }
+.st-hero { display:flex; align-items:center; gap:20px; padding:24px; border-radius:18px; margin-bottom:22px; }
+.st-hero.ok { border:1.5px solid rgba(0,231,121,.55); background:linear-gradient(110deg,rgba(0,231,121,.14),rgba(10,16,40,.6)); }
+.st-hero.bad { border:1.5px solid rgba(255,90,110,.65); background:linear-gradient(110deg,rgba(255,90,110,.16),rgba(10,16,40,.6)); }
+.st-hero .big { font-size:22px; font-weight:700; } .st-hero p { margin:6px 0 0; color:#D5DCF0; } .st-hero .st-btn { margin-left:auto; }
+.st-note { color:var(--text-dim); font-size:13.5px; margin:10px 2px 0; }
+@media(max-width:1100px) { .st-wrap { grid-template-columns:1fr; } .st-nav { position:static; } .st-tabs { flex-direction:row; overflow-x:auto; } .st-tabs button { flex:none; width:auto; } .st-tabs button small { display:none; } }
+@media(max-width:599px) { .st-pane { padding:20px 16px; } .st-row { flex-direction:column; align-items:flex-start; } .st-row .st-r { max-width:100%; text-align:left; } .st-agent { grid-template-columns:auto minmax(0,1fr); } .st-agent > .st-btn { grid-column:1 / -1; } .st-hero { flex-direction:column; align-items:flex-start; } .st-hero .st-btn { margin-left:0; } }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
@@ -2060,17 +2149,21 @@ body.room-focus .now-bar { display:none; }
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="pulse"></i><h2>Aktivita v paměti</h2></div><ol class="activity" id="kbActivity"></ol></aside>
     </div>
     <dialog id="kbDialog" class="pg-dialog" aria-labelledby="kbDialogTitle"><form method="dialog" class="kb-form"><h2 id="kbDialogTitle">Nový poznatek</h2><label>Příznak *<textarea id="kbSymptom" rows="2" maxlength="4000" required></textarea></label><label>Příčina<textarea id="kbCause" rows="2" maxlength="4000"></textarea></label><label>Řešení<textarea id="kbSolution" rows="3" maxlength="4000"></textarea></label><label>Projekt<input id="kbProject" maxlength="200" list="kbProjectList"></label><datalist id="kbProjectList"></datalist><label>Důkaz (commit, test, odkaz)<input id="kbEvidence" maxlength="1000"></label><p class="note">Uloží se jako neověřené. Ověřit záznam smí jen někdo jiný než autor, vždy s důkazem.</p><div class="btns"><button class="btn" value="cancel" formnovalidate>Zrušit</button><button class="btn detail" id="kbAdd" type="button">Uložit</button></div></form></dialog></section>
-  <section class="view-page pg-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle"><h2 id="settingsTitle" class="view-title sr-only" tabindex="-1">Nastavení</h2>
-    <div class="metrics-row" id="setMetrics"></div>
-    <div class="pg pg-settings">
-      <nav class="panel pg-list set-nav" aria-label="Části nastavení"><div class="panel-title"><i data-ic="gear"></i><h2>Nastavení</h2></div><a href="#setAgents"><i data-ic="users"></i>Agenti</a><a href="#setMode"><i data-ic="sliders"></i>Provozní režim</a><a href="#setStop"><i data-ic="stop"></i>Nouzové zastavení</a><a href="#setSecurity"><i data-ic="shield"></i>Bezpečnost</a><a href="#setLogin"><i data-ic="lock"></i>Přihlášení</a></nav>
-      <section class="panel pg-main" id="setAgents"><div class="panel-title"><i data-ic="users"></i><h2>Konfigurace agentů</h2></div><div class="panel-body" id="setAgentList"></div></section>
-      <section class="panel pg-side" id="setMode"><div class="panel-title"><i data-ic="sliders"></i><h2>Provozní režim</h2></div><div class="panel-body"><div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></div></section>
-      <section class="panel pg-stop" id="setStop"><div class="panel-title"><i data-ic="stop"></i><h2>Nouzové zastavení</h2></div><div class="panel-body" id="setStopBody"></div></section>
-      <section class="panel pg-sec" id="setSecurity"><div class="panel-title"><i data-ic="shield"></i><h2>Bezpečnost</h2><span class="tag ok">platí vždy</span></div><ul class="check-list"><li>Web poslouchá jen na tomto počítači (loopback), zvenku není dostupný.</li><li>Přihlášení jednorázovým tokenem, potom cookie nedostupná skriptům.</li><li>Každá akce z webu se zapisuje do historie i s důvodem.</li><li>Review kontroluje tajné údaje a autor nikdy neschvaluje vlastní práci.</li><li>Nejvýš 3 kola oprav, pak rozhoduješ ty.</li></ul></section>
-      <section class="panel pg-login" id="setLogin"><div class="panel-title"><i data-ic="lock"></i><h2>Přihlášení do webu</h2></div><div class="panel-body"><p>Web běží pořád jako služba <code>agent-lease-web</code> na <code>http://localhost:8765</code>.</p><p>Přihlášení platí <strong>7 dní</strong>. Pak se přihlásíš přes <strong>Windows Hello (PIN)</strong> přímo na stránce, nebo ikonou <strong>Agent Lease</strong> na ploše.</p><div class="pk-list" id="pkList"></div><button type="button" class="btn-new" id="pkAdd"><i data-ic="plus"></i>Přidat Windows Hello (PIN)</button><p class="note" id="pkStatus" role="status"></p></div></section>
-      <aside class="panel pg-act"><div class="panel-title"><i data-ic="clock"></i><h2>Poslední řídicí aktivita</h2></div><ol class="activity" id="setActivity"></ol></aside>
-    </div></section>
+  <section class="view-page" data-view-panel="settings" hidden aria-labelledby="settingsTitle">
+    <div class="st-wrap">
+      <nav class="st-nav" aria-label="Kategorie nastavení">
+        <div class="st-nav-head"><h2 id="settingsTitle" class="view-title" tabindex="-1">Nastavení</h2><p>Jak Ada a Nox pracují a kdo k nim má přístup.</p></div>
+        <div class="st-tabs" role="tablist" aria-orientation="vertical">
+          <button type="button" role="tab" data-st="agents"><i data-ic="users"></i><span><b>Agenti</b><small>Stav Ady, Noxe a mostů</small></span></button>
+          <button type="button" role="tab" data-st="mode"><i data-ic="sliders"></i><span><b>Provozní režim</b><small>Kolik smí agenti sami</small></span></button>
+          <button type="button" role="tab" data-st="stop"><i data-ic="stop"></i><span><b>Nouzové zastavení</b><small>Zastavit všechnu práci</small></span></button>
+          <button type="button" role="tab" data-st="access"><i data-ic="lock"></i><span><b>Přihlášení a zabezpečení</b><small>Windows Hello a přístup</small></span></button>
+          <button type="button" role="tab" data-st="about"><i data-ic="cube"></i><span><b>O systému</b><small>Verze a provoz</small></span></button>
+        </div>
+      </nav>
+      <section class="st-pane" id="stPane" role="tabpanel" aria-labelledby="stPaneTitle"></section>
+    </div>
+  </section>
 </div>
 <div id="loginScreen" class="login-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loginTitle"><div class="login-card"><svg class="login-mark" viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="loginfg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#loginfg)" stroke-width="5" stroke-linecap="round"/></svg><h1 id="loginTitle">Agent Lease</h1><p class="login-sub">Společný prostor pro tvoje agenty</p><button type="button" class="login-btn" id="loginHello"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Přihlásit přes Windows Hello</button><p class="login-status" id="loginStatus" role="status"></p><p class="login-alt">Bez Windows Hello: ikona <b>Agent Lease</b> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></div>
 <dialog id="attnDialog" class="pg-dialog attn-dialog" aria-labelledby="attnTitle"><div class="attn-head"><h2 id="attnTitle">Čeká na tebe</h2><button class="btn" id="attnClose" type="button" aria-label="Zavřít">✕</button></div><p class="note">Věci, které agenti sami nesmí nebo nemohou udělat. Vše, co tu potvrdíš, se zapíše do historie.</p><div id="attnList"></div></dialog>
@@ -2927,14 +3020,7 @@ async function helloLogin() {
   }
 }
 document.getElementById("loginHello").onclick = helloLogin;
-function loadPasskeys() {
-  fetch("/api/passkey").then(r => r.ok ? r.json() : null).then(d => {
-    if (!d) return;
-    setHTMLIfChanged(document.getElementById("pkList"), d.keys.length ? d.keys.map(k => `<div class="pk-row"><span>🔑 ${esc(k.name)} · přidáno ${esc(when(k.created_at))}${k.last_used ? " · naposledy " + esc(when(k.last_used)) : ""}</span><button class="btn" data-pk-remove="${esc(k.id)}">Odebrat</button></div>`).join("") : '<p class="note">Zatím žádný klíč Windows Hello.</p>');
-    document.querySelectorAll("[data-pk-remove]").forEach(b => b.onclick = () => { if (confirm("Odebrat tento klíč Windows Hello?")) post("/api/passkey/remove", {id: b.dataset.pkRemove}).then(loadPasskeys); });
-  }).catch(() => {});
-}
-document.getElementById("pkAdd").onclick = async () => {
+async function addPasskey() {
   const st = document.getElementById("pkStatus");
   if (!helloSupported()) { st.textContent = "Windows Hello funguje jen na adrese http://localhost:8765 v prohlížeči s WebAuthn."; return; }
   try {
@@ -2947,7 +3033,7 @@ document.getElementById("pkAdd").onclick = async () => {
     st.textContent = ok ? "Hotovo. Příště se přihlásíš PINem přímo na stránce." : "";
     loadPasskeys();
   } catch (e) { st.textContent = e && e.name === "NotAllowedError" ? "Přidání bylo zrušeno." : "Přidání se nepovedlo."; }
-};
+}
 
 function showLoginHelp() {
   // Bez přihlášení: přihlašovací obrazovka s Windows Hello; ikona na ploše zůstává jako záloha.
@@ -3406,54 +3492,138 @@ function renderMode(m) {
   if (!m) return;
   lastMode = m;
   document.getElementById("modeText").textContent = "Režim: " + (MODE_NAME[m.mode] || m.mode);
-  const grid = document.getElementById("modeGrid");
-  setHTMLIfChanged(grid, MODES.map(x => { const lock = m.locked && m.locked[x.id]; const on = m.mode === x.id;
-    return `<button type="button" class="mode-card" role="radio" data-mode="${x.id}" aria-checked="${on}" aria-disabled="${!!lock}"><h3><span class="mode-dot ${x.id}" aria-hidden="true"></span>${x.name}${on ? " · aktivní" : ""}</h3><ul>${x.items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="note">🔒 ${esc(lock)}</p>` : ""}</button>`; }).join(""));
-  document.getElementById("modeInfo").textContent = m.by ? `Naposledy přepnul ${nameOf(m.by)} · ${when(m.at)}${m.reason ? " · " + m.reason : ""}` : "Výchozí režim (zatím nikdo nepřepínal).";
-  grid.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
-    if (b.getAttribute("aria-disabled") === "true" || b.getAttribute("aria-checked") === "true") return;
-    const reason = prompt("Proč přepínáš režim? (zapíše se do historie)");
-    if (reason === null) return;
-    fetch("/api/mode", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({mode: b.dataset.mode, reason})})
-      .then(r => r.ok ? r.json().then(x => { renderMode(x); renderSettings(); }) : r.text().then(t => alert(t)))
-      .catch(() => alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."));
-  });
+  if (currentView === "settings") renderSettings();
 }
 function loadMode() { fetch("/api/snapshot?since=" + Number.MAX_SAFE_INTEGER).then(r => r.json()).then(s => { renderMode(s.mode); renderSettings(); }).catch(() => {}); }
+// ── Nastavení: seznam kategorií vlevo, jedna kategorie vpravo; potvrzení přímo v kartě (žádné prompt()) ──
+const ST = {
+  agents: ["users", "Agenti", "Kdo pro tebe pracuje, v jakém je stavu a jestli ho něco brzdí."],
+  mode: ["sliders", "Provozní režim", "Kolik samostatnosti mají Ada a Nox. Přepnout smí jen člověk tady na webu."],
+  stop: ["stop", "Nouzové zastavení", "Jedním tlačítkem zastavíš všechnu práci na pozadí. Nic se nezahodí."],
+  access: ["lock", "Přihlášení a zabezpečení", "Jak se do webu dostaneš ty a proč se nedostane nikdo jiný."],
+  about: ["cube", "O systému", "Co přesně běží a kde."],
+};
+const MODE_INFO = {
+  basic: ["Pracuje jen ten, koho sám spustíš.", ["Mosty na pozadí nepřebírají úkoly", "Sdílená paměť je pro agenty vypnutá", "Nejmenší spotřeba tokenů"]],
+  intelligent: ["Agenti si pomáhají, ale nic nemění sami.", ["Mosty přebírají úkoly jen ke čtení", "Review mezi agenty, nejvýš 3 kola", "Sdílená paměť zapnutá"]],
+  autonomous: ["Agenti pracují samostatně, ty jen schvaluješ.", ["Opravy v izolované pracovní kopii", "Povinné review a stropy spotřeby", "Po 3 neúspěšných kolech rozhoduješ ty"]],
+};
+let stTab = localStorage.getItem("agentLeaseSettingsTab") || "agents", stConfirm = null, stAbout = null, stLogins = null;
+const stRow = (label, hint, right) => `<div class="st-row"><div class="st-l"><b>${label}</b>${hint ? `<span>${hint}</span>` : ""}</div><div class="st-r">${right}</div></div>`;
+const stPill = (text, tone) => `<span class="st-pill ${tone}">${esc(text)}</span>`;
+function stBusy() { const a = document.activeElement, pane = document.getElementById("stPane"); return a && pane.contains(a) && /TEXTAREA|INPUT/.test(a.tagName); }
 function renderSettings() {
-  const st = {ada: agentStatus("ada"), nox: agentStatus("nox")};
+  if (currentView !== "settings" || stBusy()) return;
+  document.querySelectorAll("[data-st]").forEach(b => { const on = b.dataset.st === stTab; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1; });
+  const [ic, title, desc] = ST[stTab];
+  const head = `<div class="st-head"><i data-ic="${ic}"></i><div><h3 id="stPaneTitle" tabindex="-1">${title}</h3><p>${desc}</p></div></div>`;
+  const pane = document.getElementById("stPane");
+  setHTMLIfChanged(pane, head + ({agents: stAgents, mode: stModes, stop: stStop, access: stAccess, about: stAboutPane}[stTab])());
+  paintIcons(pane);
+  bindSettings();
+}
+function stAgents() {
   const peer = a => latestPeers.find(p => p.agent === a);
-  // Stejná ochrana jako agentStatus: po výpadku spojení / >60 s bez dat most nesmí zůstat „online" (review #54).
   const stale = connectionMode !== "live" || !lastRoomAt || Date.now() - lastRoomAt > STALE_MS;
   const bridgeOn = a => { const p = peer(a); return !stale && !!(p && p.active && p.seen_seconds_ago != null && p.seen_seconds_ago < ONLINE_S); };
-  const bridgeText = a => stale ? "most: stav neznámý" : "most " + (bridgeOn(a) ? "online" : "offline");
-  const all = latestReviewsAll || [];
-  metricsRow("setMetrics", [
-    ["Provozní režim", lastMode ? MODE_NAME[lastMode.mode] || lastMode.mode : "—", "sliders", "cyan"],
-    ["Provoz", lastPaused === undefined ? "—" : lastPaused ? "Zastaveno" : "Povolen", "stop", lastPaused ? "orange" : "green"],
-    ["Agenti online", stale ? "—" : `${["ada", "nox"].filter(k => !["offline", "unknown"].includes(st[k].state)).length} / 2`, "users", "purple"],
-    ["Mosty online", stale ? "—" : `${["claude-code-bridge", "codex-bridge"].filter(bridgeOn).length} / 2`, "bridge", "purple", "Mosty přebírají úkoly na pozadí"],
-    ["Zamčené cesty", latestClaims.length, "lock", "orange"],
-    ["Review k rozhodnutí", latestReviewsAll === null ? "—" : all.filter(r => r.state === "escalated").length, "flag", "cyan", "Otevřít Čeká na tebe", "attn"],
-  ]);
-  if (currentView !== "settings") return;
-  const INFO = {ada: ["Ada", "Anthropic (Claude)", "Analýza · Výzkum · Návrhy", "claude-code-bridge"], nox: ["Nox", "OpenAI (GPT)", "Implementace · Testy · Ověření", "codex-bridge"]};
-  const TONE = {working: "work", idle: "ok", limited: "bad", error: "warn", offline: "", unknown: "warn"};
-  setHTMLIfChanged(document.getElementById("setAgentList"), ["ada", "nox"].map(k => { const [name, vendor, role, bridge] = INFO[k], s = st[k];
-    return `<div class="set-agent" data-agent="${k}"><img src="/assets/${k}.webp" alt=""><div class="set-agent-body"><b>${name}</b> <span class="note">${vendor}</span><p>${role}</p>${s.detail ? `<p title="${esc(s.detail)}">${esc(s.detail.slice(0, 120))}</p>` : ""}<div class="tags">${tag(s.label, TONE[s.state])}${tag(bridgeText(bridge), stale ? "warn" : bridgeOn(bridge) ? "ok" : "")}</div></div></div>`; }).join(""));
-  if (lastMode) renderMode(lastMode);
-  const p = lastPaused;
-  setHTMLIfChanged(document.getElementById("setStopBody"), p === undefined ? "<div class='empty'>Stav není známý.</div>"
-    : `<div class="stop-box"><p>${p ? `⏸ <b>Agenti jsou zastavení.</b> Zastavil ${esc(nameOf(p.by))}${p.at ? " " + esc(when(p.at)) : ""}${p.reason ? " · " + esc(p.reason) : ""}.` : "● <b>Provoz povolen.</b> Zastavení okamžitě zastaví všechnu práci na pozadí, rozpracované úkoly se nezahodí."}</p><button class="btn ${p ? "" : "danger"}" id="setStopBtn">${p ? "▶ Pustit agenty znovu" : "Zastavit všechny agenty"}</button></div>`);
-  const sb = document.getElementById("setStopBtn");
-  if (sb) sb.onclick = () => { if (p) { if (confirm("Pustit agenty znovu do samostatné práce?")) pauseCall("resume", ""); } else { const r = prompt("Opravdu zastavit všechny agenty? Napiš důvod (zaznamená se):", "nouzové zastavení"); if (r !== null) pauseCall("pause", r); } };
-  const ev = [];
-  if (lastMode && lastMode.by) ev.push([lastMode.by, lastMode.at, `Přepnul(a) režim na ${MODE_NAME[lastMode.mode] || lastMode.mode}${lastMode.reason ? ": " + lastMode.reason : ""}`]);
-  if (p && p.by) ev.push([p.by, p.at, `Zastavil(a) agenty${p.reason ? ": " + p.reason : ""}`]);
-  historyMessages().filter(m => m.agent === me || m.kind === "control").slice(-12).forEach(m => ev.push([m.agent, Date.now() / 1000 - (m.seconds_ago || 0), `${m.kind === "task" ? "Úkol pro " + nameOf(m.recipient) : m.kind === "control" ? "Řízení" : "Zpráva pro " + nameOf(m.recipient)}: ${m.text}`]));
-  ev.sort((a, b) => (b[1] || 0) - (a[1] || 0));
-  setHTMLIfChanged(document.getElementById("setActivity"), ev.length ? ev.slice(0, 8).map(([a, t, x]) => actItem(a, t, x)).join("") : "<li class='empty'>Zatím žádná řídicí akce.</li>");
+  const TONE = {working: "work", idle: "ok", limited: "bad", error: "warn", offline: "muted", unknown: "warn"};
+  const INFO = {ada: ["Ada", "Anthropic · Claude", "Analýza, výzkum a návrhy", "claude-code"], nox: ["Nox", "OpenAI · GPT", "Implementace, testy a ověření", "codex"]};
+  return `<div class="st-group"><h4>Agenti</h4>${["ada", "nox"].map(k => { const [name, vendor, role, id] = INFO[k], st = agentStatus(k), br = bridgeOn(id + "-bridge");
+    return `<div class="st-agent" data-agent="${k}"><img src="/assets/${k}.webp" alt=""><div><h5>${name}<small>${vendor}</small></h5><p>${role}</p>${st.detail ? `<p title="${esc(st.detail)}">${esc(st.detail.slice(0, 140))}</p>` : ""}
+      <div class="st-facts">${stPill(st.label, TONE[st.state] || "muted")}${stPill(stale ? "most: stav neznámý" : br ? "most připraven" : "most nedostupný", stale ? "warn" : br ? "ok" : "muted")}</div></div>
+      <button class="st-btn" data-st-msg="${id}">Napsat ${name === "Ada" ? "Adě" : "Noxovi"}</button></div>`; }).join("")}</div>
+    <div class="st-group"><h4>Co to znamená</h4>
+      ${stRow("Most na pozadí", "Převezme úkol, i když zrovna nesedíš u počítače. Bez mostu pracuje agent jen v otevřené relaci.", "")}
+      ${stRow("Limit poskytovatele", "Když agent vyčerpá limit, úkoly počkají nebo je převezme ten druhý (failover).", "")}</div>`;
 }
+function stModes() {
+  const m = lastMode;
+  if (!m) return '<p class="st-note">Načítám…</p>';
+  return `<div class="st-modes" role="radiogroup" aria-label="Provozní režim">${MODES.map(x => { const on = m.mode === x.id, lock = m.locked && m.locked[x.id], [lead, items] = MODE_INFO[x.id];
+    const confirm = stConfirm && stConfirm.kind === "mode" && stConfirm.mode === x.id
+      ? `<div class="st-confirm" data-stop-prop><label for="stReason">Proč přepínáš? (zapíše se do historie, nepovinné)</label><textarea id="stReason" maxlength="500">${esc(stConfirm.reason || "")}</textarea><div class="st-btns"><button class="st-btn" data-st-cancel>Zrušit</button><button class="st-btn primary" data-st-do-mode="${x.id}">Přepnout na ${x.name}</button></div></div>` : "";
+    return `<div class="st-mode" role="radio" tabindex="0" aria-checked="${on}" aria-disabled="${!!lock}" data-st-mode="${x.id}"><div class="st-mode-h"><span class="mode-dot ${x.id}" aria-hidden="true"></span><b>${x.name}</b>${on ? stPill("Aktivní", "work") : lock ? stPill("Zamčeno", "muted") : ""}</div><p>${lead}</p><ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul>${lock ? `<p class="st-note">🔒 ${esc(lock)}</p>` : ""}${confirm}</div>`; }).join("")}</div>
+    <p class="st-note">${m.by ? `Naposledy přepnul ${esc(nameOf(m.by))} · ${esc(when(m.at))}${m.reason ? " · „" + esc(m.reason) + "“" : ""}` : "Výchozí režim, zatím nikdo nepřepínal."}</p>`;
+}
+function stStop() {
+  const p = lastPaused;
+  if (p === undefined) return '<p class="st-note">Stav není známý.</p>';
+  const confirm = stConfirm && stConfirm.kind === "stop"
+    ? `<div class="st-confirm ${p ? "" : "danger"}"><label for="stReason">${p ? "Proč pouštíš agenty znovu? (nepovinné)" : "Proč zastavuješ? (zapíše se do historie)"}</label><textarea id="stReason" maxlength="500">${esc(stConfirm.reason ?? (p ? "" : "nouzové zastavení"))}</textarea><div class="st-btns"><button class="st-btn" data-st-cancel>Zrušit</button><button class="st-btn ${p ? "go" : "danger"}" data-st-do-stop>${p ? "Pustit agenty" : "Opravdu zastavit"}</button></div></div>` : "";
+  return `<div class="st-hero ${p ? "bad" : "ok"}"><div><div class="big">${p ? "⏸ Agenti jsou zastavení" : "● Provoz povolen"}</div><p>${p ? `Zastavil ${esc(nameOf(p.by))}${p.at ? " · " + esc(when(p.at)) : ""}${p.reason ? " · „" + esc(p.reason) + "“" : ""}` : "Agenti pracují samostatně podle zvoleného režimu."}</p></div>${confirm ? "" : `<button class="st-btn ${p ? "go" : "danger"}" data-st-stop>${p ? "Pustit agenty znovu" : "Zastavit všechny agenty"}</button>`}</div>${confirm}
+    <div class="st-group"><h4>Co se stane po zastavení</h4>
+      ${stRow("Práce na pozadí", "Mosty okamžitě přestanou přebírat a spouštět úkoly.", stPill("zastaví se", "warn"))}
+      ${stRow("Rozpracované úkoly", "Nic se nezahodí. Po obnovení pokračují nebo čekají na tvou kontrolu.", stPill("zůstanou", "ok"))}
+      ${stRow("Kdo smí obnovit", "Jen člověk tady na webu. Agent se sám znovu nespustí.", stPill("jen ty", "work"))}</div>`;
+}
+function stAccess() {
+  const keys = stKeys;
+  const keyRows = keys === null ? stRow("Načítám…", "", "") : keys.length
+    ? keys.map(k => stRow(esc(k.name), `přidáno ${esc(when(k.created_at))}${k.last_used ? " · naposledy použito " + esc(when(k.last_used)) : " · zatím nepoužito"}`, `<button class="st-btn" data-pk-remove="${esc(k.id)}">Odebrat</button>`)).join("")
+    : stRow("Zatím žádný klíč", "Přidej Windows Hello a příště se přihlásíš jen PINem.", "");
+  const logins = stLogins === null ? stRow("Načítám…", "", "") : stLogins.length
+    ? stLogins.map(e => stRow(e.action === "web-login-passkey" ? "Přihlášení Windows Hello" : e.action === "web-logout" ? "Odhlášení" : "Neúspěšný pokus", esc(new Date(e.at * 1000).toLocaleString("cs-CZ")), stPill(e.action === "web-login-passkey-failed" ? "odmítnuto" : "v pořádku", e.action === "web-login-passkey-failed" ? "bad" : "ok"))).join("")
+    : stRow("Zatím žádné přihlášení přes Windows Hello", "", "");
+  return `<div class="st-group"><h4>Windows Hello</h4>${keyRows}<div class="st-row"><div class="st-l"><b>Přidat zařízení</b><span>Windows se zeptá na PIN. Funguje jen na adrese http://localhost:8765.</span></div><div class="st-r"><button class="st-btn primary" id="pkAdd">Přidat Windows Hello (PIN)</button></div></div><p class="st-note" id="pkStatus" role="status" style="padding:0 20px 14px"></p></div>
+    <div class="st-group"><h4>Toto přihlášení</h4>${stRow("Platnost", "Po vypršení se přihlásíš znovu PINem.", `${SESSION_DAYS} dní`)}${stRow("Odhlásit se", "Ukončí přihlášení v tomto prohlížeči.", '<button class="st-btn" id="stLogout">Odhlásit se</button>')}</div>
+    <div class="st-group"><h4>Poslední přihlášení</h4>${logins}</div>
+    <div class="st-group"><h4>Záložní přihlášení</h4>${stRow("Ikona Agent Lease na ploše", "Otevře web rovnou přihlášený jednorázovým kódem.", stPill("vždy funguje", "ok"))}${stRow("Terminál", "<code>agent-lease web-login</code>", "")}</div>
+    <div class="st-group"><h4>Ochrana</h4>
+      ${stRow("Jen tento počítač", "Web poslouchá jen na localhost, zvenku není dostupný.", stPill("zapnuto", "ok"))}
+      ${stRow("Přihlášení vázané na prohlížeč", "Odcizená cookie sama nestačí, je potřeba i klíč uložený jen pro tuto adresu.", stPill("zapnuto", "ok"))}
+      ${stRow("Žádné hlavní heslo v adrese", "Ikona i web-login posílají jen jednorázový kód platný 2 minuty.", stPill("zapnuto", "ok"))}
+      ${stRow("Vše se zapisuje", "Každé přihlášení i řídicí akce je v historii (Provoz → Historie akcí).", stPill("zapnuto", "ok"))}</div>`;
+}
+function stAboutPane() {
+  const a = stAbout;
+  if (!a) return '<p class="st-note">Načítám…</p>';
+  return `<div class="st-group"><h4>Web</h4>${stRow("Adresa", "", `<code>${esc(a.address)}</code>`)}${stRow("Spojení", "Data se obnovují okamžitě po každé změně.", stPill(connectionMode === "live" ? "Živě" : "přerušeno", connectionMode === "live" ? "ok" : "bad"))}${stRow("Přihlášený člověk", "", esc(me || "—"))}</div>
+    <div class="st-group"><h4>Verze</h4>${stRow("Agent Lease", "", esc(a.version))}${stRow("Nasazený runtime", "Složka v ~/.local/share/agent-lease", `<code>${esc(a.runtime)}</code>`)}${stRow("Python", "", esc(a.python))}</div>
+    <div class="st-group"><h4>Databáze</h4>${stRow("Soubor", "", `<code>${esc(a.db)}</code>`)}${stRow("Režim deníku", "Musí být delete; jiný režim by sdílenou místnost rozbil.", stPill(a.journal, a.journal === "delete" ? "ok" : "bad"))}${stRow("Zpráv v místnosti", "", esc(a.messages.toLocaleString("cs-CZ")))}</div>`;
+}
+let stKeys = null;
+const SESSION_DAYS = 7;
+function loadSettingsData() {
+  fetch("/api/passkey").then(r => r.ok ? r.json() : null).then(d => { if (d) { stKeys = d.keys; renderSettings(); } }).catch(() => {});
+  fetch("/api/about").then(r => r.ok ? r.json() : null).then(d => { if (d) { stAbout = d; renderSettings(); } }).catch(() => {});
+  Promise.all(["web-login-passkey", "web-login-passkey-failed", "web-logout"].map(a => fetch("/api/history?" + new URLSearchParams({action: a, limit: "5"})).then(r => r.ok ? r.json() : {events: []})))
+    .then(rs => { stLogins = rs.flatMap(r => r.events).sort((x, y) => y.at - x.at).slice(0, 6); renderSettings(); }).catch(() => {});
+}
+function loadPasskeys() { loadSettingsData(); }
+function bindSettings() {
+  const pane = document.getElementById("stPane");
+  const ta = document.getElementById("stReason");
+  if (ta && stConfirm) ta.oninput = () => { stConfirm.reason = ta.value; };
+  pane.querySelectorAll("[data-st-msg]").forEach(b => b.onclick = () => { showView("room", {focus: false}); setKind("chat"); toEl.value = b.dataset.stMsg; syncHint(); textEl.focus(); });
+  pane.querySelectorAll("[data-st-mode]").forEach(c => {
+    const open = () => { if (c.getAttribute("aria-checked") === "true" || c.getAttribute("aria-disabled") === "true") return; stConfirm = {kind: "mode", mode: c.dataset.stMode}; renderSettings(); document.getElementById("stReason")?.focus(); };
+    c.onclick = e => { if (!e.target.closest(".st-confirm")) open(); };
+    c.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && e.target === c) { e.preventDefault(); open(); } };
+  });
+  pane.querySelectorAll("[data-st-cancel]").forEach(b => b.onclick = e => { e.stopPropagation(); stConfirm = null; renderSettings(); });
+  const doMode = pane.querySelector("[data-st-do-mode]");
+  if (doMode) doMode.onclick = e => { e.stopPropagation(); doMode.disabled = true;
+    fetch("/api/mode", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({mode: doMode.dataset.stDoMode, reason: document.getElementById("stReason").value})})
+      .then(r => r.ok ? r.json().then(m => { stConfirm = null; document.activeElement.blur(); renderMode(m); }) : r.text().then(t => { doMode.disabled = false; alert(t); }))
+      .catch(() => { doMode.disabled = false; alert("Spojení se nezdařilo. Zkontroluj režim před opakováním."); }); };
+  const stop = pane.querySelector("[data-st-stop]");
+  if (stop) stop.onclick = () => { stConfirm = {kind: "stop"}; renderSettings(); document.getElementById("stReason")?.focus(); };
+  const doStop = pane.querySelector("[data-st-do-stop]");
+  if (doStop) doStop.onclick = () => { doStop.disabled = true; const reason = document.getElementById("stReason").value;
+    stConfirm = null; document.activeElement.blur(); pauseCall(lastPaused ? "resume" : "pause", reason); setTimeout(renderSettings, 400); };
+  pane.querySelectorAll("[data-pk-remove]").forEach(b => b.onclick = () => { if (confirm("Odebrat tento klíč Windows Hello?")) post("/api/passkey/remove", {id: b.dataset.pkRemove}).then(loadSettingsData); });
+  const add = document.getElementById("pkAdd");
+  if (add) add.onclick = addPasskey;
+  const out = document.getElementById("stLogout");
+  if (out) out.onclick = () => { if (!confirm("Odhlásit se z webu v tomto prohlížeči?")) return;
+    fetch("/api/logout", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"}).finally(() => { localStorage.removeItem(KEY_STORE); location.reload(); }); };
+}
+document.querySelectorAll("[data-st]").forEach(b => {
+  b.onclick = () => { stTab = b.dataset.st; stConfirm = null; localStorage.setItem("agentLeaseSettingsTab", stTab); renderSettings(); document.getElementById("stPaneTitle")?.focus({preventScroll: true}); };
+  b.onkeydown = e => { const tabs = [...document.querySelectorAll("[data-st]")], i = tabs.indexOf(b);
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); tabs[(i + 1) % tabs.length].focus(); tabs[(i + 1) % tabs.length].click(); }
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); tabs[(i + tabs.length - 1) % tabs.length].focus(); tabs[(i + tabs.length - 1) % tabs.length].click(); } };
+});
 // Stránky se obnovují i bez nové zprávy: stáří dat (Nastavení) a průběh výzkumu/paměti (review #54).
 setInterval(() => { if (!document.hidden) renderPages(); }, 5000);
 // Server pošle „room“ hned po každém zápisu do DB; při změně verze se obnoví i výzkum, paměť a provoz.
@@ -3479,14 +3649,6 @@ function onDataVersion(v) {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleRefresh(); });
 setInterval(() => { if (document.hidden) return; if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge(); }, 30000);
-document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
-  ev.preventDefault();
-  document.querySelectorAll(".set-nav a").forEach(x => x.classList.toggle("on", x === a));
-  const target = document.querySelector(a.getAttribute("href"));
-  target.scrollIntoView({behavior: reducedMotion.matches ? "auto" : "smooth", block: "nearest"});
-  motion(target, [{boxShadow: "0 0 0 2px #923BFF"}, {boxShadow: "none"}], 900);
-});
-document.querySelector(".set-nav a").classList.add("on");
 // ── Provoz: spotřeba tokenů a historie akcí ──
 const fmtTok = n => n == null ? "—" : n >= 1e6 ? (n / 1e6).toLocaleString("cs-CZ", {maximumFractionDigits: 1}) + " mil." : n >= 1e3 ? Math.round(n / 1e3).toLocaleString("cs-CZ") + " tis." : String(n);
 const ACTION = {"claim": ["Zamkl(a) cestu", ""], "release": ["Uvolnil(a) cestu", ""], "claim-refused": ["Zámek odmítnut", "bad"], "accept": ["Převzal(a) zprávu", ""],
@@ -3585,7 +3747,7 @@ document.getElementById("catQuery").addEventListener("input", () => { if (catalo
 function showView(view,{focus=true}={}) {
   if(view==="ops")loadOps();
   if(view==="catalog")loadCatalog();
-  if(view==="settings"){loadMode();loadPasskeys();}
+  if(view==="settings"){loadMode();loadSettingsData();}
   if(view==="research")loadResearch();
   if(view==="memory")loadKnowledge();
   if(view==="overview")loadDashData();

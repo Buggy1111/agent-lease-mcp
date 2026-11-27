@@ -712,7 +712,7 @@ def test_session_lasts_a_week_and_pages_have_human_controls():
     assert SESSION_MAX_AGE_SECONDS == 7 * 86400
     for needle in ('data-view-panel="quality"', 'data-view-panel="research"', 'data-view-panel="memory"',
                    'data-view-panel="settings"', "data-rv-close", "/api/review-close", 'id="rsNew"',
-                   'id="kbDialog"', 'id="setStopBody"', 'id="modeGrid"'):
+                   'id="kbDialog"', 'id="stPane"', 'data-st="mode"', 'data-st="stop"', '/api/logout'):
         assert needle in PAGE_HTML, needle
     assert "QG_DEMO" not in PAGE_HTML  # jen skutečná data
 
@@ -1054,3 +1054,20 @@ console.log(loads);
 """
     out = subprocess.run(["node", "-e", harness], capture_output=True, text=True, timeout=20, check=False)
     assert out.stdout.strip() == "2", out.stdout + out.stderr
+
+
+def test_settings_logout_and_about(tmp_path: Path):
+    """Nastavení od základu: odhlášení zruší session i klíč; O systému jen se session a bez tajemství."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    h = authenticated_handler(store, settings, "secret")
+    cookie = {"Cookie": f"{SESSION_COOKIE}=session"}
+    assert call_handler(store, settings, "secret", "GET", "/api/about", handler_type=make_handler(store, settings, "secret", 8765))[0] == 403
+    about = json.loads(call_handler(store, settings, "secret", "GET", "/api/about", headers=cookie, handler_type=h)[1])
+    assert about["journal"] in ("delete", "wal", "memory") and about["address"] == "http://localhost:8765"
+    assert "secret" not in json.dumps(about)
+    assert call_handler(store, settings, "secret", "POST", "/api/logout", body={}, headers=cookie, handler_type=h)[0] == 204
+    assert "session" not in h.sessions and "session" not in h.session_keys
+    assert call_handler(store, settings, "secret", "GET", "/api/about", headers=cookie, handler_type=h)[0] == 403
+    assert any(e["action"] == "web-logout" for e in store.history(limit=5))
+    assert "prompt(" not in PAGE_HTML[PAGE_HTML.index("function stModes()"):PAGE_HTML.index("let stKeys = null;")]
