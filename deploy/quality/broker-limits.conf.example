@@ -1,6 +1,8 @@
 # Proposed drop-in for the existing broker only. Not applied automatically.
 # Requires explicit owner approval and coordinated runtime deployment.
 [Service]
+Delegate=cpu memory pids
+DelegateSubgroup=broker
 MemoryMax=2G
 CPUQuota=100%
 TasksMax=256

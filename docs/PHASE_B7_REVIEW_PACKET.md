@@ -1,5 +1,84 @@
 # B7 — kandidát k nezávislému review
 
+## Opravy auditu 11. 11. 2026 — aktuální kandidát
+
+### Doplnění F2 po review #12 a #14
+
+Adiny opravy `126fbf1` a `a854924` jsou převzaté do této větve přímým
+fast-forwardem. Nox nezávisle schválil přesný `a85492494931de7f52b6e305041be8357d08edb2`
+v review #14; celkový kandidát B7 se znovu předkládá Adě do review #12.
+
+Brokerův scan i přijímané nezávislé B6 review nyní pokrývají celý rozsah od
+operátorem připnutého `policy_base`. Evidence navíc ukládá `scan_base`; čistý
+scan se uzná pouze pro tentýž rozsah jako review. Starý uložený záznam bez
+prokazatelného rozsahu scanu se při aktualizaci nepovýší na PASS, vyžaduje nový běh.
+
+Ověření přesného `a854924` na izolovaném snapshotu:
+
+- **57 testů quality_runs PASS**; jeden socketový test nebyl součástí této
+  unit invokace, skutečnou broker cestu ověřuje celá E2E sada níže.
+- **Celá sandboxová sada 36/36 PASS v jediném běhu**, 484,31 s; Python i
+  TypeScript, broker, připnutý rozsah review, lidské schválení, izolace, přerušení,
+  úklid potomků a metriky. Běh použil dočasný delegovaný scope běžného uživatele.
+- Původní reprodukce se skutečným DB záznamem ze starého writeru `1b5c220`
+  zůstává po načtení v **REVIEW / security REVIEW**.
+- Ruff, whitespace, wheel i sdist a scan celého rozsahu review #14: **PASS**.
+
+Následující údaje z prvního předání oprav zůstávají historií ověření. Hostované
+CI ani aktivace B7 nejsou tímto doplněním provedené; celkové review #12 je samostatné.
+
+Autor oprav: Nox. Větev `nox/b7-fixes-20261111`, základ oprav `6e9331e`.
+Review celého B7 se porovnává s produkčním základem `9134485`; přesný plný hash
+kandidáta určuje záznam MCP review, nikoli tento průběžný dokument.
+Michal schválil fázi B 11. 11.; opravy a nezávislé schválení B7 tím nejsou nahrazené.
+Produkce, služby, hooky a operátorská konfigurace se touto větví nemění.
+
+| Nález | Výsledek |
+|---|---|
+| F1 — identita nástrojů a konfigurace | Python safe path, ochrana skryté konfigurace, tool modulů/balíčků a node_modules; unit i skutečná sandboxová regrese |
+| F2 — základ kritických změn | Povinný plný operátorský SHA v `[policy_bases]`, oddělený od review base; v inspekci i uložené evidenci; navazující commit schválení neobejde |
+| F3 — prostředky brokeru | Samostatná cgroup pro každý příkaz: 1 GiB, bez swapu, 128 procesů, 75 % CPU; ověřené limity, watchdog a rezerva pro broker |
+| F4 — odmítnutí a opt-out | Ukládají se jako pokusy bez falešných procesních pozorování; dashboard ukazuje aktuální commit a stav spuštění, kritický opt-out zůstává REVIEW |
+| F5 — E2E v CI | Nový povinně spouštěný job `quality-e2e` s odděleným omezeným/delegovaným scope; nepodporovaný host selže místo skipu |
+| F6 — důvěra v metriky | Výslovně dokumentovaný limit: projektový kód může falšovat coverage/CRAP; čísla jsou poradní signál, nikoli důkaz poctivého provedení testů |
+| F7 — secret scan | Broker sám kontroluje přesný Git diff při zápisu evidence; samotný čistý scan od klienta ani stará evidence bez broker scanu nestačí k PASS |
+| F8 — opakování požadavku | Odmítnutý/přerušený/obsazený požadavek lze explicitně znovu zařadit; aktivní a dokončené běhy zůstávají deduplikované |
+| F9 — SQLite | Chyba při běhu dokončí požadavek jako odmítnutý; selhání finálního zápisu vynutí obnovu fronty po návratu DB, bez automatického opakování práce |
+
+Aktuální ověření:
+
+- Běžná celá sada: **781 passed, 30 skipped, 1 xfailed**. Tento běh předcházel
+  posledním doplněným regresím a úpravě filtru UI; následné cílené testy níže
+  ověřují dotčené části. Skipy jsou výhradně samostatná sandboxová sada.
+- Finální cílená sada quality/broker/webui: **223 passed**; dodatečná kontrola
+  identity inspekce samostatně v `tests/test_quality.py`.
+- Sandbox: všech **36 různých případů** ověřeno v reálných Python/TypeScript
+  prostředích v dočasných scope. Důkazy pocházejí z více běhů: původních 27 případů
+  prošlo v úplné sadě; závěrečný výběr 10 případů prošel celý a zahrnuje zbývající
+  tři původní případy i šest nových regresí. Nejde o tvrzení o jediném 36/36 běhu.
+- Chromium: **31 kontrol PASS**, včetně odmítnutí/opt-outu a escapování diagnostiky.
+- Ruff, kontrola whitespace, wheel i sdist: **PASS**; lokální B6 scan celého
+  rozsahu od `9134485` i samotných oprav bez nálezů.
+
+První pokusy odhalily nevyhovující lokální Python bez memfd a nespustitelnou kopii
+TypeScriptu; runner tyto podmínky nepovažuje za PASS. Použity byly existující
+vyhovující nástroje, bez globální instalace. Dvě fixture byly přizpůsobeny nové
+ochraně: Python sada musí obsahovat test a změna coverage příkazu vyžaduje lidské
+schválení. Test cgroup čeká na projektový proces po důvěryhodném bootstrapu.
+
+Hostované GitHub CI dosud neběželo; větev nebyla pushnuta. Stejný OS uživatel
+s přímým přístupem k broker DB, operátorské politice či webovému tokenu zůstává
+důvěryhodnou hranicí systému. Oddělený sandbox tato data projektovému kódu nemountuje.
+Nezávislé review oprav a případná aktivace jsou samostatné kroky.
+
+Postup aktivace začíná MCP `review(action="check")` pro plný hash kandidáta.
+Detaily: [runner](PHASE_B7_2_RUNNER.md), [aktivace](PHASE_B7_ACTIVATION_PLAN.md).
+
+## Historický kandidát 66039c0 — původní stav a důkazy
+
+Následující text zachovává původní předání. Jeho stavové výroky o otevřené fázi B,
+kapacitě Ady a chybějícím auditu nahrazuje aktuální oddíl výše.
+
 Autor: Nox. Produkční základ: `9134485371fdd6d1c92c16562aa04d188c3f2125`.
 Poslední změna produktového kódu: `e921d8c223dc77d40c1208d3462a6c69577cff1e`.
 Kandidát včetně opravené testovací fixture: `66039c0839f8fafc6bfd7437ff0c330dbb60f470`.

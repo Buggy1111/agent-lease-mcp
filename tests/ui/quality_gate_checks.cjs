@@ -1,127 +1,90 @@
-const assert=require('node:assert/strict');
-const path=require('node:path');
-module.exports=async({page,check,load,text,calls,outDir,fixture,setSnapshot,emit,wait})=>{
-  setSnapshot(fixture()); await page.setViewportSize({width:1920,height:1080}); await load('/after');
-  await check('Quality Gate starts empty, never treats reviews or task success as quality results',async()=>{
-    assert((await text(page,'#qgOverviewPanel')).includes('Dosud bez výsledků'));
-    assert.equal(await page.locator('#qgCompactSummary strong').first().textContent(),'—');
-    await page.selectOption('#taskPicker','13'); assert((await text(page,'.task-quality')).includes('Kontrola zatím není dostupná'));
-    assert.equal(await page.locator('.task-quality').getByText('PASS',{exact:true}).count(),0);
-    await page.locator('.primary-nav [data-view="quality"]').click();
-    assert(await page.locator('#qualityPage').isVisible()); assert.equal(await text(page,'#qgRepoCount'),'—');
-    assert((await text(page,'#qgProjectTable')).includes('Dosud bez výsledků'));
-    assert(await page.locator('#qualityTitle').evaluate(el=>el===document.activeElement));
-  });
-  await check('Explicit demo presents every result type, repository details and independent review without backend writes',async()=>{
-    const before=calls.length;
-    await page.locator('#qualityPage [data-qg-demo]').click();
-    assert.equal(await text(page,'#qgRepoCount'),'6');
-    assert((await text(page,'#qualityPage [data-qg-mode]')).includes('DEMO'));
-    for(const state of ['PASS','REVIEW','FAIL','N/A','SETUP REQUIRED','NOT RUN']) assert((await text(page,'#qgProjectTable')).includes(state),state);
-    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
-    assert.equal(await text(page,'#qgProjectTitle'),'demo/agent-lease');
-    const detail=await text(page,'#qgProjectDetail');
-    for(const field of ['Commit','Coverage','Type check','CRAP score','Protokoly','Historie kontrol','Nezávislé review','DEMO']) assert(detail.includes(field),field);
-    await page.locator('#qgProjectTable [data-qg-project="1"]').click();
-    assert((await text(page,'#qgProjectTitle')).includes('velmi-dlouhym'));
-    await page.locator('.primary-nav [data-view="overview"]').click();
-    assert((await text(page,'.task-quality')).includes('Kontrola zatím není dostupná'));
-    assert.equal(await page.locator('.task-quality').getByText('PASS',{exact:true}).count(),0);
-    assert.equal(calls.length,before);
-  });
-  await check('Quality tabs, Analytics/Settings placeholders, mobile overflow and keyboard navigation',async()=>{
-    for(const view of ['analytics','settings','quality','overview']) {
-      await page.locator(`.primary-nav [data-view="${view}"]`).focus(); await page.keyboard.press('Enter');
-      assert(await page.locator(`[data-view-panel="${view}"]`).isVisible());
-      assert.equal(await page.locator('.primary-nav [aria-current="page"]').count(),1);
-    }
-    await page.locator('.primary-nav [data-view="quality"]').click();
-    for(const width of [1920,1366,768,390,320]) {
-      await page.setViewportSize({width,height:1080});
-      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'quality page overflow '+width);
-      assert(await page.locator('#qualityPage .qg-scroll').evaluate(el=>el.scrollWidth>=el.clientWidth));
-      assert(await page.getByRole('button',{name:'Zastavit všechny agenty'}).isVisible());
-    }
-    await page.locator('#qualityPage [data-qg-demo]').click(); assert.equal(await text(page,'#qgRepoCount'),'—');
-    assert.equal(await page.locator('#qgProjectTable [data-qg-project]').count(),0);
-    await page.locator('.primary-nav [data-view="overview"]').click();
-  });
-  await check('Live quality runs arrive through existing snapshot/SSE, stay separate from demo and escape untrusted labels',async()=>{
-    const live={kind:'quality_run',executed:true,run_id:101,repository:'fixture/<img src=x onerror="window.injected=1">',commit_sha:'a'.repeat(40),agent:'codex',timestamp:'2026-11-07T12:00:00Z',overall_status:'REVIEW',checks:{tests:{status:'PASS',detail:'Configured command exited successfully.'},security:{status:'REVIEW'}},review_status:'pending',history:[]};
-    const s={...fixture(),quality_runs:[live,{kind:'inspection',executed:false,repository:'MUST_NOT_RENDER',overall_status:'PASS'}]};
-    setSnapshot(s);await load('/after');
-    await page.locator('.primary-nav [data-view="quality"]').click();
-    assert.equal(await text(page,'#qgRepoCount'),'1');
-    assert(!(await text(page,'#qgProjectTable')).includes('MUST_NOT_RENDER'));
-    assert.equal(await page.locator('#qgProjectTable img').count(),0);
-    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
-    assert((await text(page,'#qgProjectDetail')).includes('Čeká na nezávislé review'));
-    assert(!(await text(page,'#qgProjectDetail')).includes('DEMO'));
-    const before=calls.length;
-    await page.locator('#qualityPage [data-qg-demo]').click();
-    assert.equal(await text(page,'#qgRepoCount'),'6');
-    const updated={...live,overall_status:'FAIL',checks:{...live.checks,tests:{status:'FAIL'}}};
-    emit('room',{...s,quality_runs:[updated]});
-    await wait(()=>page.evaluate(()=>qgRecords?.[0]?.overall_status==='FAIL'),'quality SSE in demo');
-    assert.equal(await text(page,'#qgRepoCount'),'6');
-    await page.locator('#qualityPage [data-qg-demo]').click();
-    assert.equal(await text(page,'#qgRepoCount'),'1');
-    assert((await text(page,'#qgProjectTable')).includes('FAIL'));
-    // Keep selection bound to a run id when a new repository is prepended.
-    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
-    emit('room',{...s,quality_runs:[{...live,run_id:202,repository:'different'},updated]});
-    await wait(async()=>await text(page,'#qgRepoCount')==='2','second quality repo');
-    assert.equal(await text(page,'#qgProjectTitle'),live.repository);
-    assert.equal(calls.length,before);
-    emit('room',{...s,quality_runs:[]});
-    await wait(async()=>await text(page,'#qgRepoCount')==='0','empty quality snapshot');
-    assert((await text(page,'#qgProjectDetail')).includes('Vyber zaznamenaný běh'));
-    assert.equal(await page.evaluate(()=>window.injected),undefined);
-    setSnapshot(fixture());await load('/after');
-  });
-  await check('Quality requests, task binding, typecheck and safe redacted log links use live records',async()=>{
-    await page.setViewportSize({width:1920,height:1080});
-    const checks=Object.fromEntries(['tests','lint','build','security','typecheck'].map(name=>[name,{status:'PASS',required:true}]));
-    const record={kind:'quality_run',executed:true,run_id:303,task_id:13,repository:'fixture/live',commit_sha:'c'.repeat(40),agent:'codex',overall_status:'REVIEW',checks,review_status:'pending',logs:[{check:'tests',url:'/api/quality-log?run_id=303&check=tests'},{check:'evil',url:'javascript:window.injected=1'}]};
-    const s={...fixture(),quality_runs:[record],quality_requests:[{repository:'fixture/<img src=x onerror="window.injected=1">',state:'queued',detail:'fixture request'}]};
-    setSnapshot(s);await load('/after');
-    await page.selectOption('#taskPicker','13');
-    assert((await text(page,'.task-quality')).includes(record.commit_sha));
-    assert((await text(page,'.task-quality')).includes('REVIEW'));
-    await page.locator('.primary-nav [data-view="quality"]').click();
-    assert((await text(page,'#qgRequests')).includes('Čeká ve frontě'));
-    assert.equal(await page.locator('#qgRequests img').count(),0);
-    assert((await text(page,'#qgProjectTable')).includes('Type check'));
-    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
-    assert.equal(await page.locator('#qgProjectDetail a').count(),1);
-    assert.equal(await page.locator('#qgProjectDetail a').getAttribute('href'),'/api/quality-log?run_id=303&check=tests');
-    assert.equal(await page.locator('#qgApprovePolicy').count(),0);
-    setSnapshot(fixture());await load('/after');
-  });
-  await check('Critical approval requires explicit human dialogs and binds the exact run and commit',async()=>{
-    const previousDialogs=page.listeners('dialog');
-    page.removeAllListeners('dialog');
-    const checks=Object.fromEntries(['tests','lint','build','security'].map(name=>[name,{status:'PASS',required:true}]));
-    const record={kind:'quality_run',executed:true,run_id:404,repository:'fixture/critical',commit_sha:'d'.repeat(40),agent:'codex',overall_status:'REVIEW',checks,review_status:'approved',policy_review_required:true,policy_review_status:'pending',logs:[]};
-    const s={...fixture(),quality_runs:[record],quality_requests:[]};
-    setSnapshot(s);await load('/after');
-    await page.locator('.primary-nav [data-view="quality"]').click();
-    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
-    assert(await page.locator('#qgApprovePolicy').isVisible());
-    const before=calls.length;
-    page.once('dialog',dialog=>dialog.dismiss());
-    await page.locator('#qgApprovePolicy').click();
-    assert.equal(calls.length,before);
-    const accept=dialog=>dialog.type()==='prompt' ? dialog.accept('fixture human approval reason') : dialog.accept();
-    page.on('dialog',accept);
-    await page.locator('#qgApprovePolicy').click();
-    await wait(()=>calls.length===before+1,'explicit critical approval request');
-    page.off('dialog',accept);
-    assert.deepEqual(calls.at(-1),{url:'/api/quality-policy-approve',body:{run_id:404,commit_sha:record.commit_sha,reason:'fixture human approval reason'}});
-    emit('room',{...s,quality_runs:[{...record,policy_review_status:'approved',overall_status:'PASS'}]});
-    await wait(async()=>await page.locator('#qgApprovePolicy').count()===0,'critical approval removed after SSE');
-    assert((await text(page,'#qgProjectDetail')).includes('Kritické změny schválil člověk'));
-    previousDialogs.forEach(handler=>page.on('dialog',handler));
-    setSnapshot(fixture());await load('/after');
-  });
-};
+/* Quality Gate v neonovém UI (B7 F1–F9 + review #56). Samostatný běh, jen syntetická data, žádné služby Agent Lease.
+ *   python - <<<'...' vytáhne PAGE_HTML do souboru, pak:
+ *   PLAYWRIGHT_MODULE=/cesta/k/playwright UI_PAGE_HTML=/tmp/page.html node tests/ui/quality_gate_checks.cjs
+ */
+const fs = require('node:fs');
+const http = require('node:http');
+const assert = require('node:assert/strict');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const html = fs.readFileSync(process.env.UI_PAGE_HTML || '/tmp/agent-lease-page.html', 'utf8');
+
+const base = () => ({me: 'michal', paused: null, claims: [], mode: {mode: 'intelligent'},
+  peers: [{agent: 'claude-code', active: true, presence: 'idle', seen_seconds_ago: 1}, {agent: 'codex', active: true, presence: 'idle', seen_seconds_ago: 1}],
+  board: [], reviews: [], reviews_all: [], quality_runs: [], quality_requests: [],
+  messages: [{id: 1, agent: 'codex', recipient: 'michal', kind: 'chat', text: 'TEST ONLY hello', seconds_ago: 5}]});
+let snapshot = base();
+const streams = new Set(), calls = [];
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/') { res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8'}); res.end(html); }
+  else if (url.pathname === '/api/snapshot') { res.writeHead(200, {'Content-Type': 'application/json'}); res.end(JSON.stringify(snapshot)); }
+  else if (url.pathname === '/api/events') { res.writeHead(200, {'Content-Type': 'text/event-stream'}); res.write(': ok\n\n'); streams.add(res); req.on('close', () => streams.delete(res)); }
+  else if (url.pathname === '/api/research' || url.pathname === '/api/knowledge') { res.writeHead(200, {'Content-Type': 'application/json'}); res.end(url.pathname === '/api/research' ? '{"research":[]}' : '{"entries":[]}'); }
+  else if (req.method === 'POST') { calls.push(url.pathname); res.writeHead(200, {'Content-Type': 'application/json'}); res.end('{}'); }
+  else { res.writeHead(404); res.end(); }
+});
+const emit = data => { for (const s of streams) s.write(`event: room\ndata: ${JSON.stringify(data)}\n\n`); };
+const wait = async (fn, label) => { for (let i = 0; i < 150; i++) { if (await fn()) return; await new Promise(r => setTimeout(r, 30)); } throw new Error('Timed out: ' + label); };
+const results = [];
+const check = async (name, fn) => { await fn(); results.push(name); console.log('PASS ' + name); };
+
+(async () => {
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const browser = await chromium.launch({args: ['--no-sandbox']});
+  const page = await browser.newPage({viewport: {width: 1680, height: 1050}});
+  const errors = [], external = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('request', r => { if (!r.url().startsWith(origin)) external.push(r.url()); });
+  const text = sel => page.locator(sel).textContent();
+  const open = async s => { snapshot = s; await page.goto(origin + '/'); await page.waitForFunction(() => typeof qgRecords !== 'undefined' && document.querySelector('#feed .bubble')); await page.locator('.primary-nav [data-view="quality"]').click(); };
+  try {
+    await check('Empty Quality Gate never invents results', async () => {
+      await open(base());
+      assert.equal(await text('#qgRepoCount'), '(0)');
+      assert((await text('#qgProjectTable')).includes('Žádný zaznamenaný běh'));
+      assert((await text('#qgProjectDetail')).includes('Vyber kontrolu'));
+    });
+    await check('Recorded refusal replaces stale PASS and says checks did not start (B7, 9881233)', async () => {
+      const refusal = {kind: 'quality_refusal', executed: false, run_id: 250, repository: 'fixture/refused', commit_sha: 'e'.repeat(40), agent: 'codex',
+        overall_status: 'REVIEW', execution_status: 'not_started', error: '<img src=x onerror="window.injected=1">', checks: {tests: {status: 'NOT_RUN'}}};
+      await open({...base(), quality_runs: [refusal]});
+      assert.equal(await text('#qgRepoCount'), '(1)');
+      assert.equal(await page.locator('[data-qg-run="250"]').count(), 1);
+      assert((await text('#qgProjectTable')).includes('REVIEW') && !(await text('#qgProjectTable')).includes('PASS'));
+      await page.locator('[data-qg-run="250"]').click();
+      assert((await text('#qgProjectDetail')).includes('Kontroly nebyly spuštěny'));
+      assert.equal(await page.locator('#qgProjectDetail img').count(), 0);
+      emit({...base(), quality_runs: [{...refusal, kind: 'quality_attempt', overall_status: 'NOT_RUN'}]});
+      await wait(() => page.evaluate(() => qgRecords?.[0]?.overall_status === 'NOT_RUN'), 'recorded optout');
+      assert.equal(await page.evaluate(() => window.injected), undefined);
+    });
+    await check('Unexecuted runs without a run id are ignored', async () => {
+      await open({...base(), quality_runs: [{kind: 'quality_run', executed: false, repository: 'fixture/ghost', overall_status: 'PASS'}, {kind: 'quality_refusal', repository: 'fixture/noid', overall_status: 'REVIEW'}]});
+      assert.equal(await text('#qgRepoCount'), '(0)');
+    });
+    await check('Live record: requests incl. busy, safe log links only, selection follows run id', async () => {
+      const checks = Object.fromEntries(['tests', 'lint', 'build', 'security', 'typecheck'].map(n => [n, {status: 'PASS', required: true}]));
+      const live = {kind: 'quality_run', executed: true, run_id: 303, repository: 'fixture/live', commit_sha: 'c'.repeat(40), agent: 'codex', overall_status: 'REVIEW', checks, review_status: 'pending',
+        logs: [{check: 'tests', url: '/api/quality-log?run_id=303&check=tests'}, {check: 'evil', url: 'javascript:window.injected=1'}]};
+      await open({...base(), quality_runs: [live], quality_requests: [{repository: 'fixture/<img src=x onerror="window.injected=1">', state: 'busy', detail: 'TEST ONLY'}]});
+      assert((await text('#qgRequests')).includes('čeká na volný runner'));
+      assert.equal(await page.locator('#qgRequests img').count(), 0);
+      await page.locator('[data-qg-run="303"]').click();
+      assert.equal(await page.locator('#qgProjectDetail a').count(), 1);
+      assert((await page.locator('#qgProjectDetail a').getAttribute('href')).startsWith('/api/quality-log?run_id=303&check=tests'));
+      emit({...base(), quality_runs: [{...live, run_id: 304, repository: 'fixture/other'}, live]});
+      await wait(async () => await text('#qgRepoCount') === '(2)', 'second repository');
+      assert.equal(await text('#qgProjectTitle'), 'live');               // výběr zůstal na run 303, ne na první řádek
+      assert.equal(await page.evaluate(() => window.injected), undefined);
+    });
+    await check('Read-only: no backend writes, no external requests, no page errors', async () => {
+      assert.deepEqual(calls, []);
+      assert.deepEqual(external, []);
+      assert.deepEqual(errors, []);
+    });
+  } finally {
+    await browser.close(); server.close();
+  }
+  console.log(`${results.length} PASS`);
+})().catch(e => { console.error('FAIL', e.message); process.exit(1); });

@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 
@@ -19,6 +20,8 @@ from .config import human_name
 from .hygiene import check_path, check_short
 from .policy import normalize_path
 from .quality import COMMAND_CHECKS, Check, Inspection, Status, aggregate, inspect_repository
+from .secret_scan import scan_diff
+from .workspace import commit_diff
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,20 @@ def _command_result(observation: CommandObservation) -> tuple[Status, str]:
 
 
 class QualityRunsMixin:
+    def _quality_record_attempt(self, agent: str, inspection: Inspection, result: dict) -> dict:
+        """Keep refusals visible without inventing process observations or execution."""
+        self._check_review_agent(agent)
+        evidence = json.dumps({"attempt": inspection.public() | {"kind": "quality_attempt"}
+                               | result | {"agent": agent}}, sort_keys=True)
+        with self._connect() as con:
+            cursor = con.execute(
+                "INSERT INTO quality_runs(execution_id,repository,commit_sha,recorded_at,"
+                "evidence_sha256,evidence_json) VALUES(?,?,?,?,?,?)",
+                (uuid.uuid4().hex, inspection.repository, inspection.commit_sha, time.time(),
+                 hashlib.sha256(evidence.encode()).hexdigest(), evidence))
+            row = con.execute("SELECT * FROM quality_runs WHERE id=?", (cursor.lastrowid,)).fetchone()
+            return self._quality_public(con, row)
+
     def _quality_record_run(self, agent: str, inspection: Inspection,
                             observations: tuple[CommandObservation, ...], *,
                             execution_id: str, task_id: int | None = None,
@@ -123,7 +140,7 @@ class QualityRunsMixin:
         if type(inspection) is not Inspection:
             raise TypeError("An inspection is required, not a submitted JSON report")
         current = inspect_repository(inspection.repository, inspection.commit_sha,
-                                     inspection.base_commit or None)
+                                     inspection.base_commit or None, policy_base=inspection.policy_base)
         if replace(current, dirty=inspection.dirty) != inspection:
             raise ValueError("Run plan does not match committed project metadata")
         if not inspection.enabled or inspection.problems:
@@ -163,11 +180,17 @@ class QualityRunsMixin:
         # Explicit allowlist: Inspection.public() is a plan, never the stored run.
         evidence = {"repository": inspection.repository, "commit_sha": inspection.commit_sha,
                     "base_commit": inspection.base_commit, "agent": agent,
+                    "policy_base": inspection.policy_base,
                     "language": inspection.language, "config_digest": inspection.config_digest,
                     "policy_paths": list(inspection.policy_paths), "checks": checks,
                     "task_id": task_id, "sandbox": sandbox,
                     "branch": branch,
                     "observations": [asdict(by_name[name]) for name in sorted(by_name)]}
+        # Celý rozsah od základu připnutého operátorem, ne od základu volajícího: jinak
+        # by se starší commit ze zásobníku P→A→B schoval před A..B (review #12, F2).
+        evidence["scan_base"] = inspection.policy_base or inspection.base_commit
+        evidence["broker_scan_clean"] = not scan_diff(commit_diff(
+            inspection.repository, inspection.commit_sha, evidence["scan_base"]))
         body = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(body.encode()).hexdigest()
         with self._connect() as con:
@@ -193,13 +216,27 @@ class QualityRunsMixin:
     @staticmethod
     def _quality_public(con, row) -> dict:
         evidence = json.loads(row["evidence_json"])
+        if "attempt" in evidence:
+            return evidence["attempt"] | {
+                "run_id": row["id"], "execution_id": row["execution_id"],
+                "timestamp": datetime.fromtimestamp(row["recorded_at"], UTC).isoformat(),
+                "evidence_sha256": row["evidence_sha256"], "history": [], "logs": [],
+                "policy_approval": None, "observations": [], "review_status": "pending",
+                "policy_review_status": "pending" if evidence["attempt"]["policy_paths"] else "not_required"}
         # Approval is read from the existing B6 authority at read time. A new
         # review/re-submit invalidates it; neither caller nor project sets it.
+        # Review must start at the operator-pinned base: a review of only the
+        # last commit of a stack would leave the earlier commits unreviewed (#12, F2).
+        review_base = evidence.get("policy_base") or evidence["base_commit"]
         review = con.execute(
             "SELECT * FROM reviews WHERE repo=? AND head_commit=? AND base_commit=? "
             "ORDER BY updated_at DESC, id DESC LIMIT 1",
-            (row["repository"], row["commit_sha"], evidence["base_commit"]),
+            (row["repository"], row["commit_sha"], review_base),
         ).fetchone()
+        # Čistý scan se počítá jen pro stejný rozsah jako review. Starší evidence s
+        # připnutým základem, ale bez záznamu rozsahu scanu, se nepovýší (Nox, #14).
+        scan_base = evidence.get("scan_base") or (
+            None if evidence.get("policy_base") else evidence["base_commit"])
         independent = bool(review and review["verdict_by"]
                            and review["verdict_by"] != review["author"]
                            and review["verdict_commit"] == row["commit_sha"])
@@ -207,9 +244,12 @@ class QualityRunsMixin:
                         and review["verdict"] == "approved" and review["security"] == "pass"
                         and review["security_by"] == review["verdict_by"]
                         and review["scan_commit"] == row["commit_sha"]
-                        and review["scan_findings"] == "[]")
+                        and review["scan_findings"] == "[]"
+                        and scan_base == review_base
+                        and evidence.get("broker_scan_clean") is True)
         security_failed = bool(independent and review["security"] == "fail"
                                and review["security_by"] == review["verdict_by"])
+        security_failed = security_failed or evidence.get("broker_scan_clean") is False
         checks = []
         public_checks = {}
         for item in evidence["checks"]:
@@ -221,7 +261,7 @@ class QualityRunsMixin:
                 item["detail"] = ("Exact-commit independent B6 review and diff scan approved."
                                   if approved else "Independent B6 review is pending or not approved.")
                 if security_failed:
-                    item["detail"] = "Independent B6 security review rejected this commit."
+                    item["detail"] = "Broker diff scan or independent B6 security review rejected this commit."
             public_checks[name] = item
             checks.append(Check(name, Status(item["status"]), item["required"], item["detail"]))
         policy_approval = con.execute("SELECT approved_by,approved_at FROM quality_policy_approvals WHERE run_id=?",
@@ -235,6 +275,7 @@ class QualityRunsMixin:
                 "run_id": row["id"], "execution_id": row["execution_id"],
                 "repository": row["repository"], "commit_sha": row["commit_sha"],
                 "base_commit": evidence["base_commit"] or None,
+                "policy_base": evidence.get("policy_base"),
                 "branch": evidence.get("branch"), "agent": evidence["agent"],
                 "task_id": evidence.get("task_id"), "sandbox": evidence.get("sandbox"),
                 "execution_status": "interrupted" if interrupted else "completed",

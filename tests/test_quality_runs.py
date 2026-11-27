@@ -79,6 +79,16 @@ def test_inspection_is_not_a_run_and_no_public_result_import(store, plan):
     assert store.quality_runs() == []
 
 
+def test_broker_scan_overrules_forged_clean_client_scan(store, repo):
+    python_project(repo)
+    head = commit(repo, {"src/app.py": "password = " + repr("synthetic1" * 4) + "\n"})
+    plan = inspect_repository(repo, head)
+    review(store, plan)
+    result = record(store, plan)
+    assert result["overall_status"] == "FAIL"
+    assert result["checks"]["security"]["status"] == "FAIL"
+
+
 def test_evidence_survives_restart_and_never_contains_arguments_or_output(store, plan):
     result = record(store, plan)
     assert result["kind"] == "quality_run" and result["executed"] is True
@@ -360,3 +370,44 @@ def test_human_http_approval_never_coerces_an_identity(store, repo, bad_id):
         handler_type=handler)
     assert status == 400
     assert store.quality_get(run["run_id"])["policy_review_status"] == "pending"
+
+
+def test_stacked_commits_need_review_and_scan_from_the_pinned_base(store, repo):
+    """Review #12, F2: P → A → B, review jen A..B nesmí dát PASS ani schovat A před scanem."""
+    pinned = python_project(repo)
+    hidden = commit(repo, {"src/app.py": "import os\nos._exit(0)\n"})
+    head = commit(repo, {"src/other.py": "x = 1\n"})
+    plan = inspect_repository(repo, head, hidden, policy_base=pinned)
+    assert plan.base_commit == hidden and plan.policy_base == pinned
+    review(store, plan)                                    # schváleno jen A..B
+    assert record(store, plan)["overall_status"] == "REVIEW"
+    review(store, plan, base_commit=pinned, updated_at=2)  # schváleno celé P..B
+    assert record(store, plan)["overall_status"] == "PASS"
+
+
+def test_secret_in_an_earlier_stacked_commit_is_still_scanned(store, repo):
+    pinned = python_project(repo)
+    secret = commit(repo, {"src/app.py": "password = " + repr("synthetic1" * 4) + "\n"})
+    head = commit(repo, {"src/other.py": "x = 1\n"})
+    plan = inspect_repository(repo, head, secret, policy_base=pinned)
+    review(store, plan, base_commit=pinned)
+    result = record(store, plan)
+    assert result["overall_status"] == "FAIL"
+    assert result["checks"]["security"]["status"] == "FAIL"
+
+
+def test_older_evidence_without_scan_range_is_not_upgraded_by_a_pinned_review(store, repo):
+    """Nox, #14: evidence s připnutým základem, ale bez záznamu rozsahu scanu, neprojde."""
+    pinned = python_project(repo)
+    head = commit(repo, {"src/app.py": "answer = 42\n"})
+    plan = inspect_repository(repo, head, pinned, policy_base=pinned)
+    review(store, plan, base_commit=pinned)
+    run = record(store, plan)
+    assert run["overall_status"] == "PASS"
+    with store._connect() as con:
+        body = json.loads(con.execute("SELECT evidence_json FROM quality_runs WHERE id=?",
+                                      (run["run_id"],)).fetchone()[0])
+        body.pop("scan_base")
+        con.execute("UPDATE quality_runs SET evidence_json=? WHERE id=?",
+                    (json.dumps(body), run["run_id"]))
+    assert store.quality_get(run["run_id"])["overall_status"] == "REVIEW"

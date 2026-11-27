@@ -92,6 +92,7 @@ class Inspection:
     problems: tuple[str, ...]
     declared_tools: tuple[str, ...]
     config_digest: str | None
+    policy_base: str | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", self.commit_sha):
@@ -99,16 +100,17 @@ class Inspection:
 
     def public(self) -> dict:
         status = aggregate(self.checks, policy_review_required=bool(self.policy_paths))
-        if not self.enabled:
+        if not self.enabled and not self.policy_paths:
             status = Status.NOT_RUN
         identity = "\0".join((self.repository, self.commit_sha, self.base_commit,
-                               self.config_digest or ""))
+                               self.config_digest or "", self.policy_base or ""))
         return {"schema_version": 1, "kind": "inspection", "executed": False,
                 "execution_allowed": False,
                 "inspection_id": hashlib.sha256(identity.encode()).hexdigest(),
                 "repository": self.repository, "commit_sha": self.commit_sha,
                 "branch": None, "agent": None, "timestamp": None,
-                "base_commit": self.base_commit or None, "language": self.language,
+                "base_commit": self.base_commit or None, "policy_base": self.policy_base,
+                "language": self.language,
                 "package_manager": self.package_manager, "working_tree_dirty": self.dirty,
                 "enabled": self.enabled, "overall_status": status.value,
                 "checks": {check.name: check.public() for check in self.checks},
@@ -214,7 +216,7 @@ def policy_path(path: str) -> bool:
     """Conservative filename guard; semantic test weakening still needs independent review."""
     name = PurePosixPath(path.lower())
     if any(part in {"test", "tests", "__tests__", ".github", ".circleci", ".agent-lease",
-                    "security", ".semgrep"} for part in name.parts):
+                    "security", ".semgrep", "node_modules"} for part in name.parts):
         return True
     filename = name.name
     if ("agent_lease_mcp" in name.parts and filename in {
@@ -226,7 +228,8 @@ def policy_path(path: str) -> bool:
                                  "playwright.config.", "cypress.config.", ".nycrc"))
             or re.search(r"(?:\.test\.|\.spec\.|_test\.)[^/]+$", filename) is not None
             or filename in {"conftest.py", "pyproject.toml", "package.json", "uv.lock",
-                            "requirements.txt", "requirements-dev.txt", "pytest.ini", "tox.ini",
+                            "requirements.txt", "requirements-dev.txt", "pytest.ini", ".pytest.ini",
+                            "pytest.toml", ".pytest.toml", ".mypy.ini", "tox.ini",
                             "setup.cfg", ".coveragerc", "ruff.toml", ".ruff.toml", "mypy.ini",
                             ".gitlab-ci.yml", "jenkinsfile", "azure-pipelines.yml", ".gitmodules",
                             ".gitattributes", ".npmrc", ".pre-commit-config.yaml",
@@ -236,7 +239,8 @@ def policy_path(path: str) -> bool:
             or filename in LOCKS)
 
 
-def _changed_policy(root: str, head: str, base: str) -> tuple[str, ...]:
+def _changed_policy(root: str, head: str, base: str,
+                    tool_modules: frozenset[str] = frozenset()) -> tuple[str, ...]:
     if base:
         output = _git_hardened(Path(root), "diff", "--name-only", "-z", "--no-ext-diff",
                                "--no-textconv", "--no-renames", base, head, "--")
@@ -246,10 +250,12 @@ def _changed_policy(root: str, head: str, base: str) -> tuple[str, ...]:
     if output is None or len(output) > 4 * 1024 * 1024:
         raise ValueError("Cannot establish the quality policy diff")
     paths = [path.decode("utf-8", "surrogateescape") for path in output.split(b"\0") if path]
-    return tuple(sorted(path for path in paths if policy_path(path)))
+    return tuple(sorted(path for path in paths if policy_path(path)
+                        or PurePosixPath(path).parts[0].split(".")[0] in tool_modules))
 
 
-def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None) -> Inspection:
+def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None = None,
+                       *, policy_base: str | None = None) -> Inspection:
     """Plan only from a resolved commit. No room, configuration writes, installs or shell execution."""
     if not commit or len(commit) > 1024 or any(ord(c) < 32 for c in commit):
         raise ValueError("Invalid quality commit")
@@ -260,7 +266,12 @@ def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None 
         _, base_sha, _ = resolve_commit(root, base)
         if not is_strict_ancestor(root, base_sha, head):
             raise ValueError("Quality base must be a strict ancestor of the selected commit")
-    guarded = _changed_policy(root, head, base_sha)
+    if policy_base is not None:
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", policy_base):
+            raise ValueError("Policy baseline must be an operator-pinned full commit hash")
+        _, pinned, _ = resolve_commit(root, policy_base)
+        if pinned != policy_base or (pinned != head and not is_strict_ancestor(root, pinned, head)):
+            raise ValueError("Policy baseline must be an ancestor of the selected commit")
     snapshot = _Snapshot(root, head)
     problems: list[str] = []
     commands: dict[str, tuple[tuple[str, ...], str]] = {}
@@ -346,8 +357,14 @@ def inspect_repository(repo: str | Path, commit: str = "HEAD", base: str | None 
         else:
             status, detail = Status.NA, "No applicable configured metric; not a passing result."
         checks.append(Check(name, status, required, detail, command, source))
+    tool_modules = {Path(command[0]).stem for command, _ in commands.values()}
+    for command, _ in commands.values():
+        if "-m" in command and command.index("-m") + 1 < len(command):
+            tool_modules.add(command[command.index("-m") + 1].split(".")[0])
+    guarded = (() if policy_base == head else
+               _changed_policy(root, head, policy_base or base_sha, frozenset(tool_modules)))
     return Inspection(root, head, base_sha, language, manager, dirty, enabled, tuple(checks),
-                      guarded, tuple(problems), tuple(tools), config_digest)
+                      guarded, tuple(problems), tuple(tools), config_digest, policy_base)
 
 
 def inspect_cli(repo: str, commit: str, base: str | None) -> int:

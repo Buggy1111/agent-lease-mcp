@@ -915,3 +915,26 @@ def test_dripping_client_is_cut_off_at_the_absolute_deadline(tmp_path: Path, mon
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_expired_login_replaces_the_loading_bar_with_help():
+    """Review #17: po restartu webu nesmí horní pruh viset na načítání; rada vede na ikonu / web-login."""
+    start = PAGE_HTML.index("function showLoginHelp()")
+    body = PAGE_HTML[start:PAGE_HTML.index("feed.innerHTML", start)]
+    assert 'getElementById("pause")' in body and "web-login" in body
+    assert "web --open" not in body
+
+
+def test_attention_panel_and_live_indicator():
+    """Michal 27. 11.: zvonek otevře „Čeká na tebe“ s akcemi; hlavička ukazuje stáří živých dat."""
+    for needle in ('id="attnDialog"', "function attentionItems()", "renderTaskActions(m, div)", 'id="livePill"',
+                   "worker lease expired after start", '"/api/review-close"'):
+        assert needle in PAGE_HTML, needle
+
+
+def test_attention_panel_rerenders_when_error_or_fix_changes():
+    """Review #57: stejný úkol se změněným last_error/fix nesmí ukazovat staré vysvětlení a tlačítka."""
+    start = PAGE_HTML.index("function renderAttention()")
+    key = PAGE_HTML[start:PAGE_HTML.index("list._key = key", start)]
+    for field in ("i.m.last_error", "i.m.fix", "i.m.state", "i.r.state", "i.r.policy_review_status"):
+        assert field in key, field

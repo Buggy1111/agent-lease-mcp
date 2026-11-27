@@ -1747,13 +1747,31 @@ i[data-ic] svg { width:22px; height:22px; }
   .metric,.metrics-row .metric { padding:10px; gap:8px; } .metric-icon,.metrics-row .metric-icon { width:32px; height:32px; } .metric-icon svg,.metrics-row .metric-icon svg { width:26px; height:26px; }
   .metric-label { font-size:12.5px; white-space:normal; overflow:visible; text-overflow:clip; } .metric-value { font-size:22px; }
 }
+/* ── Přehlednost a živá data (Michal 27. 11.: „ne chaoticky, intuitivně, real time“) ── */
+.live-pill { display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:999px; border:1px solid rgba(0,231,121,.45); background:rgba(0,231,121,.08); color:#BFF7DA; font-size:13.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.live-dot { width:9px; height:9px; border-radius:50%; background:var(--nox); box-shadow:0 0 8px var(--nox); }
+.live-pill.tick .live-dot { animation:live-tick .9s ease-out; }
+@keyframes live-tick { 0% { transform:scale(1.8); } 100% { transform:scale(1); } }
+.live-pill[data-state="stale"] { border-color:rgba(255,176,32,.6); background:rgba(255,176,32,.1); color:#FFE2A8; } .live-pill[data-state="stale"] .live-dot { background:#FFB020; box-shadow:0 0 8px #FFB020; }
+.live-pill[data-state="down"] { border-color:rgba(255,90,110,.6); background:rgba(255,90,110,.1); color:#FFD0D6; } .live-pill[data-state="down"] .live-dot { background:#FF5A6E; box-shadow:0 0 8px #FF5A6E; }
+@media (prefers-reduced-motion: reduce) { .live-pill.tick .live-dot { animation:none; } }
+@media(max-width:1280px) { .live-pill { padding:6px 10px; font-size:12.5px; } }
+.attn-dialog { max-width:min(760px,calc(100vw - 32px)); }
+.attn-head { display:flex; align-items:center; justify-content:space-between; gap:12px; } .attn-head h2 { margin:0; }
+#attnList { display:flex; flex-direction:column; gap:10px; margin-top:12px; max-height:min(70vh,720px); overflow:auto; }
+.attn-item { padding:12px 14px; border-radius:12px; border:1px solid var(--border-soft); background:rgba(16,27,56,.7); }
+.attn-item[data-kind="review"] { border-color:rgba(255,90,110,.55); } .attn-item[data-kind="task"] { border-color:rgba(255,176,32,.55); } .attn-item[data-kind="policy"] { border-color:rgba(146,59,255,.6); }
+.attn-item h3 { margin:0 0 4px; font-size:15px; overflow-wrap:anywhere; } .attn-item p { margin:0 0 8px; font-size:13.5px; color:var(--text-dim); overflow-wrap:anywhere; }
+.attn-item .why { color:#FFE2A8; }
+.attn-item .actions,.attn-item .btns { display:flex; flex-wrap:wrap; gap:8px; }
+.attn-empty { padding:24px; text-align:center; color:#BFF7DA; font-size:15px; }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
   <header id="masthead">
     <div id="brand"><div class="mark"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg)" stroke-width="5" stroke-linecap="round"/></svg></div><div><h1 class="name">Agent Lease</h1><div class="sub">Společný prostor pro tvoje agenty</div></div></div>
     <div id="agentHeroes"><article class="agent-hero" id="heroAda" data-agent="ada" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/ada.webp" alt="Portrét Ada" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Ada<svg class="vendor-mark" viewBox="0 0 26 20" aria-hidden="true"><path fill="currentColor" d="M2 19 9 1h3l7 18h-3.6l-1.6-4.3H6.9L5.4 19zm6-7.2h4.4L10.2 6zM17 1h3.4L25 13h-3.4z"/></svg></span><span class="agent-vendor">Anthropic (Claude)</span></div><div class="agent-role">Analýza • Výzkum • Návrhy</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article><div class="hub" aria-hidden="true"><svg viewBox="0 0 64 32" fill="none" aria-hidden="true"><defs><linearGradient id="infg2" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M6 16c0-6 4-10 10-10 11 0 21 20 32 20 6 0 10-4 10-10S54 6 48 6C37 6 27 26 16 26 10 26 6 22 6 16z" stroke="url(#infg2)" stroke-width="5" stroke-linecap="round"/></svg></div><article class="agent-hero" id="heroNox" data-agent="nox" data-state="unknown" aria-live="polite"><div class="portrait-wrap"><span class="halo" aria-hidden="true"></span><img class="portrait" src="/assets/nox.webp" alt="Portrét Nox" width="140" height="129"></div><div class="agent-info"><div class="agent-title"><span class="agent-name">Nox<svg class="vendor-mark" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5 20 7v10l-8 4.5L4 17V7z"/><path d="M12 7.5 16 10v4l-4 2.5L8 14v-4z"/></svg></span><span class="agent-vendor">OpenAI (GPT)</span></div><div class="agent-role">Implementace • Testy • Ověření</div><div class="agent-state"><span class="state-dot" aria-hidden="true"></span><span class="state-text">Neznámý stav</span><svg class="pulse-line" viewBox="0 0 80 20" aria-hidden="true"><path d="M0 10h22l4-7 5 14 5-12 4 9 4-4h36"/></svg></div><div class="agent-task"></div></div></article></div>
-    <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span id="modeText">Režim: …</span></span>
+    <div id="headTools"><span id="modeBadge" class="mode-badge" title="Provozní režim místnosti"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span id="modeText">Režim: …</span></span><span id="livePill" class="live-pill" role="status" aria-live="off"><span class="live-dot" aria-hidden="true"></span><span id="liveText">Připojuji…</span></span>
       <button class="icon-btn" id="bellBtn" type="button" aria-label="Co čeká na tebe" title="Úkoly ke kontrole a review čekající na tebe"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg><span id="bellCount" class="bell-count" hidden>0</span></button>
       <details class="help"><summary class="icon-btn" aria-label="Nápověda"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 1-1 1.7M12 17v.5"/></svg></summary><div class="help-pop"><b>Barvy a stavy</b><p><span class="lg lg-ada"></span>Ada (Claude) · <span class="lg lg-nox"></span>Nox (Codex)</p><p>Karta agenta pulzuje jen tehdy, když agent opravdu pracuje. Čeká = online bez úkolu. Limit = vyčerpaný limit poskytovatele. Vyžaduje pozornost = úkol ke kontrole nebo zaseknutý most. Neznámý stav = web nemá čerstvá data.</p><p>Zvonek = úkoly ke kontrole a review, které čekají na tebe.</p></div></details><span id="humanBadge" class="human-badge" title="Přihlášený člověk">M</span></div>
     <nav class="primary-nav" aria-label="Hlavní navigace"><button class="current" aria-current="page" data-view="overview"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7v9h-6v-6H9v6H3z"/></svg>Přehled</button><button data-view="room"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Místnost agentů</button><button data-view="quality"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 4 4 7 8 9 4-2 8-5 8-9V6Z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>Kvalita</button><button data-view="research"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>Výzkum</button><button data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg>Paměť</button><button data-view="catalog"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>Katalog</button><button data-view="settings"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>Nastavení</button><button id="navTasks" type="button" hidden>Úkoly</button><button type="button" id="navAgents" hidden>Agenti</button><a href="#projectPanel" id="navProjects" hidden>Projekty</a><a href="#historyPanel" id="navHistory" hidden>Historie</a><button data-view="analytics" hidden>Analytics</button></nav>
@@ -1864,6 +1882,7 @@ i[data-ic] svg { width:22px; height:22px; }
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="clock"></i><h2>Poslední řídicí aktivita</h2></div><ol class="activity" id="setActivity"></ol></aside>
     </div></section>
 </div>
+<dialog id="attnDialog" class="pg-dialog attn-dialog" aria-labelledby="attnTitle"><div class="attn-head"><h2 id="attnTitle">Čeká na tebe</h2><button class="btn" id="attnClose" type="button" aria-label="Zavřít">✕</button></div><p class="note">Věci, které agenti sami nesmí nebo nemohou udělat. Vše, co tu potvrdíš, se zapíše do historie.</p><div id="attnList"></div></dialog>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
 const KEY_STORE = "agentLeaseKey";
@@ -2066,8 +2085,7 @@ setInterval(() => { if (!document.hidden) renderHeroes(); }, 5000);
 function renderWork() {
   const tasks = historyMessages().filter(m => m.kind === "task");
   const board = latestBoard || [];
-  const escalated = (latestReviews || []).filter(r => r.state === "escalated").length;
-  const attention = board.reduce((s, b) => s + (b.needs_review || 0), 0) + escalated;
+  const attention = attentionItems().reduce((s, i) => s + (i.kind === "more" ? i.n : 1), 0);
   const rows = [["ok", "Dokončeno", tasks.filter(m => m.state === "succeeded").length, "úkoly v načtené historii"],
                 ["work", "Probíhá", board.filter(b => b.active).length, "právě běžící úkoly"],
                 ["wait", "Ve frontě", board.reduce((s, b) => s + (b.queued || 0), 0), "nepřevzaté doručenky ve frontě agentů (zprávy i úkoly)"],
@@ -2078,7 +2096,64 @@ function renderWork() {
   bell.hidden = !attention; bell.textContent = attention;
 }
 function openRoomTasks() { showView("room", {focus: false}); document.querySelector('[data-filter="task"]').click(); }
-document.getElementById("bellBtn").onclick = openRoomTasks;
+// ── „Čeká na tebe“: jedno místo pro všechno, co potřebuje člověka ──
+const TASK_ERROR = e => !e ? "" : e === "worker lease expired after start" ? "Běh na pozadí nedoběhl (most přestal hlásit průběh). Výsledek není jistý, proto se sám neopakuje."
+  : e.startsWith("quarantine") ? "Úkol zadržela bezpečnostní kontrola." : e.startsWith("fix:") ? "Oprava se zápisem do repozitáře čeká na tvé povolení."
+  : e.startsWith("checkpoint:") ? "Pracovní složka se od uložení změnila." : e;
+function attentionItems() {
+  const items = [];
+  (latestReviewsAll || latestReviews || []).filter(r => r.state === "escalated").forEach(r => items.push({kind: "review", r}));
+  const tasks = historyMessages().filter(m => m.kind === "task" && ["needs_review", "failed", "dead_letter"].includes(m.state));
+  tasks.forEach(m => items.push({kind: "task", m}));
+  (qgRecords || []).filter(r => r.policy_review_required && r.policy_review_status !== "approved" && r.run_id).forEach(r => items.push({kind: "policy", r}));
+  const hidden = (latestBoard || []).reduce((s, b) => s + (b.needs_review || 0), 0) - tasks.filter(m => m.state === "needs_review").length;
+  if (hidden > 0) items.push({kind: "more", n: hidden});
+  return items;
+}
+function renderAttention() {
+  const list = document.getElementById("attnList"), items = attentionItems();
+  // Klíč nese vše, co se v panelu zobrazuje nebo určuje tlačítka (review #57: last_error, fix, stav review/kvality).
+  const key = JSON.stringify(items.map(i => [i.kind, i.n, i.m && [i.m.id, i.m.state, i.m.last_error, i.m.fix, i.m.recipient],
+    i.r && [i.r.id, i.r.run_id, i.r.state, i.r.policy_review_status, i.r.topic]]));
+  if (list._key === key) return;
+  list._key = key;
+  list.innerHTML = items.length ? "" : '<div class="attn-empty">✓ Nic nečeká. Agenti si poradí sami.</div>';
+  items.forEach(it => {
+    const div = document.createElement("div");
+    div.className = "attn-item"; div.dataset.kind = it.kind;
+    if (it.kind === "review") {
+      const v = it.r;
+      div.innerHTML = `<h3>Review #${v.id}: ${esc(v.topic.slice(0, 140))}</h3><p>${esc(nameOf(v.author))} → ${esc(nameOf(v.reviewer))} · vyčerpaná 3 kola oprav, rozhoduješ ty.</p><div class="btns"><button class="btn" data-a="grant">Povolit ještě 1 kolo</button><button class="btn" data-a="close">Uzavřít review</button></div>`;
+      div.querySelector('[data-a="grant"]').onclick = () => { const reason = prompt("Proč povolit další kolo oprav? (zapíše se)"); if (reason && reason.trim()) post("/api/review-grant", {id: v.id, reason}); };
+      div.querySelector('[data-a="close"]').onclick = () => { const reason = prompt("Proč uzavřít? (zapíše se)", "převezmu sám"); if (reason && reason.trim()) post("/api/review-close", {id: v.id, reason}); };
+    } else if (it.kind === "task") {
+      const m = it.m;
+      div.innerHTML = `<h3>Úkol #${m.id} pro ${esc(nameOf(m.recipient))}: ${esc((m.text || "").split(String.fromCharCode(10))[0].slice(0, 120))}</h3><p class="why">${esc(TASK_ERROR(m.last_error) || (STATE[m.state] || [m.state])[0])}</p>`;
+      renderTaskActions(m, div);
+    } else if (it.kind === "policy") {
+      const r = it.r;
+      div.innerHTML = `<h3>Kontrola kvality: ${esc(String(r.repository).split("/").pop())}</h3><p>Commit mění testy nebo pravidla a čeká na tvé schválení.</p><div class="btns"><button class="btn">Otevřít v Kvalitě</button></div>`;
+      div.querySelector("button").onclick = () => { document.getElementById("attnDialog").close(); qgSelected = r.run_id; showView("quality"); };
+    } else {
+      div.innerHTML = `<h3>Dalších ${it.n} úkolů ke kontrole</h3><p>Jsou starší než načtená historie místnosti.</p><div class="btns"><button class="btn">Ukázat v místnosti</button></div>`;
+      div.querySelector("button").onclick = () => { document.getElementById("attnDialog").close(); openRoomTasks(); };
+    }
+    list.appendChild(div);
+  });
+}
+document.getElementById("bellBtn").onclick = () => { renderAttention(); document.getElementById("attnDialog").showModal(); };
+document.getElementById("attnClose").onclick = () => document.getElementById("attnDialog").close();
+// ── Živá data: kdy přišla poslední aktualizace ──
+let lastLiveTick = 0;
+setInterval(() => {
+  const pill = document.getElementById("livePill"), txt = document.getElementById("liveText");
+  const age = lastRoomAt ? Math.max(0, Math.round((Date.now() - lastRoomAt) / 1000)) : null;
+  const state = connectionMode !== "live" ? "down" : age === null || age > 15 ? "stale" : "live";
+  pill.dataset.state = state;
+  txt.textContent = state === "down" ? "Spojení přerušeno" : age === null ? "Připojuji…" : state === "stale" ? `Data stará ${age} s` : age <= 1 ? "Živě · právě teď" : `Živě · před ${age} s`;
+  if (lastRoomAt && lastRoomAt !== lastLiveTick) { lastLiveTick = lastRoomAt; pill.classList.remove("tick"); void pill.offsetWidth; pill.classList.add("tick"); }
+  if (document.getElementById("attnDialog").open) renderAttention();
+}, 1000);
 document.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => b.dataset.goto === "room-tasks" ? openRoomTasks() : showView(b.dataset.goto));
 document.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => {
   const qa = b.dataset.qa;
@@ -2093,7 +2168,7 @@ function loadDashData() {
   fetch("/api/research").then(r => r.ok ? r.json() : null).then(d => { if (d) { dashResearch = d.research || []; renderDash(); } }).catch(() => {});
   fetch("/api/knowledge").then(r => r.ok ? r.json() : null).then(d => { if (d) { dashKnowledge = d.entries || []; renderDash(); } }).catch(() => {});
 }
-setInterval(() => { if (!document.hidden && currentView === "overview") loadDashData(); }, 60000);
+setInterval(() => { if (!document.hidden && currentView === "overview") loadDashData(); }, 15000);
 function renderChart() {
   const all = latestReviewsAll || [], svg = document.getElementById("chartSvg");
   if (!all.length) { document.getElementById("chartPct").textContent = "—"; svg.innerHTML = ""; return; }
@@ -2510,7 +2585,7 @@ function renderRoom(r) {
   if (r.me) { me = r.me; document.getElementById("humanBadge").textContent = String(me).slice(0, 1).toUpperCase(); }
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
-    qgRecords = records.filter(record => record && record.kind === "quality_run" && record.executed === true);
+    qgRecords = records.filter(record => record && ((record.kind === "quality_run" && record.executed === true) || (["quality_attempt", "quality_refusal"].includes(record.kind) && Number.isInteger(record.run_id) && record.run_id > 0)));
   }
   if (Array.isArray(r.quality_requests)) qgRequests = r.quality_requests;
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs") || Object.prototype.hasOwnProperty.call(r, "quality_requests")) renderQualityGate();
@@ -2613,7 +2688,10 @@ function showSessionLost() {
   document.body.prepend(bar);
 }
 function showLoginHelp() {
-  feed.innerHTML = `<div class="bubble"><div class="text">Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.</div></div>`;
+  // Bez platného přihlášení by horní pruh navždy ukazoval „Načítám…“ (review #17).
+  const help = "Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.";
+  document.getElementById("pause").innerHTML = `<div class="pausebar"><div class="big">${help}</div></div>`;
+  feed.innerHTML = `<div class="bubble"><div class="text">${help}</div></div>`;
 }
 
 establishSession()
@@ -2828,7 +2906,7 @@ function renderQualityGate() {
   }).join("") : `<div class="empty">${known ? "Žádný zaznamenaný běh kontrol pro tento filtr." : "Výsledky kontrol nejsou dostupné."}</div>`);
   document.querySelectorAll("[data-qg-run]").forEach(b => b.onclick = () => { qgSelected = Number(b.dataset.qgRun); renderQualityGate(); });
   const pending = qgRequests.filter(q => q.state !== "completed").slice(0, 5);
-  const requestLabels = {queued: "čeká ve frontě", running: "kontroly běží", refused: "je potřeba nastavení", interrupted: "běh byl přerušen"};
+  const requestLabels = {queued: "čeká ve frontě", running: "kontroly běží", busy: "čeká na volný runner", refused: "je potřeba nastavení", interrupted: "běh byl přerušen"};
   setHTMLIfChanged(document.getElementById("qgRequests"), pending.length ? `<div class="qg-req"><b>Požadavky na kontrolu</b><ul>${pending.map(q => `<li>${esc(String(q.repository).split("/").pop())} · ${esc(requestLabels[q.state] || q.state)}${q.detail ? " · " + esc(q.detail) : ""}</li>`).join("")}</ul></div>` : "");
   renderQualityProject();
   // stav review
@@ -2863,7 +2941,9 @@ function renderQualityProject() {
   const tone = s => s === "PASS" ? "done" : s === "FAIL" ? "fail" : s === "REVIEW" ? "warn" : "";
   const history = (qgRecords || []).filter(x => x.repository === r.repository && x.run_id !== r.run_id).slice(0, 6);
   const canApprove = r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c => !c.required || c.status === "PASS");
+  const executionLabels = {not_started: "Kontroly nebyly spuštěny", busy: "Runner je obsazený", unverified: "Průběh kontrol nelze ověřit", interrupted: "Kontroly byly přerušeny", completed: "Kontroly byly dokončeny"};
   setHTMLIfChanged(el, `<div class="pg-progress">Celkový stav ${qgBadge(r.overall_status)}<span class="h-sub">${esc(r.repository)}</span></div>`
+    + (r.execution_status ? `<p class="pg-desc">${esc(executionLabels[r.execution_status] || "Stav spuštění není známý")}${r.error ? ": " + esc(r.error) : ""}</p>` : "")
     + stepperHTML(QG_CHECKS.map(([key, label]) => [label, tone(r.checks?.[key]?.status)]))
     + `<dl class="kv qg-kv"><dt>Větev</dt><dd>${esc(r.branch || "neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent ? nameOf(r.agent) : "neuveden")}</dd><dt>Review</dt><dd>${esc(r.review_status === "approved" ? "schváleno pro tento commit" : r.review_status === "pending" ? "čeká na nezávislé review" : r.review_status || "není dostupné")}${r.reviewer ? " · " + esc(nameOf(r.reviewer)) : ""}</dd><dt>Změny testů a pravidel</dt><dd>${r.policy_review_required ? r.policy_review_status === "approved" ? "kritické změny schválil člověk" : "kritické změny čekají na tvé schválení" : "schválení není potřeba"}</dd></dl>`
     + `<div class="qg-check-grid">${QG_CHECKS.map(([key, label]) => { const c = r.checks?.[key]; return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`; }).join("")}</div>`

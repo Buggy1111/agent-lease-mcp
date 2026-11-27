@@ -23,7 +23,7 @@ from dataclasses import replace
 from pathlib import Path, PurePosixPath
 
 from ._quality_runs import CommandObservation, MetricObservation
-from .cgroup import current_cgroup
+from .cgroup import CgroupWatchdog, CommandCgroup, current_cgroup
 from .config import is_trusted_agent
 from .launch_gate import launch_gate
 from .quality import inspect_repository
@@ -36,10 +36,17 @@ MAX_MEMORY = 2 * 1024**3
 MAX_PIDS = 256
 MAX_JOB_SECONDS = 720
 MAX_TOOL_BYTES = 128 * 1024**2  # approved standalone CPython 3.13 is about 81 MB
+COMMAND_MEMORY = 1024**3
+COMMAND_PIDS = 128
+COMMAND_CPU = "75000 100000"
 
 
 class SetupRequired(ValueError):
     """Only fixed, source-free diagnostics cross the broker boundary."""
+
+
+class RunnerBusy(SetupRequired):
+    """A temporary room lock conflict; an explicit request can retry."""
 
 
 def tree_digest(root: Path) -> str:
@@ -90,8 +97,10 @@ def verify_limits() -> dict:
             if quota != "max":
                 cpu.append(int(quota) / int(period))
     if (not memory or not pids or not cpu or min(memory) > MAX_MEMORY
-            or min(pids) > MAX_PIDS or min(cpu) > 1):
-        raise SetupRequired("Runner requires cgroup limits: memory <= 2 GiB, CPU <= 100%, pids <= 256.")
+            or min(pids) > MAX_PIDS or min(cpu) > 1
+            or min(memory) < COMMAND_MEMORY + 256 * 1024**2
+            or min(pids) < COMMAND_PIDS + 32 or min(cpu) < 1):
+        raise SetupRequired("Runner requires bounded cgroup limits with reserved broker headroom.")
     return {"memory_bytes": min(memory), "pids": min(pids), "cpu_ratio": min(cpu)}
 
 
@@ -116,7 +125,7 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
     raw = policy_bytes(db_path)
     try:
         policy = tomllib.loads(raw.decode())
-        if (set(policy) - {"version", "enabled", "automatic", "repositories", "mounts", "tools", "timeout_seconds"}
+        if (set(policy) - {"version", "enabled", "automatic", "repositories", "policy_bases", "mounts", "tools", "timeout_seconds"}
                 or policy.get("version") != 1 or type(policy.get("version")) is not int
                 or policy.get("enabled") is not True):
             raise ValueError
@@ -128,6 +137,9 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
                 or repository not in [str(Path(p).resolve(strict=True)) for p in repositories]):
             raise ValueError
         timeout = policy.get("timeout_seconds", 60)
+        policy_base = policy["policy_bases"][repository]
+        if not isinstance(policy_base, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy_base):
+            raise ValueError
         if type(timeout) is not int or not 1 <= timeout <= 600:
             raise ValueError
         if len(policy.get("mounts", {})) > 8 or len(policy["tools"]) > 32:
@@ -174,6 +186,7 @@ def load_policy(db_path: Path, repository: str, *, verify_pins: bool = True) -> 
     except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
         raise SetupRequired("Runner policy is invalid, project is not allowed, or a tool pin changed.") from None
     return {"mounts": mounts, "tools": tools, "timeout": timeout,
+            "policy_base": policy_base,
             "sha256": hashlib.sha256(raw).hexdigest()}
 
 
@@ -240,6 +253,7 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
             "--chdir", "/work", "--setenv", "PATH", "/tools/bin:/usr/bin:/bin",
             "--setenv", "HOME", "/tmp/home", "--setenv", "TMPDIR", "/tmp",
             "--setenv", "LANG", "C.UTF-8", "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+            "--setenv", "PYTHONSAFEPATH", "1",
             "--setenv", "npm_config_offline", "true", "--setenv", "npm_config_cache", "/tmp/npm"]
     for name, source in policy["mounts"].items():
         argv += ["--ro-bind", source, "/tools/" + name]
@@ -258,6 +272,27 @@ def sandbox_argv(work: Path, bins: Path, policy: dict, command: tuple[str, ...],
             "coverage" if collect_metrics else "none", *command]
 
 
+def command_cgroup() -> CommandCgroup:
+    current = current_cgroup()
+    # DelegateSubgroup=broker leaves an empty delegated parent for sibling jobs.
+    group = CommandCgroup(root=current.parent if current.name == "broker" else current)
+    try:
+        for filename, value in (("memory.max", str(COMMAND_MEMORY)),
+                                ("memory.swap.max", "0"), ("pids.max", str(COMMAND_PIDS)),
+                                ("cpu.max", COMMAND_CPU), ("memory.oom.group", "1")):
+            path = group.path / filename
+            if not path.exists():
+                raise SetupRequired("Independent sandbox cgroup controllers are unavailable.")
+            path.write_text(value)
+            if path.read_text().strip() != value:
+                raise SetupRequired("Cannot verify independent sandbox cgroup limits.")
+        return group
+    except BaseException:
+        if not group.cleanup():
+            raise RuntimeError("Cannot verify sandbox cgroup cleanup.") from None
+        raise
+
+
 def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) -> CommandObservation:
     """Bounded binary capture. Killing the namespace init also kills setsid descendants."""
     started = time.monotonic()
@@ -265,22 +300,29 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
     size = 0
     interrupted = timed_out = limited = False
     killed_at = None
+    if not hasattr(os, "memfd_create"):
+        raise SetupRequired("Runner requires Python with Linux memfd support.")
     metadata = os.memfd_create("agent-lease-quality-metrics", os.MFD_CLOEXEC)
     proc = None
     metric = None
+    group = watchdog = None
     try:
+        group = command_cgroup()
+        watchdog = CgroupWatchdog(group)
         argv = list(argv)
         argv[argv.index("__QUALITY_METRICS_FD__")] = str(metadata)
+        bootstrap = argv.index(str(Path(__file__).with_name("quality_namespace.py")))
+        argv[bootstrap + 1:bootstrap + 1] = ["--cgroup-fd", str(group.procs_fd)]
         with launch_gate(store.db_path):
             if not can_continue():
                 raise SetupRequired("Runner was paused or task ownership was lost before launch.")
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, env={"PATH": "/usr/bin:/bin"},
-                                    pass_fds=(metadata,), start_new_session=True)
+                                    pass_fds=(metadata, group.procs_fd), start_new_session=True)
         with selectors.DefaultSelector() as selector:
             selector.register(proc.stdout, selectors.EVENT_READ)
             while selector.get_map() or proc.poll() is None:
-                if not can_continue():
+                if not can_continue() or watchdog.failed():
                     interrupted = True
                 timed_out = time.monotonic() - started >= timeout
                 if interrupted or timed_out or limited:
@@ -309,11 +351,17 @@ def supervise(argv: list[str], *, name: str, timeout: int, can_continue, store) 
                 metric = None  # absent/invalid metrics never become a passing coverage check
     finally:
         os.close(metadata)
-        if proc is not None:
-            if proc.poll() is None:
-                proc.kill()
-            proc.wait(timeout=5)
-            proc.stdout.close()
+        try:
+            if proc is not None:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait(timeout=5)
+                proc.stdout.close()
+        finally:
+            clean = group.cleanup() if group is not None else True
+            guarded = watchdog.finish(clean=clean) if watchdog is not None else True
+            if not clean or not guarded:
+                raise RuntimeError("Cannot verify sandbox cgroup cleanup.")
     return CommandObservation(name, code, timed_out, int((time.monotonic() - started) * 1000),
                               size, digest.hexdigest(), interrupted, limited, metric)
 
@@ -345,28 +393,34 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
     if not is_trusted_agent(agent):
         raise PermissionError("Quality execution requires a configured agent identity")
     attempted = False
+    plan = None
     job_started = time.monotonic()
     try:
         plan = inspect_repository(repo, commit, base)
+        policy = load_policy(store.db_path, plan.repository)
+        plan = inspect_repository(plan.repository, plan.commit_sha, base,
+                                  policy_base=policy["policy_base"])
         branch = committed_branch(plan.repository, plan.commit_sha)
         if not plan.enabled or plan.problems:
-            return plan.public()
+            return store._quality_record_attempt(agent, plan, {"execution_status": "not_started"})
         can_continue = lambda: (time.monotonic() - job_started < MAX_JOB_SECONDS
                                 and _task_valid(store, agent, plan.repository, task_id, lease_token))
         if not can_continue():
             raise SetupRequired("Runner is paused or the task binding is invalid.")
         limits = verify_limits()
-        policy = load_policy(store.db_path, plan.repository)
         commands = [c for c in plan.checks if c.command]
         if not commands:
-            return plan.public()
+            return store._quality_record_attempt(agent, plan, {"execution_status": "not_started"})
         if any(c.command[0] not in policy["tools"] for c in commands):
             raise SetupRequired("A committed command has no explicitly pinned operator tool.")
         # One live run per room. This avoids multiplying aggregate resource budgets.
         lock = os.open(str(store.db_path.resolve()) + ".quality-lock",
                        os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RunnerBusy("Another quality run holds the room lock.") from None
             with tempfile.TemporaryDirectory(prefix="agent-lease-quality-") as tmp:
                 root = Path(tmp)
                 original, bins = root / "snapshot", root / "bin"
@@ -417,11 +471,17 @@ def run_quality(store, agent: str, repo: str, commit: str = "HEAD", base: str | 
             os.close(lock)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         # Exceptions from parsers/process launch can include source or secret args.
-        return {"schema_version": 1, "kind": "quality_refusal", "executed": attempted,
-                "execution_status": "unverified" if attempted else "not_started",
+        result = {"schema_version": 1, "kind": "quality_refusal", "executed": attempted,
+                "execution_status": "busy" if type(error) is RunnerBusy else
+                "unverified" if attempted else "not_started",
                 "overall_status": "REVIEW" if attempted else "SETUP_REQUIRED",
-                "error": str(error) if type(error) is SetupRequired else
+                "error": str(error) if type(error) in {SetupRequired, RunnerBusy} else
                 "Runner setup, task authorization, snapshot, policy pins or isolation could not be verified."}
+        if plan is not None:
+            if plan.policy_paths:
+                result["overall_status"] = "REVIEW"
+            return store._quality_record_attempt(agent, plan, result)
+        return result
 
 
 def check_cli(repo: str, commit: str, base: str | None, task_id: int | None,
