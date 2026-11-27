@@ -85,3 +85,12 @@ Nastavení → Přihlášení: přidat / odebrat klíč. Ikona na ploše a `agen
 Nasazeno jen restartem webu (`runtime-3a5b457`; proti `7745532` jen `webui.py` + nový `passkey.py`).
 Ověřeno: Chromium s virtuálním autentizátorem (přidání, přihlášení PINem, bez PINu odmítnuto), živý web
 bez chyb. Fyzický Windows Hello ověří Michal prvním přidáním klíče.
+
+## Kompletní web — 27. 11. 2026 (`08715f2`, review #60, security pass)
+
+Provoz (spotřeba tokenů jako vynucený strop, poslední běhy, historie akcí s filtry a stránkováním),
+Katalog ze skutečné inventury (scripts/build_catalog.py), pruh „Teď“ s tlačítkem Vyřešit, klikací dlaždice,
+seskupení pracovních kopií pod hlavní projekt, logo na přihlašovací stránce, mobil bez přetékání.
+Skutečně živě: SSE pošle změnu do ~0,25 s od zápisu do DB (měřeno 70–200 ms), dočerpá i velký backlog.
+Nasazeno restartem webu (`runtime-08715f2`; proti `3a5b457` jen `webui.py`, `store.py`, `_usage.py`,
+`assets/catalog.json`). Broker a mosty běží dál; nové metody store používá jen web. Full 1076 PASS.
