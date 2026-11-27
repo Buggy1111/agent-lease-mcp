@@ -187,6 +187,15 @@ class UsageMixin:
             )
         return cur.rowcount > 0
 
+    def usage_recent(self, limit: int = 30) -> list[dict]:
+        """Poslední zaznamenané běhy pro web (jen čísla a model, žádný obsah úkolu)."""
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT message_id, recipient, attempt, at, source, model, requested_model, input_tokens, "
+                "output_tokens, cache_read_tokens, cost_usd FROM task_usage ORDER BY at DESC LIMIT ?",
+                (max(1, min(int(limit), 100)),)).fetchall()
+        return [dict(r) for r in rows]
+
     def usage_summary(self, *, since: float = 0, recipient: str | None = None) -> dict:
         """Součty od `since` (unix čas), volitelně pro jednoho agenta; neznámé hodnoty se nesčítají."""
         where, args = "WHERE at >= ?", [float(since)]
