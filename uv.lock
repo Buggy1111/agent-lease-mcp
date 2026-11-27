@@ -15,6 +15,7 @@ source = { editable = "." }
 dependencies = [
     { name = "authlib" },
     { name = "certifi" },
+    { name = "cryptography" },
     { name = "dnspython" },
     { name = "fastmcp" },
     { name = "joserfc" },
@@ -33,6 +34,7 @@ dev = [
 requires-dist = [
     { name = "authlib", specifier = ">=1.9.1,<2" },
     { name = "certifi", specifier = ">=2026.10.19" },
+    { name = "cryptography", specifier = ">=46,<51" },
     { name = "dnspython", specifier = ">=2.9,<3" },
     { name = "fastmcp", specifier = ">=3.4.10,<5" },
     { name = "joserfc", specifier = ">=1.7.6,<2" },
