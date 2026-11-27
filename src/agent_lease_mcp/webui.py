@@ -888,14 +888,17 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 next_heartbeat_at = 0.0
                 stream_session = self._session_id()
                 reaper.release(getattr(self, "connection", None))   # stream je dlouhý záměrně; hlídá ho platnost přihlášení
-                last_version = None
+                last_version, backlog = None, False
                 while self._session_alive(stream_session):   # po vypršení přihlášení stream skončí
                     # Skutečně živě (Michal 27. 11.): každý zápis do DB mění soubor (journal DELETE),
                     # takže změnu poznáme hned a pošleme ji; bez změny jen levná kontrola času souboru.
                     version = db_version(settings.db_path)
                     changed = version != last_version
                     last_version = version
-                    messages = store.inbox(since_id=since, limit=200) if changed else []
+                    # Plná dávka = možná další čekají; fallback čte inbox i bez změny verze (mtime^size není bezkolizní).
+                    drain = changed or backlog or time.monotonic() >= next_room_at
+                    messages = store.inbox(since_id=since, limit=200) if drain else []
+                    backlog = len(messages) >= 200
                     for message in messages:
                         self.wfile.write(_sse("message", message["id"], message))
                         since = max(since, message["id"])
@@ -929,7 +932,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                         self.wfile.flush()
                         next_heartbeat_at = now + SSE_HEARTBEAT_SECONDS
 
-                    time.sleep(LIVE_POLL_SECONDS)
+                    if not backlog:
+                        time.sleep(LIVE_POLL_SECONDS)
             except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
                 return  # klient zavřel kartu nebo se prohlížeč odpojil
             finally:
@@ -3453,16 +3457,27 @@ function renderSettings() {
 // Stránky se obnovují i bez nové zprávy: stáří dat (Nastavení) a průběh výzkumu/paměti (review #54).
 setInterval(() => { if (!document.hidden) renderPages(); }, 5000);
 // Server pošle „room“ hned po každém zápisu do DB; při změně verze se obnoví i výzkum, paměť a provoz.
-let lastDataVersion = null, versionReloadAt = 0;
+let lastDataVersion = null, versionReloadAt = 0, refreshPending = false, refreshTimer = null;
+function refreshCurrentView() {
+  refreshPending = false; versionReloadAt = Date.now();
+  if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge();
+  else if (currentView === "ops") loadOps("live"); else if (currentView === "overview") loadDashData();
+}
+function scheduleRefresh() {
+  // Nejvýš jednou za 1,5 s, ale poslední změna se nikdy nezahodí (dobíhající obnova, review #60).
+  if (!refreshPending || document.hidden || refreshTimer) return;
+  refreshTimer = setTimeout(() => { refreshTimer = null; if (document.hidden) return; refreshCurrentView(); },
+    Math.max(0, 1500 - (Date.now() - versionReloadAt)));
+}
 function onDataVersion(v) {
   if (v === undefined || v === lastDataVersion) return;
   const first = lastDataVersion === null;
   lastDataVersion = v;
-  if (first || document.hidden || Date.now() - versionReloadAt < 1500) return;
-  versionReloadAt = Date.now();
-  if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge();
-  else if (currentView === "ops") loadOps(); else if (currentView === "overview") loadDashData();
+  if (first) return;
+  refreshPending = true;
+  scheduleRefresh();
 }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleRefresh(); });
 setInterval(() => { if (document.hidden) return; if (currentView === "research") loadResearch(); else if (currentView === "memory") loadKnowledge(); }, 30000);
 document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
   ev.preventDefault();
@@ -3483,11 +3498,23 @@ const ACTION = {"claim": ["Zamkl(a) cestu", ""], "release": ["Uvolnil(a) cestu",
 const HIST_GROUPS = [["main", "Důležité", a => !(a.startsWith("claim") || ["release", "accept", "expire", "provider-state"].includes(a))], ["all", "Vše", () => true], ["review", "Review", a => a.startsWith("review")], ["control", "Řízení a přihlášení", a => ["pause", "resume", "mode"].includes(a) || a.startsWith("web-")],
   ["quality", "Kvalita", a => a.startsWith("quality")], ["tasks", "Úkoly", a => ["accept", "expire", "blocked", "failover", "limit"].includes(a)], ["leases", "Zámky cest", a => a.startsWith("claim") || a === "release"]];
 let histEvents = [], histGroup = "main", histTimer = null, opsData = null;
-function loadOps(more = false) {
+let histEnd = false;
+function mergeHistory(current, fresh) {
+  const byId = new Map(current.map(e => [e.id, e]));
+  fresh.forEach(e => byId.set(e.id, e));
+  return [...byId.values()].sort((a, b) => b.id - a.id);
+}
+function loadOps(mode = "reset") {   // "reset" = nové hledání/otevření, "more" = starší, "live" = sloučit nové
   const q = document.getElementById("histQuery").value.trim();
+  const more = mode === "more" || mode === true;
   const before = more && histEvents.length ? histEvents[histEvents.length - 1].id : 0;
   fetch("/api/history?" + new URLSearchParams({limit: "200", ...(q ? {q} : {}), ...(before ? {before: String(before)} : {})}))
-    .then(r => r.ok ? r.json() : Promise.reject(r)).then(d => { histEvents = more ? histEvents.concat(d.events) : d.events; renderHistory(d.events.length < 200); })
+    .then(r => r.ok ? r.json() : Promise.reject(r)).then(d => {
+      if (more) { histEvents = mergeHistory(histEvents, d.events); histEnd = d.events.length < 200; }
+      else if (mode === "live" && histEvents.length) histEvents = mergeHistory(histEvents, d.events);
+      else { histEvents = d.events; histEnd = d.events.length < 200; }
+      renderHistory(histEnd);
+    })
     .catch(() => { document.getElementById("histList").textContent = "Historii se nepodařilo načíst."; });
   if (!more) fetch("/api/usage").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsData = d; renderUsage(); } }).catch(() => {});
 }
@@ -3503,11 +3530,11 @@ function renderHistory(end) {
 }
 function renderUsage() {
   const d = opsData; if (!d) return;
-  const tok = x => (x.input_tokens || 0) + (x.output_tokens || 0);
+  const tok = x => x.tokens ?? null;   // stejný součet jako vynucovaný strop (backend _TOKENS)
   const day = Object.values(d.agents).reduce((s, a) => s + tok(a.day), 0), week = Object.values(d.agents).reduce((s, a) => s + tok(a.week), 0);
   const cost = Object.values(d.agents).reduce((s, a) => s + (a.week.cost_usd || 0), 0);
   metricsRow("opsMetrics", [
-    ["Tokeny za 24 h", fmtTok(day), "bars", "cyan", "Vstup + výstup běhů na pozadí (mosty, výzkum, opravy)"],
+    ["Tokeny za 24 h", fmtTok(day), "bars", "cyan", "Vstup + výstup + mezipaměť, stejně jako denní strop"],
     ["Tokeny za 7 dní", fmtTok(week), "layers", "purple"],
     ["Běhy za 24 h", Object.values(d.agents).reduce((s, a) => s + (a.day.attempts || 0), 0), "flask", "orange"],
     ["Cena za 7 dní", cost ? "$" + cost.toFixed(2) : "neuvedena", "star", "green", "Poskytovatel cenu u předplatného nehlásí"],
@@ -3516,15 +3543,17 @@ function renderUsage() {
   ]);
   document.getElementById("opsCaps").textContent = d.caps.task_tokens ? `strop na úkol ${fmtTok(d.caps.task_tokens)}` : "";
   setHTMLIfChanged(document.getElementById("opsUsage"), Object.entries(d.agents).map(([a, u]) => { const k = agentKey(a), cap = d.caps.daily_tokens, used = tok(u.day);
-    return `<div class="use-agent"><div class="who"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b></div>${cap ? `<div class="bar" title="${esc(fmtTok(used))} z ${esc(fmtTok(cap))}"><i style="width:${Math.min(100, Math.round(100 * used / cap))}%"></i></div>` : ""}<dl><dt>24 h vstup / výstup</dt><dd>${esc(fmtTok(u.day.input_tokens))} / ${esc(fmtTok(u.day.output_tokens))}</dd><dt>24 h z mezipaměti</dt><dd>${esc(fmtTok(u.day.cache_read_tokens))}</dd><dt>7 dní celkem</dt><dd>${esc(fmtTok(tok(u.week)))}</dd><dt>Běhy 24 h / 7 dní</dt><dd>${u.day.attempts || 0} / ${u.week.attempts || 0}</dd></dl></div>`; }).join("")
+    return `<div class="use-agent"><div class="who"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b></div>${cap && used != null ? `<div class="bar" title="${esc(fmtTok(used))} z ${esc(fmtTok(cap))}"><i style="width:${Math.min(100, Math.round(100 * used / cap))}%"></i></div>` : ""}<dl><dt>24 h celkem (jako strop)</dt><dd>${esc(fmtTok(used))}</dd><dt>z toho vstup / výstup</dt><dd>${esc(fmtTok(u.day.input_tokens))} / ${esc(fmtTok(u.day.output_tokens))}</dd><dt>z toho mezipaměť (čtení / zápis)</dt><dd>${esc(fmtTok(u.day.cache_read_tokens))} / ${esc(fmtTok(u.day.cache_creation_tokens))}</dd>${u.day.tokens_unknown ? `<dt>běhy s neznámou spotřebou</dt><dd>${u.day.tokens_unknown}</dd>` : ""}<dt>7 dní celkem</dt><dd>${esc(fmtTok(tok(u.week)))}</dd><dt>Běhy 24 h / 7 dní</dt><dd>${u.day.attempts || 0} / ${u.week.attempts || 0}</dd></dl></div>`; }).join("")
     + '<p class="note">Počítají se jen běhy na pozadí přes mosty. Tvoje interaktivní relace s Adou a Noxem tu nejsou.</p>');
-  setHTMLIfChanged(document.getElementById("opsRuns"), d.recent.length ? d.recent.map(r => `<div class="hist-row"><time>${esc(when(r.at))}</time>${whoBadge(r.recipient)}<div><b>Úkol #${r.message_id}${r.attempt > 1 ? ` · pokus ${r.attempt}` : ""}</b><div class="det">${esc(fmtTok((r.input_tokens || 0) + (r.output_tokens || 0)))} tokenů${r.model || r.requested_model ? " · " + esc(r.model || r.requested_model) : ""}</div></div></div>`).join("")
+  setHTMLIfChanged(document.getElementById("opsRuns"), d.recent.length ? d.recent.map(r => `<div class="hist-row"><time>${esc(when(r.at))}</time>${whoBadge(r.recipient)}<div><b>Úkol #${r.message_id}${r.attempt > 1 ? ` · pokus ${r.attempt}` : ""}</b><div class="det">${r.tokens_known ? esc(fmtTok(r.tokens)) + " tokenů" : "spotřeba neznámá"}${r.model || r.requested_model ? " · " + esc(r.model || r.requested_model) : ""}</div></div></div>`).join("")
     : "<div class='empty'>Zatím žádný zaznamenaný běh.</div>");
 }
 document.getElementById("histQuery").addEventListener("input", () => { clearTimeout(histTimer); histTimer = setTimeout(() => loadOps(), 300); });
-document.getElementById("histMore").onclick = () => loadOps(true);
+document.getElementById("histMore").onclick = () => loadOps("more");
 // ── Katalog schopností z ověřené inventury ──
 let catalog = null, catAgent = "ada", catStatus = "all";
+const statusCol = sec => sec.columns.findIndex(c => /^stav/i.test(c));   // stav jen z explicitního sloupce (review #60)
+const rowStatus = (sec, r) => { const i = statusCol(sec); return i < 0 ? "" : CAT_STATUS(r[i] || ""); };
 const CAT_STATUS = s => { const t = String(s).toLowerCase(); return t.includes("verified") ? "verified" : t.includes("failed") ? "failed" : t.includes("enabled") ? "enabled" : t.includes("installed") ? "installed" : t.includes("path") ? "path" : ""; };
 const CAT_LABEL = {verified: "ověřeno", enabled: "zapnuto", installed: "nainstalováno", failed: "nefunguje", path: "jen v PATH"};
 function loadCatalog() {
@@ -3533,7 +3562,7 @@ function loadCatalog() {
     .catch(() => { document.getElementById("catBody").textContent = "Katalog se nepodařilo načíst."; });
 }
 function renderCatalog() {
-  const all = catalog.agents, rows = a => all[a].flatMap(sec => sec.rows.map(r => ({sec, r, st: CAT_STATUS(r.join(" "))})));
+  const all = catalog.agents, rows = a => all[a].flatMap(sec => sec.rows.map(r => ({sec, r, st: rowStatus(sec, r)})));
   const count = (a, st) => rows(a).filter(x => x.st === st).length;
   metricsRow("catMetrics", [["Položek u Ady", rows("ada").length, "users", "orange"], ["Položek u Noxe", rows("nox").length, "users", "green"],
     ["Ověřeno", count("ada", "verified") + count("nox", "verified"), "check", "green"], ["Zapnuto", count("ada", "enabled") + count("nox", "enabled"), "layers", "cyan"],
@@ -3546,9 +3575,9 @@ function renderCatalog() {
   document.querySelectorAll("[data-cat-st]").forEach(b => b.onclick = () => { catStatus = b.dataset.catSt; renderCatalog(); });
   const q = document.getElementById("catQuery").value.trim().toLowerCase();
   setHTMLIfChanged(document.getElementById("catBody"), all[catAgent].map(sec => {
-    const list = sec.rows.filter(r => (catStatus === "all" || CAT_STATUS(r.join(" ")) === catStatus) && (!q || r.join(" ").toLowerCase().includes(q)));
+    const list = sec.rows.filter(r => (catStatus === "all" || rowStatus(sec, r) === catStatus) && (!q || r.join(" ").toLowerCase().includes(q)));
     if (!list.length) return "";
-    return `<section class="cat-section"><h3>${esc(sec.section)}</h3><table class="cat-table"><thead><tr>${sec.columns.map(c => `<th scope="col">${esc(c)}</th>`).join("")}</tr></thead><tbody>${list.map(r => `<tr>${r.map(c => { const st = CAT_STATUS(c); return `<td>${st && c.length < 40 ? `<span class="st-pill ${st}">${esc(c)}</span>` : esc(c)}</td>`; }).join("")}</tr>`).join("")}</tbody></table></section>`;
+    return `<section class="cat-section"><h3>${esc(sec.section)}</h3><table class="cat-table"><thead><tr>${sec.columns.map(c => `<th scope="col">${esc(c)}</th>`).join("")}</tr></thead><tbody>${list.map(r => `<tr>${r.map((c, i) => { const st = i === statusCol(sec) ? CAT_STATUS(c) : ""; return `<td>${st ? `<span class="st-pill ${st}">${esc(c)}</span>` : esc(c)}</td>`; }).join("")}</tr>`).join("")}</tbody></table></section>`;
   }).join("") || "<div class='empty'>Nic neodpovídá filtru.</div>");
 }
 document.getElementById("catQuery").addEventListener("input", () => { if (catalog) renderCatalog(); });

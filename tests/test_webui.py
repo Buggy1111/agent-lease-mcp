@@ -989,3 +989,68 @@ def test_room_stream_reacts_to_db_change_not_a_timer(tmp_path: Path):
     assert webui.db_version(settings.db_path) != before
     assert webui.LIVE_POLL_SECONDS <= 0.25
     assert "Živě · před" not in PAGE_HTML and "onDataVersion(r.version)" in PAGE_HTML
+
+
+def test_event_stream_drains_a_full_backlog(tmp_path: Path, monkeypatch):
+    """Review #60: 450 čekajících zpráv se doručí všechny, ne jen první dávka 200."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    for i in range(450):
+        store.send("codex", "michal", f"TEST ONLY {i}", kind="chat")
+    handler_type = authenticated_handler(store, settings, "secret")
+    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    _, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
+                          headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
+    assert raw.count(b"event: message") == 450
+
+
+def test_usage_matches_the_enforced_cap_and_keeps_unknown_separate(tmp_path: Path):
+    """Review #60: spotřeba na webu = součet jako vynucený strop (vč. mezipaměti); neznámá ≠ nula."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    with store._connect() as con:
+        con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source, input_tokens, output_tokens, "
+                    "cache_read_tokens, cache_creation_tokens) VALUES(1,'claude-code',1,?, 'claude-json',100,100,500,300)",
+                    (time.time(),))
+        con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source) VALUES(2,'claude-code',1,?,'claude-json')",
+                    (time.time(),))
+    day = webui.usage_report(store, settings)["agents"]["claude-code"]["day"]
+    assert day["tokens"] == 1000 and day["tokens_unknown"] == 1
+    recent = webui.usage_report(store, settings)["recent"]
+    assert {r["message_id"]: (r["tokens"], bool(r["tokens_known"])) for r in recent} == {1: (1000, True), 2: (0, False)}
+
+
+def test_live_refresh_keeps_last_change_history_pages_and_catalog_status_column():
+    """Review #60: dobíhající obnova, sloučení historie podle ID, stav katalogu jen ze sloupce Stav."""
+    assert "refreshPending = true;" in PAGE_HTML and 'addEventListener("visibilitychange"' in PAGE_HTML
+    assert "function mergeHistory(current, fresh)" in PAGE_HTML and 'loadOps("live")' in PAGE_HTML
+    assert "const statusCol = sec => sec.columns.findIndex(c => /^stav/i.test(c));" in PAGE_HTML
+    assert "CAT_STATUS(r.join" not in PAGE_HTML
+
+
+def test_last_data_change_is_never_dropped_behaviour():
+    """Review #60 (chování): změna v 1,5s okně se obnoví dobíhající obnovou, ne až nikdy."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node není k dispozici")
+    start = PAGE_HTML.index("let lastDataVersion = null")
+    end = PAGE_HTML.index('document.addEventListener("visibilitychange"', start)
+    code = PAGE_HTML[start:end]
+    harness = f"""
+let now = 0, timers = [], loads = 0;
+const Date = {{ now: () => now }};
+const setTimeout = (fn, ms) => {{ timers.push([now + ms, fn]); return timers.length; }};
+const document = {{ hidden: false }};
+let currentView = "ops";
+const loadOps = () => {{ loads++; }}, loadResearch = () => {{}}, loadKnowledge = () => {{}}, loadDashData = () => {{}};
+{code}
+const tick = t => {{ now = t; timers.sort((a, b) => a[0] - b[0]); while (timers.length && timers[0][0] <= now) timers.shift()[1](); }};
+onDataVersion(1); tick(10000);                       // první verze = výchozí stav, bez obnovy
+onDataVersion(2); tick(10000);                       // změna → obnova
+onDataVersion(3); tick(10250);                       // změna 250 ms po ní nesmí zapadnout
+tick(11600);
+console.log(loads);
+"""
+    out = subprocess.run(["node", "-e", harness], capture_output=True, text=True, timeout=20, check=False)
+    assert out.stdout.strip() == "2", out.stdout + out.stderr
