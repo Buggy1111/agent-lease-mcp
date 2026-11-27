@@ -34,3 +34,28 @@ audit (#2098, 5×P2), opravy prošly review #55 (2 kola), full 1018 PASS.
 Runtime `runtime-95e008d` (proti `runtime-fa89060` změněn jen `webui.py`), wheel SHA-256
 `94f1cdd3443a74898f062656691089159e3fa1b6718fc2bbcec8151abe71867e`. Broker a mosty nerestartovány.
 Rollback: `current` zpět na `runtime-fa89060`, `systemctl --user restart agent-lease-web`.
+
+## Dohnání B7 a panel „Čeká na tebe“ — 27. 11. 2026 (`7745532`, review #56 + #57, security pass)
+
+Při úklidu review se ukázalo, že schválené opravy B7 Quality Gate F1–F9 (#12, #14, 11. 11.) a #17 se
+nikdy nedostaly do `main` ani do provozu. Dohnáno v #56 (Nox: shodné s 0455529/a854924), web doplněn o
+panel „Čeká na tebe“ a ukazatel živých dat (#57). Full 1047 PASS vč. UI testu v Chromiu.
+
+| Krok | Stav |
+| --- | --- |
+| Runtime | `runtime-7745532` (wheel SHA-256 `ee9bed7458e4f8c1ae19751fc6b9d70bcd315e9b2430443158e04cf514157508`), `current` přepnut |
+| Web | restartován, živě ověřeno: přihlášení kódem, cookie bez klíče 403, panel Čeká na tebe, ukazatel „Živě“, 0 chyb |
+| Broker, mosty, wake | **nerestartovány**, běží dál na `runtime-97aebc7` (stará verze B7) |
+
+### Čeká na Michala: aktivace oprav B7 (podle PHASE_B7_ACTIVATION_PLAN.md vyžaduje souhlas vlastníka)
+
+Nový kód B7 se v brokeru projeví až po jeho restartu a potřebuje dvě nastavení, jinak kontroly kvality
+bezpečně skončí jako SETUP REQUIRED:
+
+1. `~/.agent-lease/quality-runner.toml` — přidat schválený základ (plný SHA commitu, který člověk prohlásí
+   za zkontrolovaný; navrženo `7745532` z main po review #56/#57):
+   `[policy_bases]` → `"/home/buggy1111/dev/projects/agent-lease-mcp" = "<plný SHA>"` (cesta podle `repositories`).
+2. Drop-in brokeru `20-quality-limits.conf` doplnit o `Delegate=cpu memory pids` a `DelegateSubgroup=broker`.
+3. Pak restart všech služeb v okně bez běžících úkolů a ověření (integrita DB, fronta, `doctor`, jeden běh kontroly).
+
+Do té doby: Quality Gate běží ve staré verzi bez oprav F1–F9 (jako dosud od 20. 11.).
