@@ -32,7 +32,9 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run every sandbox E2E in its own bounded scope
         run: |
-          sudo systemd-run --scope --unit="agent-lease-quality-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+          # As the runner user, like production: a root-started user namespace cannot read the
+          # runner-owned checkout (uid not mapped), so the bootstrap failed with exit 2.
+          sudo systemd-run --scope --uid="$(id -u)" --gid="$(id -g)" --unit="agent-lease-quality-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             -p Delegate=yes -p MemoryMax=2G -p TasksMax=256 -p CPUQuota=100% \
             env PYTHONPATH="$GITHUB_WORKSPACE/src" \
             AGENT_LEASE_E2E_METRICS="$RUNNER_TEMP/quality-metrics" \
