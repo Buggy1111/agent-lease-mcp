@@ -191,3 +191,28 @@ def test_failed_logins_are_rate_limited(tmp_path: Path):
     assert any(e["action"] == "web-login-passkey-failed" for e in store.history(limit=20))
     h.passkeys._failures = [time.monotonic() - 400] * 10                  # po 5 minutách se odblokuje
     assert not h.passkeys.blocked()
+
+
+@pytest.mark.parametrize("body", [
+    {"clientDataJSON": b64u(json.dumps({"type": "webauthn.get", "origin": [], "challenge": "x"}).encode())},
+    {"clientDataJSON": b64u(json.dumps({"type": "webauthn.get", "origin": {}, "challenge": "x"}).encode())},
+    {"clientDataJSON": b64u(b"\xff\xfe")},
+    {"clientDataJSON": 5}, {"id": [], "clientDataJSON": None}, {},
+])
+def test_malformed_input_is_a_controlled_error(tmp_path: Path, body):
+    """Review #59: vadná data od klienta = PasskeyError (řízená 403 + audit + započtený pokus), ne výjimka."""
+    with pytest.raises(PasskeyError):
+        keys_for(tmp_path).login(body)
+    with pytest.raises(PasskeyError):
+        keys_for(tmp_path).register(body)
+
+
+def test_login_challenges_cannot_starve_registration(tmp_path: Path):
+    """Review #59: zaplněné výzvy pro přihlášení nezablokují přidání klíče přihlášeným člověkem."""
+    pk = keys_for(tmp_path)
+    pk.register(Authenticator().create(pk.register_options("michal")["challenge"]))
+    for _ in range(32):
+        pk.login_options()
+    with pytest.raises(PasskeyError, match="too many"):
+        pk.login_options()
+    assert pk.register_options("michal")["challenge"]

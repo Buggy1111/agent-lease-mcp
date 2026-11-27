@@ -190,7 +190,8 @@ class Passkeys:
         with self._lock:
             for c in [c for c, (_, exp) in self._challenges.items() if exp <= now]:
                 del self._challenges[c]
-            if len(self._challenges) > 64:
+            # Oddělené kapacity (review #59): nepřihlášené pokusy nesmí zablokovat registraci klíče.
+            if sum(1 for p, _ in self._challenges.values() if p == purpose) >= 32:
                 raise PasskeyError("too many pending challenges")
             value = b64u(secrets.token_bytes(32))
             self._challenges[value] = (purpose, now + CHALLENGE_SECONDS)
@@ -216,15 +217,17 @@ class Passkeys:
         raw = unb64u(raw_b64)
         try:
             data = json.loads(raw)
-        except ValueError as exc:
+        except (ValueError, UnicodeDecodeError) as exc:
             raise PasskeyError("invalid client data") from exc
         if not isinstance(data, dict) or data.get("type") != kind:
             raise PasskeyError("wrong ceremony type")
-        if data.get("origin") not in self.origins:
+        if not isinstance(data.get("origin"), str) or data["origin"] not in self.origins:
             raise PasskeyError("wrong origin")
         if data.get("crossOrigin"):
             raise PasskeyError("cross-origin not allowed")
-        self._take_challenge(str(data.get("challenge", "")), purpose)
+        if not isinstance(data.get("challenge"), str):
+            raise PasskeyError("invalid challenge")
+        self._take_challenge(data["challenge"], purpose)
         return raw
 
     # ── registrace (jen s platným přihlášením) ──
@@ -239,6 +242,14 @@ class Passkeys:
                 "excludeCredentials": [{"type": "public-key", "id": k["id"]} for k in self.keys()]}
 
     def register(self, body: dict) -> dict:
+        try:
+            return self._register(body)
+        except PasskeyError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError, struct.error) as exc:
+            raise PasskeyError("malformed registration") from exc
+
+    def _register(self, body: dict) -> dict:
         client_raw = self._client_data(body.get("clientDataJSON", ""), "webauthn.create", "register")
         del client_raw
         att = cbor_decode(unb64u(body.get("attestationObject", "")))
@@ -273,6 +284,14 @@ class Passkeys:
                 "allowCredentials": [{"type": "public-key", "id": k["id"]} for k in keys]}
 
     def login(self, body: dict) -> dict:
+        try:
+            return self._login(body)
+        except PasskeyError:
+            raise
+        except (TypeError, ValueError, KeyError, IndexError, AttributeError, struct.error) as exc:
+            raise PasskeyError("malformed login") from exc
+
+    def _login(self, body: dict) -> dict:
         key_id = body.get("id", "")
         client_raw = self._client_data(body.get("clientDataJSON", ""), "webauthn.get", "login")
         auth = unb64u(body.get("authenticatorData", ""))
