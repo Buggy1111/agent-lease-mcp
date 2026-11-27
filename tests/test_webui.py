@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import stat
+import threading
 import time
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -998,7 +999,16 @@ def test_event_stream_drains_a_full_backlog(tmp_path: Path, monkeypatch):
     for i in range(450):
         store.send("codex", "michal", f"TEST ONLY {i}", kind="chat")
     handler_type = authenticated_handler(store, settings, "secret")
-    monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
+    # Jen spánek tohoto vlákna ukončí stream; vlákna jiných testů (reaper…) spí normálně, jinak by přihlášení zrušila předčasně.
+    real_sleep, me = time.sleep, threading.current_thread()
+
+    def sleep(seconds):
+        if threading.current_thread() is me:
+            handler_type.sessions["session"] = 0
+        else:
+            real_sleep(seconds)
+
+    monkeypatch.setattr(webui.time, "sleep", sleep)
     _, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
                           headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
     assert raw.count(b"event: message") == 450
