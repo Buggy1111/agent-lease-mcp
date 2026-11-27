@@ -3022,17 +3022,17 @@ async function helloLogin() {
 document.getElementById("loginHello").onclick = helloLogin;
 async function addPasskey() {
   const st = document.getElementById("pkStatus");
-  if (!helloSupported()) { st.textContent = "Windows Hello funguje jen na adrese http://localhost:8765 v prohlížeči s WebAuthn."; return; }
+  if (!helloSupported()) { st.textContent = stPkStatus = "Windows Hello funguje jen na adrese http://localhost:8765 v prohlížeči s WebAuthn."; return; }
   try {
-    st.textContent = "Potvrď přidání PINem ve Windows…";
+    st.textContent = stPkStatus = "Potvrď přidání PINem ve Windows…";
     const o = await (await fetch("/api/passkey/register-options", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})).json();
     const cred = await navigator.credentials.create({publicKey: {...o, challenge: b64uToBuf(o.challenge), user: {...o.user, id: b64uToBuf(o.user.id)},
       excludeCredentials: o.excludeCredentials.map(c => ({type: "public-key", id: b64uToBuf(c.id)}))}});
     const ok = await post("/api/passkey/register", {id: cred.id, clientDataJSON: bufToB64u(cred.response.clientDataJSON),
       attestationObject: bufToB64u(cred.response.attestationObject), name: "Windows Hello · " + new Date().toLocaleDateString("cs-CZ")});
-    st.textContent = ok ? "Hotovo. Příště se přihlásíš PINem přímo na stránce." : "";
+    st.textContent = stPkStatus = ok ? "Hotovo. Příště se přihlásíš PINem přímo na stránce." : "";
     loadPasskeys();
-  } catch (e) { st.textContent = e && e.name === "NotAllowedError" ? "Přidání bylo zrušeno." : "Přidání se nepovedlo."; }
+  } catch (e) { st.textContent = stPkStatus = e && e.name === "NotAllowedError" ? "Přidání bylo zrušeno." : "Přidání se nepovedlo."; }
 }
 
 function showLoginHelp() {
@@ -3564,7 +3564,7 @@ function stAccess() {
   const logins = stLogins === null ? stRow("Načítám…", "", "") : stLogins.length
     ? stLogins.map(e => stRow(e.action === "web-login-passkey" ? "Přihlášení Windows Hello" : e.action === "web-logout" ? "Odhlášení" : "Neúspěšný pokus", esc(new Date(e.at * 1000).toLocaleString("cs-CZ")), stPill(e.action === "web-login-passkey-failed" ? "odmítnuto" : "v pořádku", e.action === "web-login-passkey-failed" ? "bad" : "ok"))).join("")
     : stRow("Zatím žádné přihlášení přes Windows Hello", "", "");
-  return `<div class="st-group"><h4>Windows Hello</h4>${keyRows}<div class="st-row"><div class="st-l"><b>Přidat zařízení</b><span>Windows se zeptá na PIN. Funguje jen na adrese http://localhost:8765.</span></div><div class="st-r"><button class="st-btn primary" id="pkAdd">Přidat Windows Hello (PIN)</button></div></div><p class="st-note" id="pkStatus" role="status" style="padding:0 20px 14px"></p></div>
+  return `<div class="st-group"><h4>Windows Hello</h4>${keyRows}<div class="st-row"><div class="st-l"><b>Přidat zařízení</b><span>Windows se zeptá na PIN. Funguje jen na adrese http://localhost:8765.</span></div><div class="st-r"><button class="st-btn primary" id="pkAdd">Přidat Windows Hello (PIN)</button></div></div><p class="st-note" id="pkStatus" role="status" style="padding:0 20px 14px">${esc(stPkStatus)}</p></div>
     <div class="st-group"><h4>Toto přihlášení</h4>${stRow("Platnost", "Po vypršení se přihlásíš znovu PINem.", `${SESSION_DAYS} dní`)}${stRow("Odhlásit se", "Ukončí přihlášení v tomto prohlížeči.", '<button class="st-btn" id="stLogout">Odhlásit se</button>')}</div>
     <div class="st-group"><h4>Poslední přihlášení</h4>${logins}</div>
     <div class="st-group"><h4>Záložní přihlášení</h4>${stRow("Ikona Agent Lease na ploše", "Otevře web rovnou přihlášený jednorázovým kódem.", stPill("vždy funguje", "ok"))}${stRow("Terminál", "<code>agent-lease web-login</code>", "")}</div>
@@ -3581,7 +3581,7 @@ function stAboutPane() {
     <div class="st-group"><h4>Verze</h4>${stRow("Agent Lease", "", esc(a.version))}${stRow("Nasazený runtime", "Složka v ~/.local/share/agent-lease", `<code>${esc(a.runtime)}</code>`)}${stRow("Python", "", esc(a.python))}</div>
     <div class="st-group"><h4>Databáze</h4>${stRow("Soubor", "", `<code>${esc(a.db)}</code>`)}${stRow("Režim deníku", "Musí být delete; jiný režim by sdílenou místnost rozbil.", stPill(a.journal, a.journal === "delete" ? "ok" : "bad"))}${stRow("Zpráv v místnosti", "", esc(a.messages.toLocaleString("cs-CZ")))}</div>`;
 }
-let stKeys = null;
+let stKeys = null, stPkStatus = "";
 const SESSION_DAYS = 7;
 function loadSettingsData() {
   fetch("/api/passkey").then(r => r.ok ? r.json() : null).then(d => { if (d) { stKeys = d.keys; renderSettings(); } }).catch(() => {});
