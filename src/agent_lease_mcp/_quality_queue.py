@@ -43,17 +43,23 @@ class QualityQueueMixin:
             raise PermissionError("Quality execution requires a configured agent identity")
         plan = inspect_repository(repo, commit, base)
         policy = load_policy(self.db_path, plan.repository, verify_pins=False)
+        plan = inspect_repository(plan.repository, plan.commit_sha, base,
+                                  policy_base=policy["policy_base"])
         identity = "\0".join((agent, plan.repository, plan.commit_sha,
                               plan.base_commit, policy["sha256"]))
         key = hashlib.sha256(identity.encode()).hexdigest()
         with self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
             row = con.execute("SELECT * FROM quality_requests WHERE request_key=?", (key,)).fetchone()
-            if row:
+            if row and row["state"] not in {"refused", "interrupted", "busy"}:
                 return dict(row)
             if con.execute("SELECT COUNT(*) FROM quality_requests WHERE state IN ('queued','running')").fetchone()[0] >= 20:
                 raise ValueError("Quality queue is full")
             now = time.time()
+            if row:
+                con.execute("UPDATE quality_requests SET state='queued',run_id=NULL,detail='',updated_at=? WHERE id=?",
+                            (now, row["id"]))
+                return dict(con.execute("SELECT * FROM quality_requests WHERE id=?", (row["id"],)).fetchone())
             cursor = con.execute(
                 "INSERT INTO quality_requests(request_key,agent,repository,commit_sha,base_commit,"
                 "policy_sha256,state,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued',?,?)",
@@ -92,9 +98,11 @@ class QualityQueueMixin:
                 result = self.quality_check(row["agent"], row["repository"], row["commit_sha"],
                                             row["base_commit"] or None)
                 run_id = result.get("run_id")
-                state = ("completed" if run_id else "interrupted" if result.get("executed") else "refused")
+                state = ("busy" if result.get("execution_status") == "busy" else
+                         "completed" if result.get("execution_status") == "completed" else
+                         "interrupted" if result.get("executed") else "refused")
                 detail = result["overall_status"]
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError, sqlite3.Error):
             pass  # only fixed diagnostics, no exception/source text in public queue
         with self._connect() as con:
             con.execute("UPDATE quality_requests SET state=?,run_id=?,detail=?,updated_at=? WHERE id=?",
@@ -127,7 +135,10 @@ class QualityWorker:
                     self.store._quality_recover_requests()
                     recovered = True
                 worked = self.store._quality_drain_one()
-            except (OSError, ValueError, RuntimeError, sqlite3.Error):
+            except sqlite3.Error:
+                recovered = False  # retry recovery before draining after a failed final-state write
+                worked = False
+            except (OSError, ValueError, RuntimeError):
                 worked = False
             if not worked:
                 self.stop.wait(.5)

@@ -73,8 +73,8 @@ def recover_cgroup(record: object, timeout: float = 5) -> bool:
 
 
 class CommandCgroup:
-    def __init__(self) -> None:
-        root = current_cgroup()
+    def __init__(self, root: Path | None = None) -> None:
+        root = current_cgroup() if root is None else root
         self.path = root / f"agent-lease-attempt-{uuid.uuid4().hex}"
         self.path.mkdir(mode=0o700)
         try:

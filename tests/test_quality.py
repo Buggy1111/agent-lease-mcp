@@ -216,7 +216,7 @@ def test_no_manifests_is_setup_and_explicit_opt_out_is_never_pass(repo: Path):
     assert inspect_repository(repo).public()["overall_status"] == "SETUP_REQUIRED"
     head = commit(repo, {".agent-lease/quality.toml": "version=1\nenabled=false\n"})
     report = inspect_repository(repo, head).public()
-    assert report["enabled"] is False and report["overall_status"] == "NOT_RUN"
+    assert report["enabled"] is False and report["overall_status"] == "REVIEW"
     assert report["policy_review_required"] is True
 
 
@@ -262,6 +262,36 @@ def test_oversized_manifest_is_not_read(repo: Path, monkeypatch):
                                   "src/widget.test.tsx", "jest.config.cjs", "vitest.config.ts"])
 def test_changed_test_ci_and_security_names_are_guarded(path):
     assert policy_path(path)
+
+
+@pytest.mark.parametrize("path", [".pytest.ini", "pytest.toml", ".pytest.toml", ".mypy.ini",
+                                  "node_modules/.bin/test", "nested/node_modules/pkg/index.js"])
+def test_tool_configuration_is_policy(path):
+    assert policy_path(path)
+
+
+@pytest.mark.parametrize("path", ["pytest.py", "pytest.pyc", "pytest/__main__.py", "ruff.py", "build/__init__.py"])
+def test_command_module_shadow_is_policy(repo, path):
+    python_project(repo)
+    head = commit(repo, {path: "raise SystemExit(0)\n"})
+    assert path in inspect_repository(repo, head).policy_paths
+
+
+def test_operator_baseline_survives_stacked_commits_and_review_base(repo):
+    pinned = python_project(repo)
+    weakened = commit(repo, {"tests/test_example.py": "def test_example(): assert True\n"})
+    head = commit(repo, {"README.md": "trivial follow-up\n"})
+    for base in (None, weakened):
+        plan = inspect_repository(repo, head, base, policy_base=pinned)
+        assert plan.base_commit == weakened
+        assert plan.policy_base == pinned
+        assert "tests/test_example.py" in plan.policy_paths
+        assert plan.public()["inspection_id"] != inspect_repository(repo, head, base).public()["inspection_id"]
+    assert inspect_repository(repo, pinned, policy_base=pinned).policy_paths == ()
+    with pytest.raises(ValueError):
+        inspect_repository(repo, pinned, policy_base=head)
+    with pytest.raises(ValueError):
+        inspect_repository(repo, head, policy_base="main")
 
 
 def test_base_must_be_real_ancestor_and_deleted_tests_remain_guarded(repo: Path):

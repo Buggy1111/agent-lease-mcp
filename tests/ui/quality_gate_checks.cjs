@@ -79,6 +79,20 @@ module.exports=async({page,check,load,text,calls,outDir,fixture,setSnapshot,emit
     assert.equal(await page.evaluate(()=>window.injected),undefined);
     setSnapshot(fixture());await load('/after');
   });
+  await check('Recorded refusal replaces stale PASS and shows that checks did not start',async()=>{
+    const refusal={kind:'quality_refusal',executed:false,run_id:250,repository:'fixture/refused',commit_sha:'e'.repeat(40),agent:'codex',overall_status:'REVIEW',execution_status:'not_started',error:'<img src=x onerror="window.injected=1">',checks:{tests:{status:'NOT_RUN'}},history:[{status:'PASS',note:'older commit'}]};
+    setSnapshot({...fixture(),quality_runs:[refusal]});await load('/after');
+    await page.locator('.primary-nav [data-view="quality"]').click();
+    assert.equal(await text(page,'#qgRepoCount'),'1');
+    assert((await text(page,'#qgProjectTable')).includes('REVIEW'));
+    assert(!(await text(page,'#qgProjectTable')).includes('PASS'));
+    await page.locator('#qgProjectTable [data-qg-project="0"]').click();
+    assert((await text(page,'#qgProjectDetail')).includes('Kontroly nebyly spuštěny'));
+    assert.equal(await page.locator('#qgProjectDetail img').count(),0);
+    emit('room',{...fixture(),quality_runs:[{...refusal,kind:'quality_attempt',overall_status:'NOT_RUN'}]});
+    await wait(()=>page.evaluate(()=>qgRecords?.[0]?.overall_status==='NOT_RUN'),'recorded optout');
+    setSnapshot(fixture());await load('/after');
+  });
   await check('Quality requests, task binding, typecheck and safe redacted log links use live records',async()=>{
     await page.setViewportSize({width:1920,height:1080});
     const checks=Object.fromEntries(['tests','lint','build','security','typecheck'].map(name=>[name,{status:'PASS',required:true}]));

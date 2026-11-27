@@ -96,3 +96,66 @@ def test_one_time_operator_activation_needs_no_agent_config_edit(fixture):
     assert store.quality_autorun_enabled()
     policy.chmod(0o644)
     assert not store.quality_autorun_enabled()
+
+
+@pytest.mark.parametrize("state", ["refused", "interrupted", "busy"])
+def test_explicit_retry_after_unsuccessful_request(fixture, state):
+    repo, store, _ = fixture
+    first = store.quality_request("codex", str(repo))
+    with store._connect() as con:
+        con.execute("UPDATE quality_requests SET state=? WHERE id=?", (state, first["id"]))
+    retry = store.quality_request("codex", str(repo))
+    assert retry["state"] == "queued" and retry["id"] == first["id"]
+
+
+def test_busy_room_is_distinct_and_can_be_requeued(fixture, monkeypatch):
+    import fcntl
+    repo, store, _ = fixture
+    monkeypatch.setattr("agent_lease_mcp.quality_runner.verify_limits", dict)
+    request = store.quality_request("codex", str(repo))
+    with open(str(store.db_path.resolve()) + ".quality-lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert store._quality_drain_one()
+    assert store.quality_requests()[0]["state"] == "busy"
+    retry = store.quality_request("codex", str(repo))
+    assert retry["id"] == request["id"] and retry["state"] == "queued"
+
+
+def test_sqlite_failure_in_runner_finishes_queue_request(fixture, monkeypatch):
+    import sqlite3
+    repo, store, _ = fixture
+    store.quality_request("codex", str(repo))
+    monkeypatch.setattr(store, "quality_check", Mock(side_effect=sqlite3.OperationalError("fixture")))
+    assert store._quality_drain_one()
+    assert store.quality_requests()[0]["state"] == "refused"
+
+
+def test_worker_recovers_after_final_state_write_error(fixture, monkeypatch):
+    import sqlite3
+    import time
+
+    from agent_lease_mcp._quality_queue import QualityWorker
+    repo, store, _ = fixture
+    request = store.quality_request("codex", str(repo))
+    drain = store._quality_drain_one
+    failed = False
+
+    def fail_once_after_claim():
+        nonlocal failed
+        if not failed:
+            failed = True
+            with store._connect() as con:
+                con.execute("UPDATE quality_requests SET state='running' WHERE id=?", (request["id"],))
+            raise sqlite3.OperationalError("final-state write unavailable")
+        return drain()
+
+    monkeypatch.setattr(store, "_quality_drain_one", fail_once_after_claim)
+    worker = QualityWorker(store)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and store.quality_requests()[0]["state"] != "interrupted":
+            time.sleep(.02)
+        assert store.quality_requests()[0]["state"] == "interrupted"
+    finally:
+        worker.close()

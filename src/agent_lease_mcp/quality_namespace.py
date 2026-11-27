@@ -16,6 +16,14 @@ import sys
 def main() -> int:
     try:
         args = sys.argv[1:]
+        if args[:1] == ["--cgroup-fd"]:
+            fd = int(args[1])
+            try:
+                if os.write(fd, b"0") != 1:
+                    return 107
+            finally:
+                os.close(fd)
+            del args[:2]
         inner = bool(args and args[0] == "--inner")
         if inner:
             args.pop(0)

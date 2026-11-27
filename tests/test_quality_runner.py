@@ -36,6 +36,7 @@ def write_policy(store, repo, *, mounts=None, tools=None, timeout=10):
     tools = tools or {"python": str(Path("/usr/bin/python3").resolve())}
     text = 'version=1\nenabled=true\nrepositories=' + json.dumps([str(repo)])
     text += f"\ntimeout_seconds={timeout}\n"
+    text += '\n[policy_bases]\n' + json.dumps(str(repo)) + '=' + json.dumps(git(repo, "rev-parse", "HEAD^")) + '\n'
     for name, root in (mounts or {}).items():
         text += f'\n[mounts.{name}]\npath={json.dumps(str(root))}\ntree_sha256="{tree_digest(root)}"\n'
     for name, path in tools.items():
@@ -60,8 +61,8 @@ def test_default_is_disabled_and_no_project_execution(fixture, monkeypatch):
         raise AssertionError("must not execute without operator policy")
     monkeypatch.setattr("agent_lease_mcp.quality_runner.supervise", must_not_launch)
     result = run_quality(store, "codex", str(repo))
-    assert result["overall_status"] == "SETUP_REQUIRED" and result["executed"] is False
-    assert store.quality_runs() == []
+    assert result["overall_status"] == "REVIEW" and result["executed"] is False
+    assert store.quality_runs()[0]["commit_sha"] == result["commit_sha"]
 
 
 def test_policy_is_independent_of_project_and_pins_tools(fixture):
@@ -136,7 +137,7 @@ def test_pause_and_missing_limits_prevent_launch(fixture, monkeypatch):
         raise SetupRequired("Missing limits.")
     monkeypatch.setattr("agent_lease_mcp.quality_runner.verify_limits", no_limits)
     result = run_quality(store, "codex", str(repo))
-    assert not result["executed"] and result["overall_status"] == "SETUP_REQUIRED"
+    assert not result["executed"] and result["overall_status"] == "REVIEW"
     store.pause("michal", "fixture stop")
     assert run_quality(store, "codex", str(repo))["executed"] is False
 
@@ -214,3 +215,46 @@ def test_check_timeout_is_bounded_by_fixed_room_job_budget(fixture):
     write_policy(store, repo, timeout=601)
     with pytest.raises(SetupRequired):
         load_policy(store.db_path, str(repo))
+
+
+def test_sandbox_requires_separate_verified_limits(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from agent_lease_mcp import quality_runner as runner
+    broker = tmp_path / "delegated" / "broker"
+    broker.mkdir(parents=True)
+    job = tmp_path / "delegated" / "job"
+    job.mkdir()
+    files = {"memory.max": str(runner.COMMAND_MEMORY), "memory.swap.max": "0",
+             "pids.max": str(runner.COMMAND_PIDS), "cpu.max": runner.COMMAND_CPU,
+             "memory.oom.group": "1"}
+    for name in files:
+        (job / name).write_text("max")
+    group = Mock(path=job)
+    group.cleanup.return_value = True
+    factory = Mock(return_value=group)
+    monkeypatch.setattr(runner, "current_cgroup", lambda: broker)
+    monkeypatch.setattr(runner, "CommandCgroup", factory)
+    assert runner.command_cgroup() is group
+    factory.assert_called_once_with(root=broker.parent)
+    assert all((job / name).read_text() == value for name, value in files.items())
+    (job / "pids.max").unlink()
+    with pytest.raises(SetupRequired):
+        runner.command_cgroup()
+    group.cleanup.assert_called_once()
+
+
+def test_refusal_and_optout_replace_previous_run(fixture, monkeypatch):
+    from agent_lease_mcp._quality_runs import CommandObservation
+    repo, store = fixture
+    old = store._quality_record_run("codex", inspect_repository(repo),
+        (CommandObservation("tests", 0, False, 1, 0, "a" * 64),), execution_id="d" * 32)
+    write_policy(store, repo)
+    head = commit(repo, {".agent-lease/quality.toml": 'version=1\nenabled=false\nlanguage="python"\n'})
+    result = run_quality(store, "codex", str(repo), head)
+    assert result["overall_status"] == "REVIEW" and not result["executed"]
+    assert result["policy_review_required"]
+    latest = store.quality_runs()[0]
+    assert latest["commit_sha"] == head and latest["history"][0]["run_id"] == old["run_id"]
+    with pytest.raises(PermissionError):
+        store.quality_human_approve_policy("michal", latest["run_id"], head, "Must not approve optout.")

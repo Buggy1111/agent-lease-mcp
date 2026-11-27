@@ -22,8 +22,7 @@ from test_webui import authenticated_handler, call_handler
 
 from agent_lease_mcp.broker import RemoteStore, serve
 from agent_lease_mcp.config import Settings
-from agent_lease_mcp.quality import inspect_repository
-from agent_lease_mcp.quality_runner import verify_limits
+from agent_lease_mcp.quality_runner import load_policy, verify_limits
 from agent_lease_mcp.store import Store
 
 pytestmark = pytest.mark.skipif(os.environ.get("AGENT_LEASE_QUALITY_E2E") != "1",
@@ -52,7 +51,7 @@ command=["python","lint.py"]
 [checks.build]
 command=["python","-m","compileall","-q","src"]
 ''',
-                 "tests/test_app.py": "import unittest\nfrom src.app import answer\nclass App(unittest.TestCase):\n def test_answer(self): self.assertEqual(answer,42)\n",
+                 "tests/test_app.py": "import unittest,sys,pathlib\nsys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]))\nfrom src.app import answer\nclass App(unittest.TestCase):\n def test_answer(self): self.assertEqual(answer,42)\n",
                  "lint.py": "import ast,pathlib\nfor p in pathlib.Path('src').glob('*.py'): ast.parse(p.read_text()); assert '\\t' not in p.read_text()\n",
                  "src/app.py": "answer = 41\n"}
         good = {"src/app.py": "answer = 42\n"}
@@ -78,10 +77,11 @@ command=["python","-m","compileall","-q","src"]
 
 
 def approve(store, root, head, actor="codex"):
-    plan = inspect_repository(root, head)
+    # B7 přijme jen review od základu připnutého operátorem (review #12/#14, F2).
+    pinned = load_policy(store.db_path, str(Path(root).resolve()), verify_pins=False)["policy_base"]
     peer = "claude-code" if actor == "codex" else "codex"
     review = store.review_open(actor, str(root), "fixture-"+uuid.uuid4().hex, peer,
-                               plan.base_commit, head, secret_findings=[])
+                               pinned, head, secret_findings=[])
     store.review_verdict(peer, review["id"], "approved", head,
                          security="pass", reviewer_findings=[])
 
@@ -423,7 +423,10 @@ fs.writeFileSync('coverage/coverage-summary.json',JSON.stringify({total:map.getC
         run = store.quality_check("codex", str(root), head)
         assert run["checks"]["coverage"]["status"] == "PASS", run
         assert run["checks"]["crap"]["status"] == "NA", run
-        assert run["overall_status"] == "PASS", run
+        assert run["overall_status"] == "REVIEW" and "package.json" in run["policy_paths"], run
+        approved = store.quality_human_approve_policy("michal", run["run_id"], head,
+                                                     "Accept the synthetic coverage command change.")
+        assert approved["overall_status"] == "PASS", approved
     assert "% lines" in run["checks"]["coverage"]["value"]
     assert "coverage_pipeline" not in json.dumps(run.get("observations"))
 
@@ -455,3 +458,71 @@ command=["python","-m","compileall","-q","src"]
 '''})
     run = store.quality_check("codex", str(root), head)
     assert run["checks"]["tests"]["status"] == "PASS", run
+
+
+def test_project_module_cannot_replace_pinned_python_runner(project):
+    root, store, _, _ = project
+    head = commit(root, {"pyproject.toml": '[project]\nname="shadow-fixture"\n',
+        "unittest.py": "raise SystemExit(0)\n",
+        "tests/test_shadow.py": "import unittest\nclass Failing(unittest.TestCase):\n def test_failure(self): self.fail('must fail')\n",
+        ".agent-lease/quality.toml": '''version=1
+language="python"
+[checks.tests]
+command=["python","-m","unittest","discover","-s","tests"]
+'''})
+    run = store.quality_check("codex", str(root), head)
+    assert run["checks"]["tests"]["status"] == "FAIL", run
+    assert "unittest.py" in run["policy_paths"]
+
+
+def test_stacked_commit_cannot_hide_critical_change(project):
+    root, store, language, _ = project
+    filename = "tests/test_app.py" if language == "python" else "test.cjs"
+    commit(root, {filename: "import unittest\nclass Weakened(unittest.TestCase):\n def test_trivial(self): self.assertTrue(True)\n"
+                  if language == "python" else "// weakened\n"})
+    head = commit(root, {"README.md": "trivial follow-up\n"})
+    approve(store, root, head)
+    run = store.quality_check("codex", str(root), head)
+    assert run["overall_status"] == "REVIEW" and run["policy_review_required"], run
+    assert filename in run["policy_paths"]
+
+
+def test_command_cgroup_is_separate_from_broker(project):
+    from agent_lease_mcp.cgroup import current_cgroup
+    root, store, _, _ = project
+    marker = "quality-cgroup-" + uuid.uuid4().hex
+    head = commit(root, {"pyproject.toml": '[project]\nname="cgroup-fixture"\n',
+        "hold.py": "import time\ntime.sleep(3)\n",
+        ".agent-lease/quality.toml": 'version=1\nlanguage="python"\n[checks.tests]\ncommand='
+        + json.dumps(["python", "hold.py", marker]) + '\n'})
+    results = []
+    thread = threading.Thread(target=lambda: results.append(store.quality_check("codex", str(root), head)))
+    thread.start()
+    try:
+        def project_pids():
+            found = []
+            for pid in matching_processes(marker):
+                try:
+                    args = Path(f"/proc/{pid}/cmdline").read_bytes().rstrip(b"\0").split(b"\0")
+                    if len(args) == 3 and args[1] == b"hold.py":
+                        found.append(pid)
+                except OSError:
+                    pass
+            return found
+        deadline = time.monotonic() + 8
+        while not project_pids() and time.monotonic() < deadline:
+            time.sleep(.02)
+        pids = project_pids()
+        assert pids, "command did not start"
+        broker = current_cgroup()
+        for pid in pids:
+            relative = next(line[3:] for line in Path(f"/proc/{pid}/cgroup").read_text().splitlines()
+                            if line.startswith("0::"))
+            group = Path("/sys/fs/cgroup") / relative.lstrip("/")
+            assert group != broker and group.parent == broker.parent
+            assert (group / "memory.max").read_text().strip() == str(1024**3)
+            assert (group / "pids.max").read_text().strip() == "128"
+            assert (group / "cpu.max").read_text().strip() == "75000 100000"
+    finally:
+        thread.join(12)
+    assert not thread.is_alive() and results[0]["checks"]["tests"]["status"] == "PASS", results

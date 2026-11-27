@@ -2510,7 +2510,7 @@ function renderRoom(r) {
   if (r.me) { me = r.me; document.getElementById("humanBadge").textContent = String(me).slice(0, 1).toUpperCase(); }
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs")) {
     const records = Array.isArray(r.quality_runs) ? r.quality_runs : [];
-    qgRecords = records.filter(record => record && record.kind === "quality_run" && record.executed === true);
+    qgRecords = records.filter(record => record && ((record.kind === "quality_run" && record.executed === true) || (["quality_attempt", "quality_refusal"].includes(record.kind) && Number.isInteger(record.run_id) && record.run_id > 0)));
   }
   if (Array.isArray(r.quality_requests)) qgRequests = r.quality_requests;
   if (Object.prototype.hasOwnProperty.call(r, "quality_runs") || Object.prototype.hasOwnProperty.call(r, "quality_requests")) renderQualityGate();
@@ -2828,7 +2828,7 @@ function renderQualityGate() {
   }).join("") : `<div class="empty">${known ? "Žádný zaznamenaný běh kontrol pro tento filtr." : "Výsledky kontrol nejsou dostupné."}</div>`);
   document.querySelectorAll("[data-qg-run]").forEach(b => b.onclick = () => { qgSelected = Number(b.dataset.qgRun); renderQualityGate(); });
   const pending = qgRequests.filter(q => q.state !== "completed").slice(0, 5);
-  const requestLabels = {queued: "čeká ve frontě", running: "kontroly běží", refused: "je potřeba nastavení", interrupted: "běh byl přerušen"};
+  const requestLabels = {queued: "čeká ve frontě", running: "kontroly běží", busy: "čeká na volný runner", refused: "je potřeba nastavení", interrupted: "běh byl přerušen"};
   setHTMLIfChanged(document.getElementById("qgRequests"), pending.length ? `<div class="qg-req"><b>Požadavky na kontrolu</b><ul>${pending.map(q => `<li>${esc(String(q.repository).split("/").pop())} · ${esc(requestLabels[q.state] || q.state)}${q.detail ? " · " + esc(q.detail) : ""}</li>`).join("")}</ul></div>` : "");
   renderQualityProject();
   // stav review
@@ -2863,7 +2863,9 @@ function renderQualityProject() {
   const tone = s => s === "PASS" ? "done" : s === "FAIL" ? "fail" : s === "REVIEW" ? "warn" : "";
   const history = (qgRecords || []).filter(x => x.repository === r.repository && x.run_id !== r.run_id).slice(0, 6);
   const canApprove = r.policy_review_required && r.policy_review_status !== "approved" && r.review_status === "approved" && Object.values(r.checks || {}).every(c => !c.required || c.status === "PASS");
+  const executionLabels = {not_started: "Kontroly nebyly spuštěny", busy: "Runner je obsazený", unverified: "Průběh kontrol nelze ověřit", interrupted: "Kontroly byly přerušeny", completed: "Kontroly byly dokončeny"};
   setHTMLIfChanged(el, `<div class="pg-progress">Celkový stav ${qgBadge(r.overall_status)}<span class="h-sub">${esc(r.repository)}</span></div>`
+    + (r.execution_status ? `<p class="pg-desc">${esc(executionLabels[r.execution_status] || "Stav spuštění není známý")}${r.error ? ": " + esc(r.error) : ""}</p>` : "")
     + stepperHTML(QG_CHECKS.map(([key, label]) => [label, tone(r.checks?.[key]?.status)]))
     + `<dl class="kv qg-kv"><dt>Větev</dt><dd>${esc(r.branch || "neuvedena")}</dd><dt>Commit</dt><dd class="path">${esc(r.commit_sha || "neuveden")}</dd><dt>Agent</dt><dd>${esc(r.agent ? nameOf(r.agent) : "neuveden")}</dd><dt>Review</dt><dd>${esc(r.review_status === "approved" ? "schváleno pro tento commit" : r.review_status === "pending" ? "čeká na nezávislé review" : r.review_status || "není dostupné")}${r.reviewer ? " · " + esc(nameOf(r.reviewer)) : ""}</dd><dt>Změny testů a pravidel</dt><dd>${r.policy_review_required ? r.policy_review_status === "approved" ? "kritické změny schválil člověk" : "kritické změny čekají na tvé schválení" : "schválení není potřeba"}</dd></dl>`
     + `<div class="qg-check-grid">${QG_CHECKS.map(([key, label]) => { const c = r.checks?.[key]; return `<section class="card"><h3>${label}</h3>${qgBadge(c?.status || "NOT_RUN")}<p>${esc(c?.value || c?.detail || "Výsledek není dostupný.")}</p></section>`; }).join("")}</div>`
