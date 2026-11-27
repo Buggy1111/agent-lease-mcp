@@ -65,3 +65,14 @@ mají v `repositories` starou cestu `/home/buggy1111/dev/projects/agent-lease-mc
 do `~/dev/mcp-servers/agent-lease-mcp` neexistuje. Kontrola kvality, automatické opravy i výzkum nad repem
 Agent Lease proto teď skončí odmítnutím (bezpečně, ale nefungují). Oprava = nahradit cestu ve všech třech
 souborech (spolu s krokem 1 výše); politiky mění jen vlastník.
+
+## Aktivace oprav B7 — 27. 11. 2026 ~12:20 (Michal: „aktivuj“)
+
+| Krok | Výsledek |
+| --- | --- |
+| CI | červená opravena (review #58): ruff v testech; sandbox E2E poprvé v GitHub CI pod uživatelem runneru → 36/36 PASS |
+| Politiky | `quality-runner.toml`, `fix-runner.toml`, `research.toml`: cesta repa `~/dev/mcp-servers/agent-lease-mcp` (0600 zachováno, záloha `deploy-backup-*-ada-b7activate`) |
+| Základ | `[policy_bases]` = `d612eb084ad45dc208b3f05b77c63cb7e45c576a` (main po #56/#57/#58) |
+| Broker | drop-in: `Delegate=cpu memory pids`, `DelegateSubgroup=broker`, `ExecStartPost` zapne kontroléry v rodičovské cgroup (jinak „controllers are unavailable“) |
+| Restart | okno bez leased/started; DB integrita ok, fronta shodná; 5 služeb active na `runtime-7745532` |
+| Ověření | skutečná kontrola `d612eb0`: tests/lint/build PASS v sandboxu, security REVIEW (čeká na review navázané na commit) — správně; starší commit než základ odmítnut (F2) |
