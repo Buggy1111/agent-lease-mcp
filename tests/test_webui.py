@@ -810,7 +810,7 @@ def test_event_stream_ends_when_session_expires(tmp_path: Path, monkeypatch):
     store = Store(settings=settings)
     handler_type = authenticated_handler(store, settings, "secret")
     monkeypatch.setattr(webui.time, "sleep", lambda _s: handler_type.sessions.__setitem__("session", 0))
-    status, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
+    _, raw = call_handler(store, settings, "secret", "GET", "/api/events?since=0",
                                headers={"Cookie": f"{SESSION_COOKIE}=session"}, handler_type=handler_type)
     assert raw.count(b"event: room") == 1            # jedna dávka, pak konec místo nekonečné smyčky
     assert handler_type.sse_slots.acquire(blocking=False)   # slot se vrátil
@@ -905,7 +905,7 @@ def test_dripping_client_is_cut_off_at_the_absolute_deadline(tmp_path: Path, mon
                 if client.recv(1) == b"":
                     closed = True
                     break
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 closed = True

@@ -26,6 +26,10 @@ jobs:
           python -m pip install -e ".[dev]"
           python -m pip install --target "$RUNNER_TEMP/quality-metrics" coverage==7.17.2 lizard==1.25.0
           npm install --prefix "$RUNNER_TEMP/quality-tools" typescript@5.9.3
+      - name: Allow user namespaces for bubblewrap
+        # Ubuntu 24.04 runners restrict unprivileged user namespaces via AppArmor; the sandbox
+        # then fails with "bootstrap exit 2" (first CI run 27. 11.). Production WSL allows them.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run every sandbox E2E in its own bounded scope
         run: |
           sudo systemd-run --scope --unit="agent-lease-quality-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
