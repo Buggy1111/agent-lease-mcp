@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .config import HUMAN_AGENT, HUMAN_NAME_FILE, Settings, human_name
 from .models import MessageKind
+from .passkey import PasskeyError, Passkeys
 from .store import Store
 
 # Statické soubory UI (portréty Ady a Noxe, ikona). Pevný seznam: žádné cesty z požadavku.
@@ -266,6 +267,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     # Cookie prohlížeč pošle i na jiný port localhostu (audit 26. 11.). Druhý klíč žije v localStorage,
     # které je oddělené podle původu (včetně portu), a chodí v hlavičce / parametru `k`.
     session_keys: dict[str, str] = {}
+    passkeys = Passkeys(settings.db_path.parent, allowed_origins)
     reaper = _Reaper()
     sessions_lock = Lock()
 
@@ -374,6 +376,10 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
+            if parts.path == "/api/passkey":
+                if not self._session_ok():
+                    return self._reject(403, "bad token")
+                return self._json_response({"keys": passkeys.public_list()})
             if parts.path == "/api/research":
                 if not self._session_ok():
                     return self._reject(403, "bad token")
@@ -405,6 +411,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             parts = urlsplit(self.path)
             if parts.path == "/session":
                 return self._handle_session()
+            if parts.path in ("/session/passkey-options", "/session/passkey"):
+                return self._handle_passkey_login(parts.path.endswith("options"))
             if not self._origin_ok():
                 return self._reject(403, "bad origin")
             if not self._session_ok():
@@ -448,6 +456,8 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._json_response(result)
             if parts.path in ("/api/knowledge-add", "/api/knowledge-verdict"):
                 return self._handle_knowledge_write(parts.path.endswith("add"))
+            if parts.path in ("/api/passkey/register-options", "/api/passkey/register", "/api/passkey/remove"):
+                return self._handle_passkey_manage(parts.path.rsplit("/", 1)[1])
             if parts.path == "/api/research-cancel":
                 data = self._read_json()
                 if data is None:
@@ -485,6 +495,9 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._reject(403, "bad origin")
             if not (self._bearer_ok() or consume_login_code(settings, self.headers.get("X-Agent-Lease-Token", ""))):
                 return self._reject(403, "bad token")
+            self._issue_session()
+
+        def _issue_session(self) -> None:
             session_id, session_key = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
             with sessions_lock:
                 sessions[session_id] = time.monotonic() + SESSION_MAX_AGE_SECONDS
@@ -499,6 +512,45 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
             )
             self.send_header("Content-Length", "0")
             self.end_headers()
+
+        def _handle_passkey_login(self, options: bool) -> None:
+            """Přihlášení Windows Hello (PIN): bez session, ale jen z povoleného původu a s omezením pokusů."""
+            if (self.headers.get("Origin") not in allowed_origins
+                    or self.headers.get("Host") not in allowed_hosts):
+                return self._reject(403, "bad origin")
+            if passkeys.blocked():
+                return self._reject(429, "too many failed attempts; wait 5 minutes or use the desktop icon")
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                if options:
+                    return self._json_response(passkeys.login_options())
+                key = passkeys.login(data)
+            except PasskeyError as exc:
+                passkeys.failed()
+                store.record(web_agent, "web-login-passkey-failed", "", str(exc)[:200])
+                return self._reject(403, "Windows Hello login failed")
+            store.record(web_agent, "web-login-passkey", "", key["name"])
+            self._issue_session()
+
+        def _handle_passkey_manage(self, action: str) -> None:
+            data = self._read_json()
+            if data is None:
+                return
+            try:
+                if action == "register-options":
+                    return self._json_response(passkeys.register_options(web_agent))
+                if action == "register":
+                    key = passkeys.register(data)
+                    store.record(web_agent, "web-passkey-added", "", key["name"])
+                    return self._json_response(key)
+                if not passkeys.remove(str(data.get("id", ""))):
+                    return self._reject(404, "no such key")
+                store.record(web_agent, "web-passkey-removed", "", str(data.get("id", ""))[:80])
+                return self._json_response({"removed": True})
+            except PasskeyError as exc:
+                return self._reject(400, str(exc))
 
         def _handle_snapshot(self, qs: dict[str, list[str]]) -> None:
             if not self._session_ok():
@@ -813,6 +865,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
     Handler.sse_slots = sse_slots
     Handler.sessions = sessions
     Handler.session_keys = session_keys
+    Handler.passkeys = passkeys
     Handler.reaper = reaper
     Handler.sessions_lock = sessions_lock
     return Handler
@@ -1765,6 +1818,20 @@ i[data-ic] svg { width:22px; height:22px; }
 .attn-item .why { color:#FFE2A8; }
 .attn-item .actions,.attn-item .btns { display:flex; flex-wrap:wrap; gap:8px; }
 .attn-empty { padding:24px; text-align:center; color:#BFF7DA; font-size:15px; }
+/* ── Přihlášení Windows Hello (Michal 27. 11.: „ano, a dáme PIN“) ── */
+.login-screen { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:radial-gradient(900px 500px at 50% 0%,rgba(146,59,255,.35),transparent 65%),radial-gradient(700px 400px at 50% 100%,rgba(4,207,255,.14),transparent 60%),#060B1C; }
+.login-screen[hidden] { display:none; }
+.login-card { width:min(440px,100%); padding:36px 32px 28px; border-radius:22px; border:1.5px solid rgba(146,59,255,.6); background:linear-gradient(160deg,rgba(23,32,72,.95),rgba(8,13,34,.97)); box-shadow:0 0 50px rgba(146,59,255,.35),inset 0 0 30px rgba(146,59,255,.08); text-align:center; }
+.login-mark { width:110px; height:56px; filter:drop-shadow(0 0 14px rgba(4,207,255,.6)); }
+.login-card h1 { margin:10px 0 2px; font-size:34px; letter-spacing:-.5px; } .login-sub { margin:0 0 26px; color:#C9D2EA; }
+.login-btn { display:inline-flex; align-items:center; justify-content:center; gap:12px; width:100%; min-height:56px; border:0; border-radius:14px; background:var(--grad); color:#fff; font-size:18px; font-weight:650; cursor:pointer; box-shadow:0 0 24px rgba(146,59,255,.55); }
+.login-btn svg { width:24px; height:24px; } .login-btn:hover { box-shadow:0 0 34px rgba(146,59,255,.8); } .login-btn:disabled { opacity:.6; cursor:wait; }
+.login-btn:focus-visible { outline:3px solid #04CFFF; outline-offset:3px; }
+.login-status { min-height:22px; margin:14px 0 6px; color:#FFE2A8; font-size:14px; } .login-status.ok { color:#8AF7C2; }
+.login-alt { margin:8px 0 0; color:var(--text-dim); font-size:13px; }
+.pk-list { display:flex; flex-direction:column; gap:6px; margin:8px 0 10px; }
+.pk-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; border:1px solid var(--border-soft); background:rgba(16,27,56,.6); font-size:13.5px; }
+.pk-row span { flex:1; min-width:0; } .pk-row .btn { min-height:30px; padding:2px 10px; font-size:12.5px; }
 </style>
 <a class="skip" href="#main">Přejít do místnosti</a>
 <div id="shell">
@@ -1878,10 +1945,11 @@ i[data-ic] svg { width:22px; height:22px; }
       <section class="panel pg-side" id="setMode"><div class="panel-title"><i data-ic="sliders"></i><h2>Provozní režim</h2></div><div class="panel-body"><div class="mode-grid" id="modeGrid" role="radiogroup" aria-label="Provozní režim"></div><p class="note" id="modeInfo"></p></div></section>
       <section class="panel pg-stop" id="setStop"><div class="panel-title"><i data-ic="stop"></i><h2>Nouzové zastavení</h2></div><div class="panel-body" id="setStopBody"></div></section>
       <section class="panel pg-sec" id="setSecurity"><div class="panel-title"><i data-ic="shield"></i><h2>Bezpečnost</h2><span class="tag ok">platí vždy</span></div><ul class="check-list"><li>Web poslouchá jen na tomto počítači (loopback), zvenku není dostupný.</li><li>Přihlášení jednorázovým tokenem, potom cookie nedostupná skriptům.</li><li>Každá akce z webu se zapisuje do historie i s důvodem.</li><li>Review kontroluje tajné údaje a autor nikdy neschvaluje vlastní práci.</li><li>Nejvýš 3 kola oprav, pak rozhoduješ ty.</li></ul></section>
-      <section class="panel pg-login" id="setLogin"><div class="panel-title"><i data-ic="lock"></i><h2>Přihlášení do webu</h2></div><div class="panel-body"><p>Web běží pořád jako služba <code>agent-lease-web</code> na <code>http://localhost:8765</code>.</p><p>Přihlášení platí <strong>7 dní</strong>. Po odhlášení stačí ikona <strong>Agent Lease</strong> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></section>
+      <section class="panel pg-login" id="setLogin"><div class="panel-title"><i data-ic="lock"></i><h2>Přihlášení do webu</h2></div><div class="panel-body"><p>Web běží pořád jako služba <code>agent-lease-web</code> na <code>http://localhost:8765</code>.</p><p>Přihlášení platí <strong>7 dní</strong>. Pak se přihlásíš přes <strong>Windows Hello (PIN)</strong> přímo na stránce, nebo ikonou <strong>Agent Lease</strong> na ploše.</p><div class="pk-list" id="pkList"></div><button type="button" class="btn-new" id="pkAdd"><i data-ic="plus"></i>Přidat Windows Hello (PIN)</button><p class="note" id="pkStatus" role="status"></p></div></section>
       <aside class="panel pg-act"><div class="panel-title"><i data-ic="clock"></i><h2>Poslední řídicí aktivita</h2></div><ol class="activity" id="setActivity"></ol></aside>
     </div></section>
 </div>
+<div id="loginScreen" class="login-screen" hidden role="dialog" aria-modal="true" aria-labelledby="loginTitle"><div class="login-card"><svg class="login-mark" viewBox="0 0 64 32" aria-hidden="true"><defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#04CFFF"/><stop offset="1" stop-color="#923BFF"/></linearGradient></defs><path d="M16 4C9 4 4 9.4 4 16s5 12 12 12c9 0 15-24 32-24 7 0 12 5.4 12 12s-5 12-12 12C31 28 25 4 16 4z" fill="none" stroke="url(#lg)" stroke-width="5" stroke-linecap="round"/></svg><h1 id="loginTitle">Agent Lease</h1><p class="login-sub">Společný prostor pro tvoje agenty</p><button type="button" class="login-btn" id="loginHello"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Přihlásit přes Windows Hello</button><p class="login-status" id="loginStatus" role="status"></p><p class="login-alt">Bez Windows Hello: ikona <b>Agent Lease</b> na ploše, nebo v terminálu <code>agent-lease web-login</code>.</p></div></div>
 <dialog id="attnDialog" class="pg-dialog attn-dialog" aria-labelledby="attnTitle"><div class="attn-head"><h2 id="attnTitle">Čeká na tebe</h2><button class="btn" id="attnClose" type="button" aria-label="Zavřít">✕</button></div><p class="note">Věci, které agenti sami nesmí nebo nemohou udělat. Vše, co tu potvrdíš, se zapíše do historie.</p><div id="attnList"></div></dialog>
 <dialog id="workspaceDrawer" aria-labelledby="drawerTitle"><header class="drawer-header"><h2 id="drawerTitle">Pracovní prostor</h2><button id="drawerClose" class="btn" type="button" aria-label="Zavřít panel">✕</button><div id="drawerPause"></div></header><div id="drawerContent"></div></dialog>
 <script>
@@ -2684,10 +2752,66 @@ window.fetch = (url, opts = {}) => rawFetch(url, {...opts, headers: {...(opts.he
 function showSessionLost() {
   updateStatus("retry");
   const bar = document.createElement("div"); bar.className = "session-lost"; bar.setAttribute("role", "alert");
-  bar.innerHTML = "Přihlášení k webu vypršelo (server se mezitím restartoval). Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.";
+  bar.innerHTML = "Přihlášení k webu vypršelo. Přihlas se znovu přes Windows Hello, nebo ikonou <b>Agent Lease</b> na ploše.";
   document.body.prepend(bar);
+  showLoginHelp();   // rovnou nabídnout přihlášení Windows Hello
 }
+// ── Windows Hello (WebAuthn): base64url ↔ ArrayBuffer ──
+const b64uToBuf = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0)).buffer;
+const bufToB64u = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/[+]/g, "-").replace(/[/]/g, "_").replace(/=+$/, "");
+const helloSupported = () => !!window.PublicKeyCredential && location.hostname === "localhost";
+async function helloLogin() {
+  const btn = document.getElementById("loginHello"), st = document.getElementById("loginStatus");
+  btn.disabled = true; st.className = "login-status"; st.textContent = "Potvrď přihlášení PINem ve Windows…";
+  try {
+    const opt = await rawFetch("/session/passkey-options", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+    if (!opt.ok) throw new Error(opt.status === 429 ? "Příliš mnoho pokusů. Zkus to za 5 minut, nebo použij ikonu na ploše." : "Přihlášení teď nejde.");
+    const o = await opt.json();
+    if (!o.allowCredentials.length) throw new Error("Windows Hello zatím není nastavené. Přihlas se ikonou na ploše a v Nastavení → Přihlášení klikni na „Přidat Windows Hello“.");
+    const cred = await navigator.credentials.get({publicKey: {challenge: b64uToBuf(o.challenge), rpId: o.rpId, userVerification: "required", timeout: o.timeout,
+      allowCredentials: o.allowCredentials.map(c => ({type: "public-key", id: b64uToBuf(c.id)}))}});
+    const r = cred.response;
+    const res = await rawFetch("/session/passkey", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({
+      id: cred.id, clientDataJSON: bufToB64u(r.clientDataJSON), authenticatorData: bufToB64u(r.authenticatorData), signature: bufToB64u(r.signature)})});
+    if (!res.ok) throw new Error(res.status === 429 ? "Příliš mnoho pokusů. Zkus to za 5 minut." : "Ověření se nepovedlo.");
+    localStorage.setItem(KEY_STORE, res.headers.get("X-Agent-Lease-Key") || "");
+    st.className = "login-status ok"; st.textContent = "Přihlášeno.";
+    location.reload();
+  } catch (e) {
+    st.textContent = e && e.name === "NotAllowedError" ? "Přihlášení bylo zrušeno nebo vypršelo." : (e && e.message) || "Přihlášení se nepovedlo.";
+    btn.disabled = false;
+  }
+}
+document.getElementById("loginHello").onclick = helloLogin;
+function loadPasskeys() {
+  fetch("/api/passkey").then(r => r.ok ? r.json() : null).then(d => {
+    if (!d) return;
+    setHTMLIfChanged(document.getElementById("pkList"), d.keys.length ? d.keys.map(k => `<div class="pk-row"><span>🔑 ${esc(k.name)} · přidáno ${esc(when(k.created_at))}${k.last_used ? " · naposledy " + esc(when(k.last_used)) : ""}</span><button class="btn" data-pk-remove="${esc(k.id)}">Odebrat</button></div>`).join("") : '<p class="note">Zatím žádný klíč Windows Hello.</p>');
+    document.querySelectorAll("[data-pk-remove]").forEach(b => b.onclick = () => { if (confirm("Odebrat tento klíč Windows Hello?")) post("/api/passkey/remove", {id: b.dataset.pkRemove}).then(loadPasskeys); });
+  }).catch(() => {});
+}
+document.getElementById("pkAdd").onclick = async () => {
+  const st = document.getElementById("pkStatus");
+  if (!helloSupported()) { st.textContent = "Windows Hello funguje jen na adrese http://localhost:8765 v prohlížeči s WebAuthn."; return; }
+  try {
+    st.textContent = "Potvrď přidání PINem ve Windows…";
+    const o = await (await fetch("/api/passkey/register-options", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})).json();
+    const cred = await navigator.credentials.create({publicKey: {...o, challenge: b64uToBuf(o.challenge), user: {...o.user, id: b64uToBuf(o.user.id)},
+      excludeCredentials: o.excludeCredentials.map(c => ({type: "public-key", id: b64uToBuf(c.id)}))}});
+    const ok = await post("/api/passkey/register", {id: cred.id, clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+      attestationObject: bufToB64u(cred.response.attestationObject), name: "Windows Hello · " + new Date().toLocaleDateString("cs-CZ")});
+    st.textContent = ok ? "Hotovo. Příště se přihlásíš PINem přímo na stránce." : "";
+    loadPasskeys();
+  } catch (e) { st.textContent = e && e.name === "NotAllowedError" ? "Přidání bylo zrušeno." : "Přidání se nepovedlo."; }
+};
+
 function showLoginHelp() {
+  // Bez přihlášení: přihlašovací obrazovka s Windows Hello; ikona na ploše zůstává jako záloha.
+  const screen = document.getElementById("loginScreen");
+  screen.hidden = false;
+  const btn = document.getElementById("loginHello");
+  if (!helloSupported()) { btn.hidden = true; document.getElementById("loginStatus").textContent = location.hostname === "localhost" ? "Tento prohlížeč neumí Windows Hello." : "Windows Hello funguje na adrese http://localhost:8765."; }
+  else btn.focus();
   // Bez platného přihlášení by horní pruh navždy ukazoval „Načítám…“ (review #17).
   const help = "Nejsi přihlášený. Klikni na ikonu <b>Agent Lease</b> na ploše, nebo v terminálu spusť <b>agent-lease web-login</b>.";
   document.getElementById("pause").innerHTML = `<div class="pausebar"><div class="big">${help}</div></div>`;
@@ -3194,7 +3318,7 @@ document.querySelectorAll(".set-nav a").forEach(a => a.onclick = ev => {
 });
 document.querySelector(".set-nav a").classList.add("on");
 function showView(view,{focus=true}={}) {
-  if(view==="settings")loadMode();
+  if(view==="settings"){loadMode();loadPasskeys();}
   if(view==="research")loadResearch();
   if(view==="memory")loadKnowledge();
   if(view==="overview")loadDashData();
