@@ -733,6 +733,7 @@ function renderRoom(r) {
   if (r.projects) latestProjects = r.projects;
   if (Array.isArray(r.reviews_all)) { latestReviewsAll = r.reviews_all; renderProjects(r.reviews_all); }
   onDataVersion(r.version);
+  onMemoryVersion(r.memory_version);
   if (r.mode && r.mode.mode) renderMode(r.mode);
   if (Array.isArray(r.claims)) latestClaims = r.claims;
   renderingRoom = true;
@@ -1246,7 +1247,22 @@ document.getElementById("rsNew").onclick = () => {
 // ── Paměť ──
 const KB_LABEL = {verified: "ověřeno", unverified: "neověřeno — jen tip", rejected: "zamítnuto", stale: "zastaralé"};
 let kbTimer = null, kbStatusSel = "", kbProjectSel = null, kbSel = null, kbEntries = [];
+// Paměť agentů: skutečné poznámky Ady (auto-memory) a Noxova AGENTS.md; sdílená = tabulka knowledge.
+const MEM_TYPE = {user: "O tobě", feedback: "Zpětná vazba", project: "Projekt", reference: "Odkaz", none: "Bez typu"};
+const MEM_SOURCES = [["ada", "Ada", "Poznámky z práce s tebou"], ["nox", "Nox", "Trvalé instrukce (AGENTS.md)"], ["shared", "Sdílená", "Ověřená řešení chyb"]];
+let memSource = localStorage.getItem("agentLeaseMemSource") || "ada", memData = null, memVersion = null, memType = "", memSel = null;
+function loadAgentMemory() {
+  fetch("/api/memory").then(r => r.ok ? r.json() : Promise.reject(r))
+    .then(d => { memData = d; memVersion = d.version; renderMemoryPage(); })
+    .catch(() => { if (!memData) document.getElementById("kbList").textContent = "Paměť agentů se nepodařilo načíst."; });
+}
+function onMemoryVersion(v) {   // z události room: změna poznámky se na otevřené stránce ukáže hned
+  if (v === undefined || v === memVersion) return;
+  if (memVersion === null && memData === null) { memVersion = v; return; }
+  memVersion = v; if (currentView === "memory") loadAgentMemory(); else memData = null;
+}
 function loadKnowledge() {
+  if (memData === null) loadAgentMemory();
   const q = document.getElementById("kbQuery").value.trim();
   const params = new URLSearchParams({...(q ? {q} : {}), ...(kbStatusSel ? {status: kbStatusSel} : {}), ...(kbProjectSel !== null ? {project: kbProjectSel} : {})});
   fetch("/api/knowledge?" + params).then(r => r.ok ? r.json() : Promise.reject(r))
@@ -1257,19 +1273,37 @@ function loadKnowledge() {
 function renderMemoryPage() {
   const all = dashKnowledge, n = s => (all || []).filter(e => e.status === s).length;
   const projects = new Map(); (all || []).forEach(e => projects.set(e.project || "", (projects.get(e.project || "") || 0) + 1));
+  const ada = memData ? memData.ada : null, week = Date.now() / 1000 - 7 * 86400;
+  const notes = memData ? [...memData.ada, ...memData.nox] : null;
   metricsRow("kbMetrics", [
-    ["Uložené poznatky", all ? (all.length >= 100 ? "100+" : all.length) : "—", "db", "cyan"],
-    ["Ověřené", all ? n("verified") : "—", "check", "green", "Za fakt platí jen ověřené záznamy"],
-    ["Neověřené tipy", all ? n("unverified") : "—", "flask", "orange"],
-    ["Zamítnuté", all ? n("rejected") + n("stale") : "—", "alert", "purple"],
-    ["Projekty", all ? [...projects.keys()].filter(Boolean).length : "—", "folder", "purple"],
-    ["Nové za 7 dní", all ? all.filter(e => Date.now() / 1000 - e.created_at < 7 * 86400).length : "—", "bars", "cyan"],
+    ["Poznámky Ady", ada ? ada.length : "—", "db", "orange"],
+    ["Tvoje pravidla", ada ? ada.filter(e => ["user", "feedback"].includes(e.type)).length : "—", "check", "green", "Co si Ada pamatuje o tobě a jak chceš pracovat"],
+    ["Projekty", ada ? ada.filter(e => e.type === "project").length : "—", "folder", "purple"],
+    ["Paměť Noxe", memData ? memData.nox.length : "—", "layers", "green", "Nox si trvale pamatuje přes AGENTS.md"],
+    ["Sdílená řešení", all ? n("verified") + " / " + all.length : "—", "flask", "cyan", "Řešení chyb, která agenti ukládají přes knowledge"],
+    ["Změněno za 7 dní", notes ? notes.filter(e => e.updated_at > week).length + (all || []).filter(e => e.updated_at > week).length : "—", "bars", "cyan"],
   ]);
   if (currentView !== "memory") return;
+  const count = s => s === "shared" ? (all ? all.length : 0) : memData ? memData[s].length : 0;
+  document.getElementById("kbNew").hidden = memSource !== "shared";
+  document.getElementById("kbQuery").placeholder = memSource === "shared" ? "Hledej příznak, chybu, příčinu nebo řešení…" : "Hledej v poznámkách: název, popis, text…";
+  const sourcesHTML = MEM_SOURCES.map(([id, label, sub]) => { const k = id === "ada" ? "ada" : id === "nox" ? "nox" : "";
+    return `<button type="button" class="pg-item${id === memSource ? " on" : ""}" data-mem-src="${id}">${k ? `<img class="mem-face" src="/assets/${k}.webp" alt="">` : `<span class="pg-ic">${icon("db")}</span>`}<span class="pg-item-body"><span class="pg-item-title">${esc(label)}</span><span class="pg-item-sub">${esc(sub)}</span></span><span class="count-pill">${count(id)}</span></button>`; }).join("");
+  if (memSource !== "shared") {
+    setHTMLIfChanged(document.getElementById("kbProjects"), sourcesHTML + (memData === null ? "<p class='note'>Načítám…</p>" : ""));
+    bindMemorySources();
+    const types = [["", "Vše"], ...Object.entries(MEM_TYPE).filter(([t]) => memData && memData[memSource].some(e => e.type === t))];
+    setHTMLIfChanged(document.getElementById("kbStatus"), chipsHTML(types.map(([t, l]) => [t, memData ? `${l} (${t === "" ? memData[memSource].length : memData[memSource].filter(e => e.type === t).length})` : l]), memType, "data-mem-type"));
+    document.querySelectorAll("[data-mem-type]").forEach(b => b.onclick = () => { memType = b.dataset.memType; memSel = null; renderMemoryPage(); });
+    const recent = notes ? [...notes].sort((a, b) => b.updated_at - a.updated_at).slice(0, 8) : [];
+    setHTMLIfChanged(document.getElementById("kbActivity"), recent.length ? recent.map(e => actItem(e.id.startsWith("ada:") ? "claude-code" : "codex", e.updated_at, `${e.id.startsWith("ada:") ? "Upravila" : "Upravil"} poznámku: ${e.name}`)).join("") : "<li class='empty'>Zatím žádné poznámky.</li>");
+    return renderAgentMemoryList();
+  }
   const projItems = [[null, "Vše", all ? all.length : 0], ...[...projects.entries()].sort((a, b) => b[1] - a[1]).map(([p, c]) => [p, p || "Obecné", c])];
-  setHTMLIfChanged(document.getElementById("kbProjects"), all === null ? "Načítám…" : projItems.map(([p, label, c]) =>
+  setHTMLIfChanged(document.getElementById("kbProjects"), sourcesHTML + (all === null ? "Načítám…" : '<h3 class="mem-sub">Projekty ve sdílené paměti</h3>' + projItems.map(([p, label, c]) =>
     `<button type="button" class="pg-item${p === kbProjectSel ? " on" : ""}" data-kb-proj="${p === null ? "__all__" : esc(p)}"><span class="pg-ic">${icon("folder")}</span><span class="pg-item-body"><span class="pg-item-title">${esc(label)}</span><span class="pg-item-sub">${p === null ? "Celá sdílená paměť" : `${(all || []).filter(e => (e.project || "") === p && e.status === "verified").length} ověřených`}</span></span><span class="count-pill">${c} ${c === 1 ? "záznam" : c >= 2 && c <= 4 ? "záznamy" : "záznamů"}</span></button>`).join("")
-    + (all && !all.length ? "<p class='note'>Paměť je zatím prázdná. Agenti do ní ukládají ověřená řešení chyb; můžeš přidat i vlastní.</p>" : ""));
+    + (all && !all.length ? "<p class='note'>Paměť je zatím prázdná. Agenti do ní ukládají ověřená řešení chyb; můžeš přidat i vlastní.</p>" : "")));
+  bindMemorySources();
   document.querySelectorAll("[data-kb-proj]").forEach(b => b.onclick = () => { kbProjectSel = b.dataset.kbProj === "__all__" ? null : b.dataset.kbProj; kbSel = null; loadKnowledge(); });
   setHTMLIfChanged(document.getElementById("kbStatus"), chipsHTML([["", "Vše"], ["verified", "Ověřené"], ["unverified", "Neověřené"], ["rejected", "Zamítnuté"], ["stale", "Zastaralé"]], kbStatusSel, "data-kb-status"));
   document.querySelectorAll("[data-kb-status]").forEach(b => b.onclick = () => { kbStatusSel = b.dataset.kbStatus; kbSel = null; loadKnowledge(); });
@@ -1280,7 +1314,38 @@ function renderMemoryPage() {
     : actItem(e.author, e.created_at, `Uložil(a) poznatek: ${e.symptom}`)).join("") : "<li class='empty'>V paměti zatím nic není.</li>");
   renderKnowledgeList();
 }
+function bindMemorySources() {
+  document.querySelectorAll("[data-mem-src]").forEach(b => b.onclick = () => {
+    memSource = b.dataset.memSrc; memType = ""; memSel = null; localStorage.setItem("agentLeaseMemSource", memSource);
+    if (memSource === "shared") loadKnowledge(); else renderMemoryPage();
+  });
+}
+function memBody(text) {   // escapovaný text; [[odkaz]] na jinou poznámku je tlačítko, **tučně** zůstane tučně
+  return esc(text).replace(/\[\[([a-z0-9_.-]+)\]\]/gi, (_, s) => `<button type="button" class="mem-link" data-mem-slug="${s}">${s}</button>`)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+}
+function renderAgentMemoryList() {
+  const el = document.getElementById("kbList"), det = document.getElementById("kbDetail"), q = document.getElementById("kbQuery").value.trim().toLowerCase();
+  const list = memData ? memData[memSource].filter(e => (!memType || e.type === memType) && (!q || (e.name + " " + e.description + " " + e.body).toLowerCase().includes(q)))
+    .sort((a, b) => b.updated_at - a.updated_at) : [];
+  document.getElementById("kbCount").textContent = `(${list.length})`;
+  document.getElementById("kbScope").textContent = [memSource === "ada" ? "Ada" : "Nox", memType ? MEM_TYPE[memType] : "", q ? `„${q}“` : ""].filter(Boolean).join(" · ");
+  if (memSel !== null && !list.some(e => e.id === memSel)) memSel = null;
+  if (memSel === null && list.length) memSel = list[0].id;
+  setHTMLIfChanged(el, list.length ? list.map(e => `<button type="button" class="kb-row mem-row${e.id === memSel ? " on" : ""}" data-mem-id="${esc(e.id)}"><span class="mem-type t-${esc(e.type)}">${esc(MEM_TYPE[e.type] || e.type)}</span><span class="mem-row-body"><span class="task-text">${esc(e.name)}</span>${e.description ? `<span class="mem-desc">${esc(e.description)}</span>` : ""}</span><time>${esc(when(e.updated_at))}</time></button>`).join("")
+    : `<p class="note">${memData === null ? "Načítám…" : q || memType ? "Nic neodpovídá hledání." : "Žádné poznámky."}</p>`);
+  el.querySelectorAll("[data-mem-id]").forEach(b => b.onclick = () => { memSel = b.dataset.memId; renderAgentMemoryList(); });
+  const e = list.find(x => x.id === memSel);
+  document.getElementById("kbDetailTitle").textContent = e ? e.name : "Detail poznámky";
+  if (!e) { setHTMLIfChanged(det, "<div class='empty'>Vyber poznámku ze seznamu.</div>"); return; }
+  setHTMLIfChanged(det, `<div class="kb-detail mem-detail"><div class="tags"><span class="mem-type t-${esc(e.type)}">${esc(MEM_TYPE[e.type] || e.type)}</span>${e.project ? `<span class="kb-proj">${esc(e.project)}</span>` : ""}<span class="kb-proj">${esc(when(e.updated_at))}</span></div>${e.description ? `<p class="mem-lead">${esc(e.description)}</p>` : ""}<div class="mem-text">${memBody(e.body)}</div><p class="note">Jen ke čtení. Poznámky upravuje agent, když mu něco řekneš.</p></div>`);
+  det.querySelectorAll("[data-mem-slug]").forEach(b => b.onclick = () => {
+    const t = memData[memSource].find(x => x.slug === b.dataset.memSlug || x.name === b.dataset.memSlug);
+    if (t) { memType = ""; memSel = t.id; document.getElementById("kbQuery").value = ""; renderMemoryPage(); } else b.title = "Tahle poznámka zatím neexistuje";
+  });
+}
 function renderKnowledgeList() {
+  if (memSource !== "shared") return renderAgentMemoryList();
   const el = document.getElementById("kbList"), q = document.getElementById("kbQuery").value.trim();
   document.getElementById("kbCount").textContent = `(${kbEntries.length})`;
   document.getElementById("kbScope").textContent = [kbProjectSel !== null ? (kbProjectSel || "Obecné") : "", q ? `„${q}“` : ""].filter(Boolean).join(" · ");
@@ -1302,7 +1367,7 @@ function renderKnowledgeList() {
     post("/api/knowledge-verdict", {id: e.id, verdict: b.dataset.kb, evidence}).then(ok => { b.disabled = false; if (ok) loadKnowledge(); });
   });
 }
-document.getElementById("kbQuery").addEventListener("input", () => { clearTimeout(kbTimer); kbTimer = setTimeout(loadKnowledge, 250); });
+document.getElementById("kbQuery").addEventListener("input", () => { clearTimeout(kbTimer); kbTimer = setTimeout(() => memSource === "shared" ? loadKnowledge() : (memSel = null, renderAgentMemoryList()), 200); });
 document.getElementById("kbNew").onclick = () => document.getElementById("kbDialog").showModal();
 document.getElementById("kbAdd").onclick = () => {
   const val = id => document.getElementById(id).value;
