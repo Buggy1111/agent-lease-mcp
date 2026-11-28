@@ -1184,6 +1184,17 @@ def test_memory_rejects_symlinked_dirs_and_survives_vanishing_files(tmp_path: Pa
     real.mkdir(parents=True)
     (real / "ok.md").write_text("TEST ONLY ok")
     assert [e["slug"] for e in webui.memory_report(tmp_path)["ada"]] == ["ok"]
+    for linked in (tmp_path / "h1" / ".claude", tmp_path / "h2" / ".claude" / "projects", tmp_path / "h3" / ".codex"):
+        target = tmp_path / ("t-" + linked.parent.name)
+        (target / "projects" / "p" / "memory").mkdir(parents=True)
+        (target / "p" / "memory").mkdir(parents=True)
+        (target / "projects" / "p" / "memory" / "x.md").write_text("TEST ONLY cizí")
+        (target / "p" / "memory" / "x.md").write_text("TEST ONLY cizí")
+        (target / "AGENTS.md").write_text("TEST ONLY cizí")
+        linked.parent.mkdir(parents=True, exist_ok=True)
+        linked.symlink_to(target)
+        report = webui.memory_report(linked.parent if linked.name != "projects" else linked.parent.parent)
+        assert report["ada"] == [] and report["nox"] == []
     original = Path.stat
 
     def vanishing(self, *a, **k):

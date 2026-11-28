@@ -283,9 +283,13 @@ def _memory_files(home: Path) -> list[tuple[str, Path]]:
     """Skutečná paměť agentů: poznámky Ady (Claude Code auto-memory) a Noxova AGENTS.md. Bez symlinků."""
     files = [("ada", f) for f in sorted((home / ".claude" / "projects").glob("*/memory/*.md")) if f.name != "MEMORY.md"]
     files.append(("nox", home / ".codex" / "AGENTS.md"))
-    # review #64: symlink nesmí být ani soubor, ani adresář memory/projekt (.codex) – jinak by web vydal cizí soubory
-    return [(agent, f) for agent, f in files
-            if f.is_file() and not any(x.is_symlink() for x in (f, f.parent, f.parent.parent)[: 3 if agent == "ada" else 2])]
+    return [(agent, f) for agent, f in files if f.is_file() and _no_symlink_below(home, f)]
+
+
+def _no_symlink_below(home: Path, f: Path) -> bool:
+    """Review #64: žádná část cesty pod home (.claude, projects, projekt, memory, soubor; .codex) není symlink."""
+    rel = f.relative_to(home)
+    return not any((home / part).is_symlink() for part in [rel, *list(rel.parents)[:-1]])
 
 
 def _stat(f: Path):
