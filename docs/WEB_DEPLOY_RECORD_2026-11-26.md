@@ -103,3 +103,13 @@ Nasazeno restartem webu (`runtime-08715f2`; proti `3a5b457` jen `webui.py`, `sto
 - `55d36ee` (#62, Nox approved + security PASS): stránka v `web/index.html`, `app.css`, `app.js` (složená bajtově
   shodná), −65 mrtvých CSS pravidel, pryč skrytá stará navigace a Analytics, oprava občasného testu backlogu.
   Full 1079 PASS. Nasazeno restartem webu (`runtime-55d36ee`; proti `d537be1` jen `webui.py` + nový `web/`).
+
+## 28. 11. – Provoz živě s ovládáním (#63)
+
+- `23c713a` (#63, Nox approved + security PASS po 1 kole oprav): panel „Úkoly na pozadí – teď“ (SSE room +
+  `GET /api/jobs` se session; `Store.open_tasks` filtruje před LIMIT a nese rozsah opravy), akce zrušit / znovu /
+  schválit; spotřeba ukazuje „žádný běh“ / „neznámá“ místo nuly a čas posledního běhu. E2E: objevení ~0,4 s,
+  zrušení ~0,3 s. Full 1082 PASS. Nasazeno restartem webu (`runtime-23c713a`); `_messaging.py`/`_usage.py` jen
+  přidávají metody/sloupec pro web, broker a mosty běží dál.
+- Živě viditelné staré úkoly: #1670 a #1647 (Nox, 19.–20. 11.) visí jako „čeká“, protože je převzal interaktivní
+  Codex a most převzaté úkoly nebere. Zrušit je může Michal z Provozu.
