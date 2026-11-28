@@ -1167,3 +1167,30 @@ def test_memory_report_reads_agent_notes_without_symlinks(tmp_path: Path):
     store = Store(settings=settings)
     assert call_handler(store, settings, "secret", "GET", "/api/memory", handler_type=make_handler(store, settings, "secret", 8765))[0] == 403
     assert 'data-mem-src="${id}"' in PAGE_HTML and "onMemoryVersion(r.memory_version);" in PAGE_HTML
+
+
+def test_memory_rejects_symlinked_dirs_and_survives_vanishing_files(tmp_path: Path, monkeypatch):
+    """Review #64: symlinkovaný adresář memory/projekt se nečte; soubor zmizelý mezi výpisem a čtením neshodí nic."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.md").write_text("TEST ONLY cizí")
+    projects = tmp_path / ".claude" / "projects"
+    (projects / "p1").mkdir(parents=True)
+    (projects / "p1" / "memory").symlink_to(outside)
+    (projects / "p2").symlink_to(tmp_path / "outside2")
+    (tmp_path / "outside2" / "memory").mkdir(parents=True)
+    (tmp_path / "outside2" / "memory" / "y.md").write_text("TEST ONLY cizí 2")
+    real = projects / "p3" / "memory"
+    real.mkdir(parents=True)
+    (real / "ok.md").write_text("TEST ONLY ok")
+    assert [e["slug"] for e in webui.memory_report(tmp_path)["ada"]] == ["ok"]
+    original = Path.stat
+
+    def vanishing(self, *a, **k):
+        if self.name == "ok.md" and k.get("follow_symlinks", True) and not a:
+            raise FileNotFoundError(self)
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+    monkeypatch.setattr(Path, "stat", vanishing)
+    assert webui.memory_version(tmp_path).startswith("0:")

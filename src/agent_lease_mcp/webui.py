@@ -283,7 +283,16 @@ def _memory_files(home: Path) -> list[tuple[str, Path]]:
     """Skutečná paměť agentů: poznámky Ady (Claude Code auto-memory) a Noxova AGENTS.md. Bez symlinků."""
     files = [("ada", f) for f in sorted((home / ".claude" / "projects").glob("*/memory/*.md")) if f.name != "MEMORY.md"]
     files.append(("nox", home / ".codex" / "AGENTS.md"))
-    return [(agent, f) for agent, f in files if f.is_file() and not f.is_symlink()]
+    # review #64: symlink nesmí být ani soubor, ani adresář memory/projekt (.codex) – jinak by web vydal cizí soubory
+    return [(agent, f) for agent, f in files
+            if f.is_file() and not any(x.is_symlink() for x in (f, f.parent, f.parent.parent)[: 3 if agent == "ada" else 2])]
+
+
+def _stat(f: Path):
+    try:
+        return f.stat()
+    except OSError:   # soubor zmizel mezi výpisem a čtením (review #64): přeskočit, ne shodit stream
+        return None
 
 
 def _front_matter(text: str) -> tuple[dict, str]:
@@ -303,7 +312,7 @@ def _front_matter(text: str) -> tuple[dict, str]:
 
 def memory_version(home: Path | None = None) -> str:
     """Levná změna paměti (počet, nejnovější čas, velikost) pro živé obnovení stránky."""
-    stats = [f.stat() for _, f in _memory_files(home or Path.home())]
+    stats = [st for _, f in _memory_files(home or Path.home()) if (st := _stat(f))]
     return f"{len(stats)}:{max((s.st_mtime_ns for s in stats), default=0)}:{sum(s.st_size for s in stats)}"
 
 
@@ -312,12 +321,16 @@ def memory_report(home: Path | None = None) -> dict:
     home = home or Path.home()
     out: dict[str, list] = {"ada": [], "nox": []}
     for agent, f in _memory_files(home):
-        meta, body = _front_matter(f.read_text(encoding="utf-8", errors="replace")[:MEMORY_MAX_CHARS])
+        try:
+            text, mtime = f.read_text(encoding="utf-8", errors="replace")[:MEMORY_MAX_CHARS], f.stat().st_mtime
+        except OSError:
+            continue
+        meta, body = _front_matter(text)
         project = f.parent.parent.name if agent == "ada" else ""
         out[agent].append({"id": f"{agent}:{project}/{f.stem}", "slug": f.stem, "name": meta.get("name") or f.stem,
                            "description": meta.get("description", ""), "type": meta.get("type") or "none",
                            "project": project.replace("-", "/").replace("/home/" + home.name, "~") if project else "",
-                           "updated_at": f.stat().st_mtime, "body": body.strip()})
+                           "updated_at": mtime, "body": body.strip()})
     out["version"] = memory_version(home)
     return out
 
