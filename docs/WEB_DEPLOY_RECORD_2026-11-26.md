@@ -94,3 +94,12 @@ seskupení pracovních kopií pod hlavní projekt, logo na přihlašovací strá
 Skutečně živě: SSE pošle změnu do ~0,25 s od zápisu do DB (měřeno 70–200 ms), dočerpá i velký backlog.
 Nasazeno restartem webu (`runtime-08715f2`; proti `3a5b457` jen `webui.py`, `store.py`, `_usage.py`,
 `assets/catalog.json`). Broker a mosty běží dál; nové metody store používá jen web. Full 1076 PASS.
+
+## 27. 11. – Nastavení od základu (#61) a refaktoring webu (#62)
+
+- `d537be1` (#61, Nox approved + security PASS po 1 kole oprav): Nastavení = kategorie vlevo, jedna vpravo
+  (Agenti, Režim, Nouzové zastavení, Přihlášení, O systému); potvrzení v kartě; `POST /api/logout`, `GET /api/about`.
+  Živě ověřeno: 320/390/768/1280 px bez přetékání, šipky drží fokus, `/api/about` bez přihlášení 403.
+- `55d36ee` (#62, Nox approved + security PASS): stránka v `web/index.html`, `app.css`, `app.js` (složená bajtově
+  shodná), −65 mrtvých CSS pravidel, pryč skrytá stará navigace a Analytics, oprava občasného testu backlogu.
+  Full 1079 PASS. Nasazeno restartem webu (`runtime-55d36ee`; proti `d537be1` jen `webui.py` + nový `web/`).
