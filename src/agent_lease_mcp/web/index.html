@@ -96,6 +96,7 @@
   <section class="view-page pg-page" data-view-panel="ops" hidden aria-labelledby="opsTitle"><h2 id="opsTitle" class="view-title sr-only" tabindex="-1">Provoz</h2>
     <div class="metrics-row" id="opsMetrics"></div>
     <div class="pg pg-ops">
+      <section class="panel pg-tasks" aria-live="polite"><div class="panel-title"><i data-ic="flask"></i><h2>Úkoly na pozadí – teď <span class="h-count" id="opsTasksCount"></span></h2><span class="h-sub">běží, čekají nebo potřebují tvůj zásah · živě</span></div><div class="panel-body pg-scroll" id="opsTasks"></div></section>
       <section class="panel pg-list"><div class="panel-title"><i data-ic="bars"></i><h2>Spotřeba tokenů</h2><span class="h-sub" id="opsCaps"></span></div><div class="panel-body pg-scroll" id="opsUsage"></div></section>
       <section class="panel pg-main"><div class="panel-title"><i data-ic="clock"></i><h2>Historie akcí <span class="h-count" id="histCount"></span></h2><label class="cat-search"><span class="sr-only">Hledat v historii</span><input id="histQuery" type="search" placeholder="Hledat cestu, review, detail…"></label></div><div class="chips" id="histChips" role="group" aria-label="Druh akce"></div><div class="panel-body pg-scroll" id="histList"></div><div class="pg-actions"><button class="btn" id="histMore" type="button">Načíst starší</button></div></section>
       <section class="panel pg-side"><div class="panel-title"><i data-ic="flask"></i><h2>Poslední běhy na pozadí</h2></div><div class="panel-body pg-scroll" id="opsRuns"></div></section>

@@ -276,6 +276,16 @@ def db_version(path: Path) -> int:
     return st.st_mtime_ns ^ st.st_size
 
 
+OPEN_JOB_STATES = ("pending", "leased", "started", "failed", "needs_review", "dead_letter")
+
+
+def open_jobs(store: Store, limit: int = 300) -> list[dict]:
+    """Provoz: úkoly na pozadí, které běží, čekají nebo potřebují zásah (zrušit / znovu / schválit)."""
+    jobs = [j for agent in ("claude-code", "codex") for j in store.jobs(agent, limit=limit)
+            if j["kind"] == "task" and j["state"] in OPEN_JOB_STATES]
+    return sorted(jobs, key=lambda j: -j["id"])
+
+
 def usage_report(store: Store, settings: Settings) -> dict:
     """Spotřeba tokenů pro web: 24 h a 7 dní po agentech, stropy z nastavení, poslední běhy."""
     now = time.time()
@@ -439,9 +449,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
-            if parts.path in ("/api/usage", "/api/history", "/api/catalog"):
+            if parts.path in ("/api/usage", "/api/history", "/api/catalog", "/api/jobs"):
                 if not self._session_ok():
                     return self._reject(403, "bad token")
+                if parts.path == "/api/jobs":
+                    return self._json_response({"jobs": open_jobs(store)})
                 if parts.path == "/api/catalog":
                     return self._handle_asset("catalog.json", "application/json")
                 if parts.path == "/api/usage":

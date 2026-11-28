@@ -738,6 +738,7 @@ function renderRoom(r) {
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
   renderingRoom = false;
+  if (currentView === "ops") renderOpsTasks();   // stav úkolu se změní hned s událostí, bez čekání na obnovu
   renderPause(r.paused);
   const board = {};
   (r.board || []).forEach(b => { board[b.agent] = b; });
@@ -1055,6 +1056,7 @@ function renderPages() {
   else if (currentView === "research") renderResearchPage();
   else if (currentView === "memory") renderMemoryPage();
   else if (currentView === "settings") renderSettings();
+  else if (currentView === "ops") renderOpsTasks();
   if (["quality", "research"].includes(currentView)) renderPageActivity();
 }
 
@@ -1516,6 +1518,29 @@ function loadOps(mode = "reset") {   // "reset" = nové hledání/otevření, "m
     })
     .catch(() => { document.getElementById("histList").textContent = "Historii se nepodařilo načíst."; });
   if (!more) fetch("/api/usage").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsData = d; renderUsage(); } }).catch(() => {});
+  if (!more) fetch("/api/jobs").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsJobs = d.jobs; renderOpsTasks(); } }).catch(() => {});
+}
+// Úkoly na pozadí: stav ze SSE (messageCache, okamžitě) má přednost; /api/jobs doplní starší otevřené úkoly.
+let opsJobs = [];
+const OPS_OPEN = ["pending", "leased", "started", "failed", "needs_review", "dead_letter"];
+function renderOpsTasks() {
+  const el = document.getElementById("opsTasks"); if (!el) return;
+  const byId = new Map(opsJobs.map(j => [j.id, j]));
+  historyMessages().filter(m => m.kind === "task" && m.recipient && m.state).forEach(m => byId.set(m.id, m));
+  const rows = [...byId.values()].filter(m => OPS_OPEN.includes(m.state)).sort((a, b) => b.id - a.id);
+  document.getElementById("opsTasksCount").textContent = `(${rows.length})`;
+  const key = JSON.stringify(rows.map(m => [m.id, m.state, m.attempts, m.last_error, !!m.fix]));
+  if (el._key === key) { el.querySelectorAll("time[data-ago]").forEach(t => t.textContent = when(Number(t.dataset.ago))); return; }   // jen čas, tlačítka zůstanou pod kurzorem
+  el._key = key; el.innerHTML = "";
+  if (!rows.length) { el.innerHTML = "<div class='empty'>Nic neběží a nic nečeká. Nový úkol se tu objeví hned, jak vznikne.</div>"; return; }
+  const now = Date.now() / 1000;
+  rows.forEach(m => {
+    const row = document.createElement("div"); row.className = "hist-row ops-task"; row.dataset.tone = stateTone(m.state);
+    const at = now - (m.seconds_ago || 0);
+    row.innerHTML = `<time data-ago="${at}" title="${esc(new Date(at * 1000).toLocaleString("cs-CZ"))}">${esc(when(at))}</time>${whoBadge(m.recipient)}<div><b>Úkol #${m.id}</b> ${taskState(m)}${m.attempts > 1 ? ` <span class="tag">pokus ${m.attempts}</span>` : ""}<div class="det">${esc((m.text || "").split(String.fromCharCode(10))[0].slice(0, 220))}</div>${m.last_error ? `<div class="det bad">${esc(m.last_error.slice(0, 240))}</div>` : ""}</div>`;
+    renderTaskActions(m, row.lastElementChild);
+    el.appendChild(row);
+  });
 }
 function renderHistory(end) {
   const g = HIST_GROUPS.find(x => x[0] === histGroup), rows = histEvents.filter(e => g[2](e.action));
