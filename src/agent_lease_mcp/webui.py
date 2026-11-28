@@ -276,13 +276,22 @@ def db_version(path: Path) -> int:
     return st.st_mtime_ns ^ st.st_size
 
 
+OPEN_JOB_STATES = ("pending", "leased", "started", "failed", "needs_review", "dead_letter")
+
+
+def open_jobs(store: Store, limit: int = 300) -> list[dict]:
+    """Provoz: úkoly na pozadí, které běží, čekají nebo potřebují zásah (zrušit / znovu / schválit)."""
+    return store.open_tasks(OPEN_JOB_STATES, limit=limit)
+
+
 def usage_report(store: Store, settings: Settings) -> dict:
     """Spotřeba tokenů pro web: 24 h a 7 dní po agentech, stropy z nastavení, poslední běhy."""
     now = time.time()
     agents = {}
     for agent in ("claude-code", "codex"):
         agents[agent] = {"day": store.usage_summary(since=now - 86400, recipient=agent),
-                         "week": store.usage_summary(since=now - 7 * 86400, recipient=agent)}
+                         "week": store.usage_summary(since=now - 7 * 86400, recipient=agent),
+                         "last_at": store.usage_summary(recipient=agent)["last_at"]}
     return {"agents": agents, "recent": store.usage_recent(limit=30),
             "caps": {"daily_tokens": settings.daily_budget_tokens, "daily_usd": settings.daily_budget_usd,
                      "task_tokens": settings.task_budget_tokens, "task_usd": settings.task_budget_usd}}
@@ -439,9 +448,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
-            if parts.path in ("/api/usage", "/api/history", "/api/catalog"):
+            if parts.path in ("/api/usage", "/api/history", "/api/catalog", "/api/jobs"):
                 if not self._session_ok():
                     return self._reject(403, "bad token")
+                if parts.path == "/api/jobs":
+                    return self._json_response({"jobs": open_jobs(store)})
                 if parts.path == "/api/catalog":
                     return self._handle_asset("catalog.json", "application/json")
                 if parts.path == "/api/usage":

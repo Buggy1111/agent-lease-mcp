@@ -738,6 +738,7 @@ function renderRoom(r) {
   renderingRoom = true;
   (r.messages || []).forEach(m => renderMessage(m));
   renderingRoom = false;
+  if (currentView === "ops") renderOpsTasks();   // stav úkolu se změní hned s událostí, bez čekání na obnovu
   renderPause(r.paused);
   const board = {};
   (r.board || []).forEach(b => { board[b.agent] = b; });
@@ -1055,6 +1056,7 @@ function renderPages() {
   else if (currentView === "research") renderResearchPage();
   else if (currentView === "memory") renderMemoryPage();
   else if (currentView === "settings") renderSettings();
+  else if (currentView === "ops") renderOpsTasks();
   if (["quality", "research"].includes(currentView)) renderPageActivity();
 }
 
@@ -1516,6 +1518,29 @@ function loadOps(mode = "reset") {   // "reset" = nové hledání/otevření, "m
     })
     .catch(() => { document.getElementById("histList").textContent = "Historii se nepodařilo načíst."; });
   if (!more) fetch("/api/usage").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsData = d; renderUsage(); } }).catch(() => {});
+  if (!more) fetch("/api/jobs").then(r => r.ok ? r.json() : null).then(d => { if (d) { opsJobs = d.jobs; renderOpsTasks(); } }).catch(() => {});
+}
+// Úkoly na pozadí: stav ze SSE (messageCache, okamžitě) má přednost; /api/jobs doplní starší otevřené úkoly.
+let opsJobs = [];
+const OPS_OPEN = ["pending", "leased", "started", "failed", "needs_review", "dead_letter"];
+function renderOpsTasks() {
+  const el = document.getElementById("opsTasks"); if (!el) return;
+  const byId = new Map(opsJobs.map(j => [j.id, j]));
+  historyMessages().filter(m => m.kind === "task" && m.recipient && m.state).forEach(m => byId.set(m.id, m));
+  const rows = [...byId.values()].filter(m => OPS_OPEN.includes(m.state)).sort((a, b) => b.id - a.id);
+  document.getElementById("opsTasksCount").textContent = `(${rows.length})`;
+  const key = JSON.stringify(rows.map(m => [m.id, m.state, m.attempts, m.last_error, !!m.fix]));
+  if (el._key === key) { el.querySelectorAll("time[data-ago]").forEach(t => t.textContent = when(Number(t.dataset.ago))); return; }   // jen čas, tlačítka zůstanou pod kurzorem
+  el._key = key; el.innerHTML = "";
+  if (!rows.length) { el.innerHTML = "<div class='empty'>Nic neběží a nic nečeká. Nový úkol se tu objeví hned, jak vznikne.</div>"; return; }
+  const now = Date.now() / 1000;
+  rows.forEach(m => {
+    const row = document.createElement("div"); row.className = "hist-row ops-task"; row.dataset.tone = stateTone(m.state);
+    const at = now - (m.seconds_ago || 0);
+    row.innerHTML = `<time data-ago="${at}" title="${esc(new Date(at * 1000).toLocaleString("cs-CZ"))}">${esc(when(at))}</time>${whoBadge(m.recipient)}<div><b>Úkol #${m.id}</b> ${taskState(m)}${m.attempts > 1 ? ` <span class="tag">pokus ${m.attempts}</span>` : ""}<div class="det">${esc((m.text || "").split(String.fromCharCode(10))[0].slice(0, 220))}</div>${m.last_error ? `<div class="det bad">${esc(m.last_error.slice(0, 240))}</div>` : ""}</div>`;
+    renderTaskActions(m, row.lastElementChild);
+    el.appendChild(row);
+  });
 }
 function renderHistory(end) {
   const g = HIST_GROUPS.find(x => x[0] === histGroup), rows = histEvents.filter(e => g[2](e.action));
@@ -1542,7 +1567,8 @@ function renderUsage() {
   ]);
   document.getElementById("opsCaps").textContent = d.caps.task_tokens ? `strop na úkol ${fmtTok(d.caps.task_tokens)}` : "";
   setHTMLIfChanged(document.getElementById("opsUsage"), Object.entries(d.agents).map(([a, u]) => { const k = agentKey(a), cap = d.caps.daily_tokens, used = tok(u.day);
-    return `<div class="use-agent"><div class="who"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b></div>${cap && used != null ? `<div class="bar" title="${esc(fmtTok(used))} z ${esc(fmtTok(cap))}"><i style="width:${Math.min(100, Math.round(100 * used / cap))}%"></i></div>` : ""}<dl><dt>24 h celkem (jako strop)</dt><dd>${esc(fmtTok(used))}</dd><dt>z toho vstup / výstup</dt><dd>${esc(fmtTok(u.day.input_tokens))} / ${esc(fmtTok(u.day.output_tokens))}</dd><dt>z toho mezipaměť (čtení / zápis)</dt><dd>${esc(fmtTok(u.day.cache_read_tokens))} / ${esc(fmtTok(u.day.cache_creation_tokens))}</dd>${u.day.tokens_unknown ? `<dt>běhy s neznámou spotřebou</dt><dd>${u.day.tokens_unknown}</dd>` : ""}<dt>7 dní celkem</dt><dd>${esc(fmtTok(tok(u.week)))}</dd><dt>Běhy 24 h / 7 dní</dt><dd>${u.day.attempts || 0} / ${u.week.attempts || 0}</dd></dl></div>`; }).join("")
+    const total = w => !w.attempts ? "žádný běh" : w.tokens_unknown === w.attempts ? "neznámá" : fmtTok(tok(w)) + (w.tokens_unknown ? ` + ${w.tokens_unknown}× neznámá` : "");
+    return `<div class="use-agent"><div class="who"><img src="/assets/${k}.webp" alt=""><b>${k === "ada" ? "Ada" : "Nox"}</b></div>${cap && used != null ? `<div class="bar" title="${esc(fmtTok(used))} z ${esc(fmtTok(cap))}"><i style="width:${Math.min(100, Math.round(100 * used / cap))}%"></i></div>` : ""}<dl><dt>24 h celkem (jako strop)</dt><dd>${esc(total(u.day))}</dd><dt>z toho vstup / výstup</dt><dd>${esc(fmtTok(u.day.input_tokens))} / ${esc(fmtTok(u.day.output_tokens))}</dd><dt>z toho mezipaměť (čtení / zápis)</dt><dd>${esc(fmtTok(u.day.cache_read_tokens))} / ${esc(fmtTok(u.day.cache_creation_tokens))}</dd><dt>7 dní celkem</dt><dd>${esc(total(u.week))}</dd><dt>Běhy 24 h / 7 dní</dt><dd>${u.day.attempts || 0} / ${u.week.attempts || 0}</dd><dt>Poslední běh na pozadí</dt><dd>${u.last_at ? esc(when(u.last_at)) : "zatím žádný"}</dd></dl></div>`; }).join("")
     + '<p class="note">Počítají se jen běhy na pozadí přes mosty. Tvoje interaktivní relace s Adou a Noxem tu nejsou.</p>');
   setHTMLIfChanged(document.getElementById("opsRuns"), d.recent.length ? d.recent.map(r => `<div class="hist-row"><time>${esc(when(r.at))}</time>${whoBadge(r.recipient)}<div><b>Úkol #${r.message_id}${r.attempt > 1 ? ` · pokus ${r.attempt}` : ""}</b><div class="det">${r.tokens_known ? esc(fmtTok(r.tokens)) + " tokenů" : "spotřeba neznámá"}${r.model || r.requested_model ? " · " + esc(r.model || r.requested_model) : ""}</div></div></div>`).join("")
     : "<div class='empty'>Zatím žádný zaznamenaný běh.</div>");

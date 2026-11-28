@@ -891,7 +891,8 @@ i[data-ic] svg { width:22px; height:22px; }
 .login-status { min-height:22px; margin:14px 0 6px; color:#FFE2A8; font-size:14px; } .login-status.ok { color:#8AF7C2; }
 .login-alt { margin:8px 0 0; color:var(--text-dim); font-size:13px; }
 /* ── Provoz a Katalog (27. 11.) ── */
-.pg-ops { grid-template-columns:minmax(0,1fr) minmax(0,1.7fr) minmax(0,1fr); grid-template-areas:"list main side"; grid-template-rows:minmax(420px,1fr); }
+.pg-ops { grid-template-columns:minmax(0,1fr) minmax(0,1.7fr) minmax(0,1fr); grid-template-areas:"tasks tasks tasks" "list main side"; grid-template-rows:auto minmax(420px,1fr); }
+.pg-tasks { grid-area:tasks; } #opsTasks { max-height:340px; } .ops-task .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; } .ops-task .det.bad { color:var(--bad-text); }
 .pg-catalog { grid-template-columns:minmax(0,.8fr) minmax(0,3fr); grid-template-areas:"list main"; grid-template-rows:minmax(420px,1fr); }
 .cat-search { margin-left:auto; } .cat-search input { min-height:36px; width:min(280px,40vw); padding:0 12px; border-radius:999px; border:1px solid rgba(146,59,255,.6); background:rgba(16,27,56,.7); color:var(--text); }
 .cat-src { padding:0 16px 12px; margin:0; }
@@ -907,8 +908,8 @@ i[data-ic] svg { width:22px; height:22px; }
 .hist-row { display:grid; grid-template-columns:86px 120px minmax(0,1fr); gap:10px; padding:8px 4px; border-bottom:1px solid var(--border-soft); font-size:13.5px; align-items:start; }
 .hist-row .who-badge { justify-self:start; } .hist-row time { color:var(--text-dim); font-variant-numeric:tabular-nums; } .hist-row b { overflow-wrap:anywhere; } .hist-row .det { color:var(--text-dim); overflow-wrap:anywhere; }
 .hist-row[data-tone="bad"] b { color:var(--bad-text); } .hist-row[data-tone="ok"] b { color:#8AF7C2; }
-@media(max-width:1280px) { .pg-ops { grid-template-columns:1fr 1fr; grid-template-areas:"main main" "list side"; } .pg-catalog { grid-template-columns:1fr; grid-template-areas:"list" "main"; } }
-@media(max-width:899px) { .pg-ops { grid-template-columns:1fr; grid-template-areas:"main" "list" "side"; } .hist-row { grid-template-columns:70px minmax(0,1fr); } .hist-row .who-badge { display:none; } .cat-search input { width:100%; } }
+@media(max-width:1280px) { .pg-ops { grid-template-columns:1fr 1fr; grid-template-areas:"tasks tasks" "main main" "list side"; grid-template-rows:auto; } .pg-catalog { grid-template-columns:1fr; grid-template-areas:"list" "main"; } }
+@media(max-width:899px) { .pg-ops { grid-template-columns:1fr; grid-template-areas:"tasks" "main" "list" "side"; } .hist-row { grid-template-columns:70px minmax(0,1fr); } .hist-row .who-badge { display:none; } .cat-search input { width:100%; } }
 /* ── Intuitivnost (27. 11.): odpověď nahoře, dlaždice vedou dál ── */
 .now-bar { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; margin:0 0 14px; padding:12px 18px; border-radius:14px; border:1.5px solid rgba(0,231,121,.5); background:linear-gradient(100deg,rgba(0,231,121,.1),rgba(16,27,56,.75) 60%); font-size:15px; }
 .now-bar[data-tone="attn"] { border-color:rgba(255,176,32,.7); background:linear-gradient(100deg,rgba(255,176,32,.14),rgba(16,27,56,.75) 60%); }
