@@ -1142,3 +1142,28 @@ def test_usage_report_has_last_run_per_agent(tmp_path: Path):
     assert ada["day"]["attempts"] == 0 and ada["week"]["tokens_unknown"] == 1 and ada["last_at"] > 0
     assert webui.usage_report(store, settings)["agents"]["codex"]["last_at"] is None
     assert '"neznámá"' in PAGE_HTML and "Poslední běh na pozadí" in PAGE_HTML
+
+
+def test_memory_report_reads_agent_notes_without_symlinks(tmp_path: Path):
+    """Paměť (28. 11.): poznámky Ady + AGENTS.md Noxe, frontmatter, bez MEMORY.md a symlinků; jen s přihlášením."""
+    mem = tmp_path / ".claude" / "projects" / "-home-test-dev" / "memory"
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text("index")
+    (mem / "feedback_x.md").write_text('---\nname: feedback-x\ndescription: "TEST ONLY \\"pozor\\""\nmetadata:\n  type: feedback\n---\n\nTělo [[jina]].\n')
+    (mem / "plain.md").write_text("bez frontmatteru")
+    (mem / "link.md").symlink_to(tmp_path / "secret.md")
+    (tmp_path / "secret.md").write_text("TEST ONLY tajné")
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "AGENTS.md").write_text("# TEST ONLY Nox")
+    r = webui.memory_report(tmp_path)
+    ada = {e["slug"]: e for e in r["ada"]}
+    assert set(ada) == {"feedback_x", "plain"} and [e["slug"] for e in r["nox"]] == ["AGENTS"]
+    assert ada["feedback_x"]["type"] == "feedback" and ada["feedback_x"]["description"] == 'TEST ONLY "pozor"'
+    assert ada["feedback_x"]["body"] == "Tělo [[jina]]." and ada["plain"]["type"] == "none"
+    before = webui.memory_version(tmp_path)
+    (mem / "plain.md").write_text("bez frontmatteru, změna")
+    assert webui.memory_version(tmp_path) != before
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    assert call_handler(store, settings, "secret", "GET", "/api/memory", handler_type=make_handler(store, settings, "secret", 8765))[0] == 403
+    assert 'data-mem-src="${id}"' in PAGE_HTML and "onMemoryVersion(r.memory_version);" in PAGE_HTML

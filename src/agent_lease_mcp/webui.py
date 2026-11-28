@@ -276,6 +276,52 @@ def db_version(path: Path) -> int:
     return st.st_mtime_ns ^ st.st_size
 
 
+MEMORY_MAX_CHARS = 64_000   # jedna poznámka; delší se ořízne (web je náhled, ne editor)
+
+
+def _memory_files(home: Path) -> list[tuple[str, Path]]:
+    """Skutečná paměť agentů: poznámky Ady (Claude Code auto-memory) a Noxova AGENTS.md. Bez symlinků."""
+    files = [("ada", f) for f in sorted((home / ".claude" / "projects").glob("*/memory/*.md")) if f.name != "MEMORY.md"]
+    files.append(("nox", home / ".codex" / "AGENTS.md"))
+    return [(agent, f) for agent, f in files if f.is_file() and not f.is_symlink()]
+
+
+def _front_matter(text: str) -> tuple[dict, str]:
+    if not text.startswith("---\n") or "\n---" not in text[4:]:
+        return {}, text
+    head, body = text[4:].split("\n---", 1)
+    meta = {}
+    for line in head.splitlines():
+        key, sep, value = line.strip().partition(":")
+        if sep and value.strip() and key in ("name", "description", "type"):
+            value = value.strip()
+            if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":   # YAML uvozovky kolem hodnoty
+                value = value[1:-1].replace('\\"', '"')
+            meta[key] = value
+    return meta, body.lstrip("-").lstrip("\n")
+
+
+def memory_version(home: Path | None = None) -> str:
+    """Levná změna paměti (počet, nejnovější čas, velikost) pro živé obnovení stránky."""
+    stats = [f.stat() for _, f in _memory_files(home or Path.home())]
+    return f"{len(stats)}:{max((s.st_mtime_ns for s in stats), default=0)}:{sum(s.st_size for s in stats)}"
+
+
+def memory_report(home: Path | None = None) -> dict:
+    """Paměť Ady a Noxe pro web (jen čtení, jen přihlášený člověk)."""
+    home = home or Path.home()
+    out: dict[str, list] = {"ada": [], "nox": []}
+    for agent, f in _memory_files(home):
+        meta, body = _front_matter(f.read_text(encoding="utf-8", errors="replace")[:MEMORY_MAX_CHARS])
+        project = f.parent.parent.name if agent == "ada" else ""
+        out[agent].append({"id": f"{agent}:{project}/{f.stem}", "slug": f.stem, "name": meta.get("name") or f.stem,
+                           "description": meta.get("description", ""), "type": meta.get("type") or "none",
+                           "project": project.replace("-", "/").replace("/home/" + home.name, "~") if project else "",
+                           "updated_at": f.stat().st_mtime, "body": body.strip()})
+    out["version"] = memory_version(home)
+    return out
+
+
 OPEN_JOB_STATES = ("pending", "leased", "started", "failed", "needs_review", "dead_letter")
 
 
@@ -448,9 +494,11 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 return self._handle_snapshot(qs)
             if parts.path == "/api/knowledge":
                 return self._handle_knowledge_list(qs)
-            if parts.path in ("/api/usage", "/api/history", "/api/catalog", "/api/jobs"):
+            if parts.path in ("/api/usage", "/api/history", "/api/catalog", "/api/jobs", "/api/memory"):
                 if not self._session_ok():
                     return self._reject(403, "bad token")
+                if parts.path == "/api/memory":
+                    return self._json_response(memory_report())
                 if parts.path == "/api/jobs":
                     return self._json_response({"jobs": open_jobs(store)})
                 if parts.path == "/api/catalog":
@@ -932,12 +980,18 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                 stream_session = self._session_id()
                 reaper.release(getattr(self, "connection", None))   # stream je dlouhý záměrně; hlídá ho platnost přihlášení
                 last_version, backlog = None, False
+                last_memory, next_memory_at = None, 0.0
                 while self._session_alive(stream_session):   # po vypršení přihlášení stream skončí
                     # Skutečně živě (Michal 27. 11.): každý zápis do DB mění soubor (journal DELETE),
                     # takže změnu poznáme hned a pošleme ji; bez změny jen levná kontrola času souboru.
                     version = db_version(settings.db_path)
                     changed = version != last_version
                     last_version = version
+                    if time.monotonic() >= next_memory_at:   # poznámky agentů nejsou v DB: stat ~190 souborů 1× za s
+                        next_memory_at = time.monotonic() + 1.0
+                        memory = memory_version()
+                        changed = changed or (last_memory is not None and memory != last_memory)
+                        last_memory = memory
                     # Plná dávka = možná další čekají; fallback čte inbox i bez změny verze (mtime^size není bezkolizní).
                     drain = changed or backlog or time.monotonic() >= next_room_at
                     messages = store.inbox(since_id=since, limit=200) if drain else []
@@ -964,6 +1018,7 @@ def make_handler(store: Store, settings: Settings, token: str, port: int):
                             "quality_runs": store.quality_runs(limit=30),
                             "quality_requests": store.quality_requests(limit=30),
                             "messages": store.latest_messages(limit=200),
+                            "memory_version": memory_version(),   # Paměť se obnoví hned po změně poznámky
                         }
                         room["projects"] = {r["repo"]: project_of(r["repo"]) for r in room["reviews_all"] if r.get("repo")}
                         self.wfile.write(_sse("room", None, room))
