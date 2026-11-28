@@ -364,9 +364,12 @@ class ReviewsMixin:
             self._review_event(con, review_id, human, "grant-cycle", ESCALATED, CHANGES, row["head_commit"], reason)
             self._record(con, human, "review-grant-cycle", row["repo"], f"#{review_id} {reason}")
             row = self._review_row(con, review_id)
+        task = self.fix_round_after_grant(review_id, reason) if hasattr(self, "fix_round_after_grant") else None
         self._review_notify(human, row["author"],
-                            f"Review #{review_id}: člověk povolil ještě jedno kolo oprav ({reason})")
-        return self._review_dict(row)
+                            f"Review #{review_id}: člověk povolil ještě jedno kolo oprav ({reason}). "
+                            + (f"Úkol opravy #{task} čeká ve webu na schválení zápisu." if task else
+                               f"Opravu nejde spustit: repozitář {row['repo']} neexistuje, review patří zavřít."))
+        return {**self._review_dict(row), "fix_task": task}
 
     def review_get(self, review_id: int, *, events: bool = True) -> dict:
         with self._connect() as con:

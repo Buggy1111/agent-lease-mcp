@@ -283,3 +283,36 @@ def test_stale_review_is_reported_to_the_human_once_per_submit(store, tmp_path):
 
     store.review_verdict(REVIEWER, review["id"], "approved", B, security="pass", reviewer_findings=[])
     assert store.review_stale_sweep(now=t1 + 5 * STALE_REVIEW_SECONDS) == 0, "rozhodnuté review se nehlásí"
+
+
+def test_granted_cycle_creates_a_fix_task_for_the_author(store, tmp_path):
+    """Michal 28. 11.: „Povolit další kolo“ musí rozběhnout práci, ne jen poslat zprávu."""
+    review = opened(store, tmp_path)
+    rid, current = review["id"], A
+    for head in (B, C, D):
+        store.review_verdict(REVIEWER, rid, "changes_requested", current, "TEST ONLY oprav x")
+        store.review_submit(AUTHOR, rid, head)
+        current = head
+    store.review_verdict(REVIEWER, rid, "changes_requested", current, "TEST ONLY oprav y")
+    granted = store.review_grant_cycle("michal", rid, "ještě jednou")
+    task = store.fix_task(granted["fix_task"])
+    assert task["repo"] == str(tmp_path) and task["base_commit"] == D
+    job = next(j for j in store.jobs(AUTHOR) if j["id"] == granted["fix_task"])
+    assert job["kind"] == "task" and job["agent"] == REVIEWER and "TEST ONLY oprav y" in job["text"]
+    with store._connect() as con:
+        assert con.execute("SELECT review_id FROM fix_loops WHERE message_id=?", (granted["fix_task"],)).fetchone()[0] == rid
+
+
+def test_granted_cycle_for_a_moved_repository_says_so(store, tmp_path):
+    repo = tmp_path / "moved"
+    repo.mkdir()
+    rid = store.review_open(AUTHOR, str(repo), "TEST ONLY", reviewer=REVIEWER, head_commit=A, secret_findings=[])["id"]
+    current = A
+    for head in (B, C, D):
+        store.review_verdict(REVIEWER, rid, "changes_requested", current, "x")
+        store.review_submit(AUTHOR, rid, head)
+        current = head
+    store.review_verdict(REVIEWER, rid, "changes_requested", current, "x")
+    repo.rmdir()
+    assert store.review_grant_cycle("michal", rid, "znovu")["fix_task"] is None
+    assert any("neexistuje" in m["text"] for m in store.inbox(limit=50) if m["recipient"] == AUTHOR)

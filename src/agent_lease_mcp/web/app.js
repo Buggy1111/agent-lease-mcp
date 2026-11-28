@@ -253,7 +253,7 @@ function renderAttention() {
     if (it.kind === "review") {
       const v = it.r;
       div.innerHTML = `<h3>Review #${v.id}: ${esc(v.topic.slice(0, 140))}</h3><p>${esc(nameOf(v.author))} → ${esc(nameOf(v.reviewer))} · vyčerpaná 3 kola oprav, rozhoduješ ty.</p><div class="btns"><button class="btn" data-a="grant">Povolit ještě 1 kolo</button><button class="btn" data-a="close">Uzavřít review</button></div>`;
-      div.querySelector('[data-a="grant"]').onclick = () => { const reason = prompt("Proč povolit další kolo oprav? (zapíše se)"); if (reason && reason.trim()) post("/api/review-grant", {id: v.id, reason}); };
+      div.querySelector('[data-a="grant"]').onclick = () => { const reason = prompt("Proč povolit další kolo oprav? (zapíše se)"); if (reason && reason.trim()) grantCycle(v.id, reason); };
       div.querySelector('[data-a="close"]').onclick = () => { const reason = prompt("Proč uzavřít? (zapíše se)", "převezmu sám"); if (reason && reason.trim()) post("/api/review-close", {id: v.id, reason}); };
     } else if (it.kind === "task") {
       const m = it.m;
@@ -703,7 +703,7 @@ function renderReviews(list) {
       grant.className = "btn"; grant.textContent = "Povolit ještě 1 kolo";
       grant.onclick = () => {
         const reason = prompt("Proč povolit další kolo oprav? (zaznamená se)");
-        if (reason) post("/api/review-grant", {id: v.id, reason});
+        if (reason) grantCycle(v.id, reason);
       };
       const close = document.createElement("button");
       close.className = "btn"; close.textContent = "Uzavřít review";
@@ -897,6 +897,15 @@ establishSession()
   })
   .catch(() => { updateStatus("retry"); showLoginHelp(); });
 
+// Další kolo = úkol opravy pro autora (Michal 28. 11.: „ať to jde, když to zadám“); řekne, co se stalo a kde dál.
+function grantCycle(id, reason) {
+  return fetch("/api/review-grant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({id, reason}) })
+    .then(r => r.ok ? r.json().then(d => {
+      alert(d.fix_task ? `Hotovo. Úkol opravy #${d.fix_task} je v Provozu → Úkoly na pozadí. Klikni u něj „Povolit zápis jednou“ a agent se pustí do práce; oprava se sama vrátí do review #${id}.`
+        : `Kolo je povolené, ale opravu nejde spustit: repozitář tohoto review už neexistuje (přesunutý). Review #${id} zavři.`);
+      return true; }) : r.text().then(t => { alert(t); return false; }))
+    .catch(() => { alert("Spojení se nezdařilo. Zkontroluj stav v Kvalitě před opakováním."); return false; });
+}
 function post(url, body) {
   return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     .then(r => { if (!r.ok) r.text().then(t => alert(t)); return r.ok; })
@@ -1120,7 +1129,7 @@ function renderQualityGate() {
   });
   document.querySelectorAll("[data-rv-grant]").forEach(b => b.onclick = () => {
     const reason = prompt("Proč povolit další kolo oprav? (zapíše se do historie)");
-    if (reason && reason.trim()) { b.disabled = true; post("/api/review-grant", {id: Number(b.dataset.rvGrant), reason}).then(ok => { if (!ok) b.disabled = false; }); }
+    if (reason && reason.trim()) { b.disabled = true; grantCycle(Number(b.dataset.rvGrant), reason).then(ok => { if (!ok) b.disabled = false; }); }
   });
 }
 function renderQualityProject() {
