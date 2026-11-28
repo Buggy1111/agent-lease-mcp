@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from ._store_common import (
@@ -325,6 +326,18 @@ class MessagingMixin:
             rows = con.execute(
                 f"SELECT {_MSG_COLS}, {_RECEIPT_COLS} {_FROM_MSG} {_JOIN_RECEIPTS} "
                 "WHERE m.id > ? ORDER BY m.id LIMIT ?", (since_id, limit)
+            ).fetchall()
+        return [_row_to_message(row, now) for row in rows]
+
+    def open_tasks(self, states: Sequence[str], limit: int = 300) -> list[dict]:
+        """Úkoly v daných stavech doručení, nejnovější první; filtr před LIMIT (review #63), s rozsahem opravy."""
+        now = time.time()
+        marks = ",".join("?" * len(states))
+        with self._connect() as con:
+            rows = con.execute(
+                f"SELECT {_MSG_COLS}, {_RECEIPT_COLS} {_FROM_MSG} {_JOIN_RECEIPTS} "
+                f"WHERE m.kind = 'task' AND d.state IN ({marks}) ORDER BY m.id DESC LIMIT ?",
+                (*states, _limit(limit)),
             ).fetchall()
         return [_row_to_message(row, now) for row in rows]
 

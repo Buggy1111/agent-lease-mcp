@@ -1117,3 +1117,28 @@ def test_ops_jobs_lists_only_open_background_tasks(tmp_path: Path):
     assert status == 200 and [j["id"] for j in jobs] == [b, a]
     assert all("lease_token" not in j for j in jobs) and {j["state"] for j in jobs} == {"pending"}
     assert 'id="opsTasks"' in PAGE_HTML and "renderOpsTasks();   // stav úkolu" in PAGE_HTML
+
+
+def test_ops_jobs_survive_many_newer_deliveries_and_carry_fix_scope(tmp_path: Path):
+    """Review #63: otevřený úkol nezmizí za 300 novějšími doručeními; API nese rozsah opravy pro „Povolit zápis“."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    fix = store.send("michal", "codex", "TEST ONLY oprava", kind="task", fix_repo="/tmp/test-only-repo",
+                     fix_base="a" * 40, fix_allowed=["src/x.py"])
+    for i in range(320):
+        store.send("michal", "codex", f"TEST ONLY chat {i}", kind="chat")
+    jobs = webui.open_jobs(store)
+    assert [j["id"] for j in jobs] == [fix] and jobs[0]["fix"]["allowed"] == ["src/x.py"]
+
+
+def test_usage_report_has_last_run_per_agent(tmp_path: Path):
+    """Provoz: u agenta bez běhů za 24 h je vidět, kdy běžel naposled (nula bez kontextu mátla)."""
+    settings = Settings(db_path=tmp_path / "room.db", agent="test-web", default_ttl=1800)
+    store = Store(settings=settings)
+    with store._connect() as con:
+        con.execute("INSERT INTO task_usage(message_id, recipient, attempt, at, source) VALUES(1,'claude-code',1,?,'unreported')",
+                    (time.time() - 3 * 86400,))
+    ada = webui.usage_report(store, settings)["agents"]["claude-code"]
+    assert ada["day"]["attempts"] == 0 and ada["week"]["tokens_unknown"] == 1 and ada["last_at"] > 0
+    assert webui.usage_report(store, settings)["agents"]["codex"]["last_at"] is None
+    assert '"neznámá"' in PAGE_HTML and "Poslední běh na pozadí" in PAGE_HTML

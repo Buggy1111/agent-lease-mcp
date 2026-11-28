@@ -281,9 +281,7 @@ OPEN_JOB_STATES = ("pending", "leased", "started", "failed", "needs_review", "de
 
 def open_jobs(store: Store, limit: int = 300) -> list[dict]:
     """Provoz: úkoly na pozadí, které běží, čekají nebo potřebují zásah (zrušit / znovu / schválit)."""
-    jobs = [j for agent in ("claude-code", "codex") for j in store.jobs(agent, limit=limit)
-            if j["kind"] == "task" and j["state"] in OPEN_JOB_STATES]
-    return sorted(jobs, key=lambda j: -j["id"])
+    return store.open_tasks(OPEN_JOB_STATES, limit=limit)
 
 
 def usage_report(store: Store, settings: Settings) -> dict:
@@ -292,7 +290,8 @@ def usage_report(store: Store, settings: Settings) -> dict:
     agents = {}
     for agent in ("claude-code", "codex"):
         agents[agent] = {"day": store.usage_summary(since=now - 86400, recipient=agent),
-                         "week": store.usage_summary(since=now - 7 * 86400, recipient=agent)}
+                         "week": store.usage_summary(since=now - 7 * 86400, recipient=agent),
+                         "last_at": store.usage_summary(recipient=agent)["last_at"]}
     return {"agents": agents, "recent": store.usage_recent(limit=30),
             "caps": {"daily_tokens": settings.daily_budget_tokens, "daily_usd": settings.daily_budget_usd,
                      "task_tokens": settings.task_budget_tokens, "task_usd": settings.task_budget_usd}}

@@ -209,7 +209,7 @@ class UsageMixin:
                 "SUM(input_tokens) AS input_tokens, "
                 "SUM(output_tokens) AS output_tokens, SUM(cache_read_tokens) AS cache_read_tokens, "
                 "SUM(cache_creation_tokens) AS cache_creation_tokens, SUM(cost_usd) AS cost_usd, "
-                "SUM(cost_usd IS NULL) AS cost_unknown "
+                "SUM(cost_usd IS NULL) AS cost_unknown, MAX(at) AS last_at "
                 f"FROM task_usage {where}", args,
             ).fetchone()
         return dict(row)
