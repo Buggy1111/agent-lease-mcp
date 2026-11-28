@@ -113,3 +113,12 @@ Nasazeno restartem webu (`runtime-08715f2`; proti `3a5b457` jen `webui.py`, `sto
   přidávají metody/sloupec pro web, broker a mosty běží dál.
 - Živě viditelné staré úkoly: #1670 a #1647 (Nox, 19.–20. 11.) visí jako „čeká“, protože je převzal interaktivní
   Codex a most převzaté úkoly nebere. Zrušit je může Michal z Provozu.
+
+## 28. 11. – Paměť = skutečná paměť Ady a Noxe (#64)
+
+- `2db3656` (#64, Nox approved + security PASS po 2 kolech oprav): `GET /api/memory` se session vydává poznámky
+  Ady (`~/.claude/projects/*/memory/*.md`, bez MEMORY.md) a Noxovu `~/.codex/AGENTS.md`; žádná část cesty pod
+  home nesmí být symlink, mizející soubor se přeskočí. Výběr Ada/Nox/Sdílená, typy, hledání, `[[odkazy]]`, živě
+  přes `memory_version` v SSE (~0,7 s). Full 1084 PASS. Nasazeno restartem webu (`runtime-2db3656`).
+- Deploy skript je nově trvale v `~/.local/share/agent-lease/deploy-web.sh` (scratchpad v /tmp smazal restart WSL).
+- WSL dostal 12 GB RAM + 6 GB swap (`C:\Users\micha\.wslconfig`); Ada na pozadí (#2142) potom doběhla napoprvé.
